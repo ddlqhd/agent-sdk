@@ -109,10 +109,15 @@ describe('Agent Memory Integration', () => {
     // First run - memory should be loaded
     await agent.run('Hello');
 
-    // Get messages - should contain memory content in first user message
+    // Get messages - memory should be a separate system message
     const messagesAfterFirstRun = agent.getMessages();
+    const memoryMessage = messagesAfterFirstRun.find(
+      m => m.role === 'system' && typeof m.content === 'string' && m.content.includes(memoryContent)
+    );
     const firstUserMessage = messagesAfterFirstRun.find(m => m.role === 'user');
-    expect(firstUserMessage?.content).toContain(memoryContent);
+    
+    expect(memoryMessage).toBeDefined();
+    expect(firstUserMessage?.content).toBe('Hello'); // User message should not contain memory
 
     // Clear messages
     agent.clearMessages();
@@ -121,8 +126,13 @@ describe('Agent Memory Integration', () => {
     await agent.run('Hello again');
 
     const messagesAfterClear = agent.getMessages();
+    const memoryMessageAfterClear = messagesAfterClear.find(
+      m => m.role === 'system' && typeof m.content === 'string' && m.content.includes(memoryContent)
+    );
     const userMessageAfterClear = messagesAfterClear.find(m => m.role === 'user');
-    expect(userMessageAfterClear?.content).toContain(memoryContent);
+    
+    expect(memoryMessageAfterClear).toBeDefined();
+    expect(userMessageAfterClear?.content).toBe('Hello again');
   });
 
   it('should not load memory when disabled', async () => {

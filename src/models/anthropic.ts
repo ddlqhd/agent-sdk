@@ -230,11 +230,16 @@ export class AnthropicAdapter extends BaseModelAdapter {
     system?: string;
     messages: ModelParams['messages'];
   } {
-    const systemMessage = messages.find(m => m.role === 'system');
+    const systemMessages = messages.filter(m => m.role === 'system');
     const otherMessages = messages.filter(m => m.role !== 'system');
 
+    // 合并多条 system 消息为一条
+    const combinedSystem = systemMessages.length > 0
+      ? systemMessages.map(m => m.content as string).join('\n\n')
+      : undefined;
+
     return {
-      system: systemMessage?.content as string,
+      system: combinedSystem,
       messages: otherMessages
     };
   }
