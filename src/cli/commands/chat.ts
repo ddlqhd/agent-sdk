@@ -4,7 +4,7 @@ import { createOpenAI } from '../../models/openai.js';
 import { createAnthropic } from '../../models/anthropic.js';
 import { createOllama } from '../../models/ollama.js';
 import { Agent } from '../../core/agent.js';
-import { formatUsage } from '../utils/output.js';
+import { formatUsage, truncate } from '../utils/output.js';
 import type { ModelAdapter, CLIConfig, TokenUsage } from '../../core/types.js';
 
 /**
@@ -64,7 +64,8 @@ export function createChatCommand(): Command {
           let fullResponse = '';
           let isFirstThinking = true;
           let lastEventType: string | null = null;
-          
+          const toolCalls = new Map<string, { name: string; arguments: unknown }>();
+
           for await (const event of agent.stream(input, {
             sessionId: options.session
           })) {
@@ -73,7 +74,7 @@ export function createChatCommand(): Command {
               process.stdout.write('\n');
               isFirstThinking = true; // 重置，为下一个thinking块准备
             }
-            
+
             if (event.type === 'text_delta') {
               process.stdout.write(event.content);
               fullResponse += event.content;
@@ -85,15 +86,26 @@ export function createChatCommand(): Command {
                 process.stdout.write(chalk.gray(event.content));
               }
             } else if (event.type === 'tool_call_start') {
-              process.stdout.write(chalk.yellow(`\n🔧 ${event.name}...`));
+              toolCalls.set(event.id, { name: event.name, arguments: undefined });
+            } else if (event.type === 'tool_call') {
+              toolCalls.set(event.id, { name: event.name, arguments: event.arguments });
             } else if (event.type === 'tool_result') {
-              process.stdout.write(chalk.green(' ✓'));
+              const tc = toolCalls.get(event.toolCallId);
+              const name = tc?.name ?? 'tool';
+              const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
+              const resultStr = truncate(event.result, 120);
+              process.stdout.write(chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr) + chalk.green(` ✓ ${resultStr}`));
+            } else if (event.type === 'tool_error') {
+              const tc = toolCalls.get(event.toolCallId);
+              const name = tc?.name ?? 'tool';
+              const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
+              process.stdout.write(chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr) + chalk.red(` ✗ ${event.error.message}`));
             } else if (event.type === 'metadata' && event.data?.usage) {
               process.stdout.write(`\n${formatUsage(event.data.usage as TokenUsage)}\n`);
             } else if (event.type === 'error') {
               process.stdout.write(chalk.red(`\n✗ ${event.error.message}`));
             }
-            
+
             lastEventType = event.type;
           }
           
@@ -144,14 +156,15 @@ export function createRunCommand(): Command {
         } else if (options.stream !== false) {
           let isFirstThinking = true;
           let lastEventType: string | null = null;
-          
+          const toolCalls = new Map<string, { name: string; arguments: unknown }>();
+
           for await (const event of agent.stream(prompt, { sessionId: options.session })) {
             // 检测thinking块结束
             if (lastEventType === 'thinking' && event.type !== 'thinking') {
               process.stdout.write('\n');
               isFirstThinking = true; // 重置，为下一个thinking块准备
             }
-            
+
             if (event.type === 'text_delta') {
               process.stdout.write(event.content);
             } else if (event.type === 'thinking') {
@@ -161,12 +174,27 @@ export function createRunCommand(): Command {
               } else {
                 process.stdout.write(chalk.gray(event.content));
               }
+            } else if (event.type === 'tool_call_start') {
+              toolCalls.set(event.id, { name: event.name, arguments: undefined });
+            } else if (event.type === 'tool_call') {
+              toolCalls.set(event.id, { name: event.name, arguments: event.arguments });
+            } else if (event.type === 'tool_result') {
+              const tc = toolCalls.get(event.toolCallId);
+              const name = tc?.name ?? 'tool';
+              const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
+              const resultStr = truncate(event.result, 120);
+              process.stdout.write(chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr) + chalk.green(` ✓ ${resultStr}`));
+            } else if (event.type === 'tool_error') {
+              const tc = toolCalls.get(event.toolCallId);
+              const name = tc?.name ?? 'tool';
+              const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
+              process.stdout.write(chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr) + chalk.red(` ✗ ${event.error.message}`));
             } else if (event.type === 'metadata' && event.data?.usage) {
               console.log(`\n${formatUsage(event.data.usage as TokenUsage)}`);
             } else if (event.type === 'error') {
               console.error(chalk.red(`\nError: ${event.error.message}`));
             }
-            
+
             lastEventType = event.type;
           }
           
