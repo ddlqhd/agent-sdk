@@ -13,6 +13,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
 import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
+import { MemoryManager } from '../memory/manager.js';
 
 /**
  * 流式执行选项
@@ -111,10 +112,30 @@ export class Agent {
       });
     }
 
+    // 加载长期记忆
+    let memoryContent = '';
+    
+    // 检查是否应该加载记忆：
+    // 1. 记忆功能已启用
+    // 2. 这是新用户消息（会话中没有用户消息或只有系统提示）
+    if (this.config.memory !== false) {
+      const hasUserMessages = this.messages.some(m => m.role === 'user');
+      
+      // 只有当还没有用户消息时才加载记忆
+      // 这样可以确保记忆只被加载一次，并且是在对话开始时
+      if (!hasUserMessages) {
+        const memoryManager = new MemoryManager(undefined, this.config.memoryConfig);
+        memoryContent = memoryManager.loadMemory();
+      }
+    }
+
+    // 将记忆内容作为默认用户消息前缀
+    const finalInput = memoryContent ? `${memoryContent}\n\n${input}` : input;
+
     // 添加用户消息
     this.messages.push({
       role: 'user',
-      content: input
+      content: finalInput
     });
 
     yield { type: 'start', timestamp: Date.now() };

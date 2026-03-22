@@ -463,6 +463,22 @@ export interface AgentConfig {
 
   /** 回调函数 */
   callbacks?: AgentCallbacks;
+
+  /** 是否启用长期记忆 */
+  memory?: boolean;
+
+  /** 记忆配置 */
+  memoryConfig?: MemoryConfig;
+}
+
+/**
+ * 记忆配置选项
+ */
+export interface MemoryConfig {
+  /** 用户主目录记忆文件路径 */
+  userHomePath?: string;
+  /** 工作空间记忆文件路径 */
+  workspacePath?: string;
 }
 
 /**

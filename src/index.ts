@@ -60,3 +60,7 @@ export {
   parseSkillMd
 } from './skills/index.js';
 export type { SkillLoaderConfig } from './skills/index.js';
+
+// Memory
+export { MemoryManager } from './memory/index.js';
+export type { MemoryConfig } from './memory/index.js';
