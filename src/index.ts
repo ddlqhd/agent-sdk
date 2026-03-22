@@ -2,7 +2,9 @@
 
 // Core
 export { Agent, createAgent } from './core/agent.js';
+export type { StreamOptions } from './core/agent.js';
 export * from './core/types.js';
+export { DEFAULT_SYSTEM_PROMPT } from './core/prompts.js';
 
 // Models
 export {

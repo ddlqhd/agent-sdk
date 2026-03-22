@@ -87,6 +87,77 @@ this.baseUrl = config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.ope
 | Anthropic | `ANTHROPIC_BASE_URL` | `baseUrl` | `https://api.anthropic.com` |
 | Ollama | `OLLAMA_BASE_URL` | `baseUrl` | `http://localhost:11434` |
 
+## System Prompt Configuration
+
+SDK 内置了完整的 Agent 系统提示词，描述了 Agent 的能力（Tools、Skills、Sessions 等）。你可以：
+
+### 使用默认系统提示词
+
+```typescript
+// 不传 systemPrompt，使用内置默认提示词
+const agent = new Agent({ model });
+```
+
+### 追加自定义内容 (默认行为)
+
+```typescript
+// 简单字符串 - 追加到默认提示词后面
+const agent = new Agent({
+  model,
+  systemPrompt: '你擅长中文回答，并且总是给出详细的代码示例'
+});
+
+// 配置对象 - 明确指定 append 模式
+const agent = new Agent({
+  model,
+  systemPrompt: {
+    content: '你擅长中文回答',
+    mode: 'append'  // 可省略，默认 append
+  }
+});
+```
+
+### 替换默认提示词
+
+```typescript
+// 完全替换内置提示词
+const agent = new Agent({
+  model,
+  systemPrompt: {
+    content: '你是自定义助手...',
+    mode: 'replace'
+  }
+});
+```
+
+### 运行时动态修改
+
+```typescript
+const agent = new Agent({ model });
+
+// 替换系统提示
+agent.setSystemPrompt({
+  content: '新的系统提示',
+  mode: 'replace'
+});
+
+// 追加内容
+agent.appendSystemPrompt('额外的指令');
+
+// 获取当前系统提示
+const currentPrompt = agent.getSystemPrompt();
+```
+
+### 内置系统提示词内容
+
+默认系统提示词包含：
+- **Tools 使用指南**: 文件操作、代码执行、Web 访问等
+- **Skills 说明**: 如何加载和使用 Skills
+- **Sessions 说明**: 会话管理和上下文保持
+- **任务执行原则**: 简洁、直接、读后再改等
+- **输出格式**: 代码块、引用格式等
+- **安全指南**: 输入验证、权限控制等
+
 ## Quick Start
 
 ### Basic Usage

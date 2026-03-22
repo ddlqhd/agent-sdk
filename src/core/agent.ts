@@ -6,11 +6,21 @@ import type {
   AgentConfig,
   AgentResult,
   StreamEvent,
+  SystemPrompt,
   MCPServerConfig
 } from '../core/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
+import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
+
+/**
+ * 流式执行选项
+ */
+export interface StreamOptions {
+  sessionId?: string;
+  systemPrompt?: SystemPrompt;
+}
 
 /**
  * Agent 类
@@ -48,12 +58,36 @@ export class Agent {
   }
 
   /**
+   * 构建系统提示词
+   * 处理默认提示词、替换模式、追加模式
+   */
+  private buildSystemPrompt(customPrompt?: SystemPrompt): string {
+    // 如果没有自定义提示词，返回默认提示词
+    if (!customPrompt) {
+      return DEFAULT_SYSTEM_PROMPT;
+    }
+
+    // 如果是字符串，默认为追加模式
+    if (typeof customPrompt === 'string') {
+      return `${DEFAULT_SYSTEM_PROMPT}\n\n${customPrompt}`;
+    }
+
+    // 如果是配置对象
+    const { content, mode = 'append' } = customPrompt;
+
+    if (mode === 'replace') {
+      // 替换模式：完全使用自定义提示词
+      return content;
+    } else {
+      // 追加模式：默认提示词 + 自定义内容
+      return `${DEFAULT_SYSTEM_PROMPT}\n\n${content}`;
+    }
+  }
+
+  /**
    * 流式执行
    */
-  async *stream(input: string, options?: {
-    sessionId?: string;
-    systemPrompt?: string;
-  }): AsyncIterable<StreamEvent> {
+  async *stream(input: string, options?: StreamOptions): AsyncIterable<StreamEvent> {
     // 恢复或创建会话
     if (options?.sessionId) {
       try {
@@ -67,13 +101,14 @@ export class Agent {
 
     // 添加系统提示
     if (this.messages.length === 0) {
-      const systemPrompt = options?.systemPrompt || this.config.systemPrompt;
-      if (systemPrompt) {
-        this.messages.push({
-          role: 'system',
-          content: systemPrompt
-        });
-      }
+      // 合并配置中的 systemPrompt 和运行时的 systemPrompt
+      const systemPrompt = this.buildSystemPrompt(
+        options?.systemPrompt || this.config.systemPrompt
+      );
+      this.messages.push({
+        role: 'system',
+        content: systemPrompt
+      });
     }
 
     // 添加用户消息
@@ -185,10 +220,7 @@ export class Agent {
   /**
    * 非流式执行
    */
-  async run(input: string, options?: {
-    sessionId?: string;
-    systemPrompt?: string;
-  }): Promise<AgentResult> {
+  async run(input: string, options?: StreamOptions): Promise<AgentResult> {
     let content = '';
     const toolCalls: Array<{
       name: string;
@@ -297,19 +329,61 @@ export class Agent {
   }
 
   /**
-   * 设置系统提示
+   * 设置系统提示 (运行时替换)
    */
-  setSystemPrompt(prompt: string): void {
+  setSystemPrompt(prompt: SystemPrompt): void {
     // 移除旧的系统提示
     this.messages = this.messages.filter(m => m.role !== 'system');
-    
+
+    // 构建新的系统提示
+    const systemPrompt = this.buildSystemPrompt(prompt);
+
     // 添加新的系统提示
     if (this.messages.length > 0) {
       this.messages.unshift({
         role: 'system',
-        content: prompt
+        content: systemPrompt
       });
     }
+  }
+
+  /**
+   * 追加系统提示内容
+   */
+  appendSystemPrompt(additionalContent: string): void {
+    // 查找现有的系统提示
+    const systemMessageIndex = this.messages.findIndex(m => m.role === 'system');
+
+    if (systemMessageIndex >= 0) {
+      // 追加到现有系统提示
+      this.messages[systemMessageIndex].content += `\n\n${additionalContent}`;
+    } else {
+      // 如果没有系统提示，创建一个新的
+      const systemPrompt = this.buildSystemPrompt(additionalContent);
+      this.messages.unshift({
+        role: 'system',
+        content: systemPrompt
+      });
+    }
+  }
+
+  /**
+   * 获取当前系统提示内容
+   */
+  getSystemPrompt(): string | undefined {
+    const systemMessage = this.messages.find(m => m.role === 'system');
+    if (!systemMessage) return undefined;
+    // 系统消息的 content 一定是 string
+    return typeof systemMessage.content === 'string' 
+      ? systemMessage.content 
+      : undefined;
+  }
+
+  /**
+   * 获取默认系统提示词
+   */
+  static getDefaultSystemPrompt(): string {
+    return DEFAULT_SYSTEM_PROMPT;
   }
 
   /**

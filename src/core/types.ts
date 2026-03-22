@@ -406,14 +406,30 @@ export interface ParsedSkill {
 // ==================== Agent 类型 ====================
 
 /**
+ * 系统提示配置
+ */
+export interface SystemPromptConfig {
+  /** 提示内容 */
+  content: string;
+
+  /** 模式: 'replace' 替换默认提示词, 'append' 追加到默认提示词 */
+  mode?: 'replace' | 'append';
+}
+
+/**
+ * 系统提示类型 - 支持字符串或配置对象
+ */
+export type SystemPrompt = string | SystemPromptConfig;
+
+/**
  * Agent 配置
  */
 export interface AgentConfig {
   /** 模型适配器 */
   model: ModelAdapter;
 
-  /** 系统提示 */
-  systemPrompt?: string;
+  /** 系统提示 (字符串或配置对象) */
+  systemPrompt?: SystemPrompt;
 
   /** 工具列表 */
   tools?: ToolDefinition[];
