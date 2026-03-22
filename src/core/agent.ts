@@ -14,6 +14,7 @@ import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
 import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
+import { MCPAdapter } from '../mcp/adapter.js';
 
 /**
  * 流式执行选项
@@ -32,7 +33,7 @@ export class Agent {
   private toolRegistry: ToolRegistry;
   private sessionManager: SessionManager;
   private messages: Message[] = [];
-  private _mcpClients: Map<string, unknown> = new Map();
+  private mcpAdapter: MCPAdapter | null = null;
   private _skills: Map<string, unknown> = new Map();
 
   constructor(config: AgentConfig) {
@@ -56,6 +57,30 @@ export class Agent {
 
     // 初始化会话管理器
     this.sessionManager = new SessionManager(config.storage);
+
+    // 初始化 MCP 适配器（异步初始化，不阻塞构造函数）
+    if (config.mcpServers && config.mcpServers.length > 0) {
+      this.mcpAdapter = new MCPAdapter();
+      // 异步连接 MCP 服务器
+      this.initializeMCP(config.mcpServers).catch(err => {
+        console.error('Failed to initialize MCP servers:', err);
+      });
+    }
+  }
+
+  /**
+   * 初始化 MCP 服务器
+   */
+  private async initializeMCP(servers: MCPServerConfig[]): Promise<void> {
+    if (!this.mcpAdapter) return;
+
+    for (const serverConfig of servers) {
+      try {
+        await this.connectMCP(serverConfig);
+      } catch (err) {
+        console.error(`Failed to connect MCP server "${serverConfig.name}":`, err);
+      }
+    }
   }
 
   /**
@@ -331,10 +356,74 @@ export class Agent {
   /**
    * 连接 MCP 服务器
    */
-  async connectMCP(_config: MCPServerConfig): Promise<void> {
-    // 将在 MCP 集成中实现
-    // 这里预留接口
-    void this._mcpClients; // 保留引用以备后用
+  async connectMCP(config: MCPServerConfig): Promise<void> {
+    if (!this.mcpAdapter) {
+      this.mcpAdapter = new MCPAdapter();
+    }
+
+    // 添加服务器
+    await this.mcpAdapter.addServer(config);
+
+    // 获取工具定义并注册到工具注册中心
+    const mcpTools = this.mcpAdapter.getToolDefinitions();
+    for (const tool of mcpTools) {
+      // 只注册属于这个服务器的工具
+      if (tool.name.startsWith(`${config.name}__`)) {
+        this.toolRegistry.register(tool);
+      }
+    }
+  }
+
+  /**
+   * 断开指定 MCP 服务器
+   */
+  async disconnectMCP(name: string): Promise<void> {
+    if (!this.mcpAdapter) return;
+
+    // 获取要移除的工具列表
+    const tools = this.toolRegistry.getAll();
+    for (const tool of tools) {
+      if (tool.name.startsWith(`${name}__`)) {
+        this.toolRegistry.unregister(tool.name);
+      }
+    }
+
+    // 断开服务器连接
+    await this.mcpAdapter.removeServer(name);
+  }
+
+  /**
+   * 断开所有 MCP 服务器
+   */
+  async disconnectAllMCP(): Promise<void> {
+    if (!this.mcpAdapter) return;
+
+    // 移除所有 MCP 工具
+    const tools = this.toolRegistry.getAll();
+    for (const tool of tools) {
+      if (tool.name.includes('__')) {
+        this.toolRegistry.unregister(tool.name);
+      }
+    }
+
+    // 断开所有连接
+    await this.mcpAdapter.disconnectAll();
+    this.mcpAdapter = null;
+  }
+
+  /**
+   * 获取 MCP 适配器
+   */
+  getMCPAdapter(): MCPAdapter | null {
+    return this.mcpAdapter;
+  }
+
+  /**
+   * 销毁 Agent，清理资源
+   */
+  async destroy(): Promise<void> {
+    await this.disconnectAllMCP();
+    this.messages = [];
   }
 
   /**

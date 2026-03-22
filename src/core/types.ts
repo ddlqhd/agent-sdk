@@ -557,6 +557,9 @@ export interface CLIConfig {
 
   /** 详细输出 */
   verbose?: boolean;
+
+  /** MCP 配置文件路径 */
+  mcpConfig?: string;
 }
 
 /**

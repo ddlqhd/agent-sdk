@@ -4,6 +4,7 @@ import { createModel, type ModelProvider } from '../../models/index.js';
 import { Agent } from '../../core/agent.js';
 import { formatUsage, createStreamFormatter } from '../utils/output.js';
 import type { CLIConfig } from '../../core/types.js';
+import { loadMCPConfig } from '../../config/index.js';
 
 function addModelOptions(cmd: Command): Command {
   return cmd
@@ -15,7 +16,8 @@ function addModelOptions(cmd: Command): Command {
     .option('-S, --system <prompt>', 'System prompt')
     .option('-t, --temperature <temp>', 'Temperature', parseFloat)
     .option('--max-tokens <tokens>', 'Max tokens', (v) => parseInt(v, 10))
-    .option('--no-stream', 'Disable streaming');
+    .option('--no-stream', 'Disable streaming')
+    .option('--mcp-config <path>', 'Path to MCP config file (mcp_config.json)');
 }
 
 function createModelFromOptions(options: CLIConfig) {
@@ -36,11 +38,22 @@ export function createChatCommand(): Command {
   ).action(async (options) => {
     try {
       const model = createModelFromOptions(options);
+
+      // 加载 MCP 配置
+      const mcpResult = loadMCPConfig(options.mcpConfig);
+      if (mcpResult.configPath) {
+        console.log(chalk.gray(`Loaded MCP config from: ${mcpResult.configPath}`));
+        if (mcpResult.servers.length > 0) {
+          console.log(chalk.gray(`MCP servers: ${mcpResult.servers.map(s => s.name).join(', ')}`));
+        }
+      }
+
       const agent = new Agent({
         model,
         systemPrompt: options.system,
         temperature: options.temperature,
-        maxTokens: options.maxTokens
+        maxTokens: options.maxTokens,
+        mcpServers: mcpResult.servers
       });
 
       console.log(chalk.cyan('🤖 Agent SDK Chat'));
@@ -91,6 +104,8 @@ export function createChatCommand(): Command {
           console.log('\n');
         }
       } finally {
+        // 清理资源
+        await agent.destroy();
         rl.close();
       }
     } catch (err) {
@@ -112,30 +127,43 @@ export function createRunCommand(): Command {
     .action(async (prompt, options) => {
       try {
         const model = createModelFromOptions(options);
+
+        // 加载 MCP 配置
+        const mcpResult = loadMCPConfig(options.mcpConfig);
+        if (mcpResult.configPath) {
+          console.log(chalk.gray(`Loaded MCP config from: ${mcpResult.configPath}`));
+        }
+
         const agent = new Agent({
           model,
           systemPrompt: options.system,
           temperature: options.temperature,
-          maxTokens: options.maxTokens
+          maxTokens: options.maxTokens,
+          mcpServers: mcpResult.servers
         });
 
-        if (options.output === 'json') {
-          const result = await agent.run(prompt, { sessionId: options.session });
-          console.log(JSON.stringify(result, null, 2));
-        } else if (options.stream !== false) {
-          const formatter = createStreamFormatter();
-          for await (const event of agent.stream(prompt, { sessionId: options.session })) {
-            const output = formatter.format(event);
-            if (output) process.stdout.write(output);
+        try {
+          if (options.output === 'json') {
+            const result = await agent.run(prompt, { sessionId: options.session });
+            console.log(JSON.stringify(result, null, 2));
+          } else if (options.stream !== false) {
+            const formatter = createStreamFormatter();
+            for await (const event of agent.stream(prompt, { sessionId: options.session })) {
+              const output = formatter.format(event);
+              if (output) process.stdout.write(output);
+            }
+            const tail = formatter.finalize();
+            if (tail) process.stdout.write(tail);
+          } else {
+            const result = await agent.run(prompt, { sessionId: options.session });
+            console.log(result.content);
+            if (result.usage) {
+              console.log(`\n${formatUsage(result.usage)}`);
+            }
           }
-          const tail = formatter.finalize();
-          if (tail) process.stdout.write(tail);
-        } else {
-          const result = await agent.run(prompt, { sessionId: options.session });
-          console.log(result.content);
-          if (result.usage) {
-            console.log(`\n${formatUsage(result.usage)}`);
-          }
+        } finally {
+          // 清理资源
+          await agent.destroy();
         }
       } catch (err) {
         console.error(chalk.red(`Error: ${err instanceof Error ? err.message : err}`));

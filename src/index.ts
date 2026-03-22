@@ -64,3 +64,10 @@ export type { SkillLoaderConfig } from './skills/index.js';
 // Memory
 export { MemoryManager } from './memory/index.js';
 export type { MemoryConfig } from './memory/index.js';
+
+// Config
+export {
+  loadMCPConfig,
+  validateMCPConfig
+} from './config/index.js';
+export type { MCPConfigFile, MCPConfigLoadResult } from './config/index.js';
