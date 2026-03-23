@@ -1,5 +1,8 @@
 import { promises as fs } from 'fs';
-import type { SkillDefinition } from '../core/types.js';
+import { homedir } from 'os';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import type { SkillDefinition, SkillConfig } from '../core/types.js';
 import { SkillLoader, type SkillLoaderConfig } from './loader.js';
 
 /**
@@ -9,9 +12,12 @@ import { SkillLoader, type SkillLoaderConfig } from './loader.js';
 export class SkillRegistry {
   private skills: Map<string, SkillDefinition> = new Map();
   private loader: SkillLoader;
+  private workspaceRoot: string;
+  private skillConfig?: SkillConfig;
 
   constructor(config?: SkillLoaderConfig) {
     this.loader = new SkillLoader(config);
+    this.workspaceRoot = config?.basePath || process.cwd();
   }
 
   /**
@@ -177,8 +183,6 @@ export class SkillRegistry {
 
     // 如果是目录，读取 SKILL.md
     if (skill.path) {
-      const { join } = await import('path');
-
       try {
         const pathStat = await fs.stat(skill.path);
         let skillMdPath: string;
@@ -202,6 +206,70 @@ export class SkillRegistry {
     }
 
     throw new Error(`No content available for skill "${name}"`);
+  }
+
+  /**
+   * 获取默认 skill 路径
+   */
+  private getDefaultPaths(): string[] {
+    const paths: string[] = [];
+
+    // 用户主目录: ~/.claude/skills/
+    const userHomePath = this.skillConfig?.userHomePath
+      || join(homedir(), '.claude', 'skills');
+    if (existsSync(userHomePath)) {
+      paths.push(userHomePath);
+    }
+
+    // 工作空间目录: ./.claude/skills/
+    const workspacePath = this.skillConfig?.workspacePath
+      || join(this.workspaceRoot, '.claude', 'skills');
+    if (existsSync(workspacePath)) {
+      paths.push(workspacePath);
+    }
+
+    return paths;
+  }
+
+  /**
+   * 初始化加载所有 Skills
+   * @param config Skill 配置
+   * @param additionalPaths 额外的 skill 路径（来自 AgentConfig.skills）
+   */
+  async initialize(config?: SkillConfig, additionalPaths?: string[]): Promise<void> {
+    this.skillConfig = config;
+
+    // 1. 加载默认路径
+    if (config?.autoLoad !== false) {
+      const defaultPaths = this.getDefaultPaths();
+      for (const dirPath of defaultPaths) {
+        try {
+          const beforeCount = this.skills.size;
+          await this.loadAll(dirPath);
+          const loaded = this.skills.size - beforeCount;
+          if (loaded > 0) {
+            console.log(`Loaded ${loaded} skill(s) from: ${dirPath}`);
+          }
+        } catch (err) {
+          console.error(`Failed to load skills from "${dirPath}":`, err);
+        }
+      }
+    }
+
+    // 2. 加载额外路径
+    const allPaths = [...(config?.additionalPaths || []), ...(additionalPaths || [])];
+    for (const path of allPaths) {
+      try {
+        await this.load(path);
+      } catch (err) {
+        console.error(`Failed to load skill from "${path}":`, err);
+      }
+    }
+
+    // 3. 输出汇总
+    if (this.skills.size > 0) {
+      console.log(`Skills initialized: ${this.getNames().join(', ')}`);
+    }
   }
 }
 

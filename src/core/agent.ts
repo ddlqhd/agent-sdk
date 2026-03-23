@@ -50,12 +50,13 @@ export class Agent {
     // 初始化工具注册中心
     this.toolRegistry = new ToolRegistry();
 
-    // 加载配置的 skills（同步加载元数据）
-    if (config.skills && config.skills.length > 0) {
-      this.initializeSkills(config.skills).catch(err => {
-        console.error('Failed to initialize skills:', err);
-      });
-    }
+    // 初始化 skills（默认路径 + 配置路径）
+    this.skillRegistry.initialize(
+      this.config.skillConfig,
+      this.config.skills
+    ).catch(err => {
+      console.error('Failed to initialize skills:', err);
+    });
 
     // 注册内置工具（包含 activate_skill 工具）
     if (config.tools !== undefined) {
@@ -76,19 +77,6 @@ export class Agent {
       this.initializeMCP(config.mcpServers).catch(err => {
         console.error('Failed to initialize MCP servers:', err);
       });
-    }
-  }
-
-  /**
-   * 初始化 Skills
-   */
-  private async initializeSkills(skillPaths: string[]): Promise<void> {
-    for (const path of skillPaths) {
-      try {
-        await this.skillRegistry.load(path);
-      } catch (err) {
-        console.error(`Failed to load skill from "${path}":`, err);
-      }
     }
   }
 
