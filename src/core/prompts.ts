@@ -27,10 +27,9 @@ Skills are instruction guides for specialized tasks. When activated, you receive
 {{SKILL_LIST}}
 
 **Usage:**
-1. Match the task to a skill description above
-2. Call \`activate_skill\` with the skill name
-3. Follow the returned instructions
-4. Use the provided Base Path to read any referenced files
+- **Listing skills**: When the user asks about available skills (e.g., "what skills do you have", "你有哪些技能", "list your skills") → Simply describe the skills listed above. Do NOT activate any skill.
+- **Activating skills**: When the user has a specific task that matches a skill's purpose → Call \`activate_skill\` with the skill name, then follow the returned instructions.
+- After activation, use the provided Base Path to read any referenced files.
 
 ### Sessions
 - Conversations are persisted in sessions

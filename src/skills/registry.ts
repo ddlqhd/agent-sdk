@@ -161,7 +161,10 @@ export class SkillRegistry {
     const skillsText = skillList
       .map(s => `- **${s.name}**: ${s.description}`)
       .join('\n');
-    return `**Available Skills:**\n${skillsText}`;
+    return `**Available Skills:**
+${skillsText}
+
+**Note:** Only activate a skill when you need to perform its specific task. For questions about your capabilities, simply list the available skills.`;
   }
 
   /**
