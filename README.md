@@ -5,13 +5,14 @@ A TypeScript Agent SDK with multi-model support, MCP integration, skill system, 
 ## Features
 
 - 🔄 **Multi-Model Support**: OpenAI, Anthropic, Ollama, and more
-- 🔧 **Tool Registration**: Built-in tools + custom tool registration
-- 🔌 **MCP Integration**: Connect to MCP servers for extended capabilities
+- 🔧 **Tool Registration**: 8+ built-in tools + custom tool registration
+- 🔌 **MCP Integration**: Connect to MCP servers with stdio/HTTP transport
 - 📚 **Skill System**: Load modular skills from SKILL.md files
 - 💾 **Session Management**: JSONL-based conversation persistence
 - 🧠 **Memory System**: Long-term memory from CLAUDE.md files
 - 🌊 **Streaming Output**: AsyncIterable-based real-time streaming
 - 🖥️ **CLI Tool**: Command-line interface for quick testing
+- 📝 **System Prompt**: Flexible system prompt configuration (replace/append modes)
 
 ## Installation
 
@@ -391,8 +392,101 @@ node dist/cli/index.js mcp connect "npx @modelcontextprotocol/server-filesystem 
 如果从 npm 安装（`npm install -g agent-sdk`），可直接使用 `agent-sdk` 命令。在项目内通过 `npx` 调用：
 
 ```bash
-npx agent-sdk tools list
+npx agent-sdk --help
+
+# 聊天模式
 npx agent-sdk chat --model openai --api-key sk-xxx
+
+# 单次运行
+npx agent-sdk run "List files in current directory" --model openai
+
+# 工具管理
+npx agent-sdk tools list
+npx agent-sdk tools info read_file
+
+# 会话管理
+npx agent-sdk sessions list
+npx agent-sdk sessions show <session-id>
+npx agent-sdk sessions delete <session-id>
+
+# MCP 管理
+npx agent-sdk mcp list
+npx agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /path"
+npx agent-sdk mcp disconnect <server-name>
+```
+
+### CLI 命令参考
+
+#### chat
+
+启动交互式聊天会话。
+
+```bash
+agent-sdk chat [options]
+
+选项:
+  -m, --model <model>      模型提供商 (openai, anthropic, ollama)
+  -k, --api-key <key>      API Key
+  -b, --baseUrl <url>      基础 URL
+  -n, --modelName <name>   模型名称
+  -t, --temperature <num>  温度 (0-2)
+  -M, --maxTokens <num>    最大 Token 数
+  -s, --session <id>       会话 ID
+  -o, --output <format>    输出格式 (text, json, markdown)
+  --stream                 流式输出
+  --verbose                详细输出
+  --mcp-config <path>      MCP 配置文件路径
+```
+
+#### run
+
+单次运行并输出结果。
+
+```bash
+agent-sdk run <prompt> [options]
+
+选项:
+  -m, --model <model>      模型提供商
+  -k, --api-key <key>      API Key
+  -f, --file <path>        从文件读取输入
+  -F, --files <paths...>   包含多个文件
+  (其他选项同 chat)
+```
+
+#### tools
+
+管理工具列表。
+
+```bash
+agent-sdk tools list [options]     # 列出所有可用工具
+agent-sdk tools info <tool-name>   # 查看工具详情
+
+选项:
+  -f, --format <format>  输出格式 (table, json)
+```
+
+#### sessions
+
+管理会话历史。
+
+```bash
+agent-sdk sessions list [options]    # 列出所有会话
+agent-sdk sessions show <id>         # 查看会话内容
+agent-sdk sessions delete <id>       # 删除会话
+
+选项:
+  -f, --format <format>  输出格式 (table, json)
+  -l, --limit <num>      限制数量
+```
+
+#### mcp
+
+管理 MCP 服务器连接。
+
+```bash
+agent-sdk mcp list                     # 列出已连接的 MCP 服务器
+agent-sdk mcp connect <command>        # 连接 MCP 服务器
+agent-sdk mcp disconnect <name>        # 断开 MCP 服务器
 ```
 
 ## API Reference
@@ -407,11 +501,12 @@ class Agent {
   stream(input: string, options?: StreamOptions): AsyncIterable<StreamEvent>;
 
   // Complete response
-  run(input: string, options?: RunOptions): Promise<AgentResult>;
+  run(input: string, options?: StreamOptions): Promise<AgentResult>;
 
   // Tool registration
   registerTool(tool: ToolDefinition): void;
   registerTools(tools: ToolDefinition[]): void;
+  getToolRegistry(): ToolRegistry;
 
   // Session management
   getSessionManager(): SessionManager;
@@ -419,34 +514,72 @@ class Agent {
   // Message history
   getMessages(): Message[];
   clearMessages(): void;
+
+  // System prompt
+  setSystemPrompt(prompt: SystemPrompt): void;
+  appendSystemPrompt(content: string): void;
+  getSystemPrompt(): string | undefined;
+
+  // Skills
+  loadSkill(path: string): Promise<void>;
+  getSkillRegistry(): SkillRegistry;
+
+  // MCP
+  connectMCP(config: MCPServerConfig): Promise<void>;
+  disconnectMCP(name: string): Promise<void>;
+  disconnectAllMCP(): Promise<void>;
+  getMCPAdapter(): MCPAdapter | null;
+
+  // Lifecycle
+  waitForInit(): Promise<void>;
+  destroy(): Promise<void>;
 }
 ```
 
 ### Models
 
 ```typescript
-// OpenAI
-createOpenAI({ apiKey?, baseUrl?, model? }): ModelAdapter
+// OpenAI - 支持自定义 baseUrl 用于兼容 API
+createOpenAI(config?: {
+  apiKey?: string;      // 默认：process.env.OPENAI_API_KEY
+  baseUrl?: string;     // 默认：https://api.openai.com/v1
+  model?: string;       // 默认：'gpt-4o'
+  organization?: string // 默认：process.env.OPENAI_ORG_ID
+}): ModelAdapter
 
 // Anthropic
-createAnthropic({ apiKey?, baseUrl?, model? }): ModelAdapter
+createAnthropic(config?: {
+  apiKey?: string;      // 默认：process.env.ANTHROPIC_API_KEY
+  baseUrl?: string;     // 默认：https://api.anthropic.com
+  model?: string;       // 默认：'claude-sonnet-4-20250514'
+}): ModelAdapter
 
 // Ollama (local)
-createOllama({ baseUrl?, model? }): ModelAdapter
+createOllama(config?: {
+  baseUrl?: string;     // 默认：http://localhost:11434
+  model?: string;       // 默认：'llama3'
+}): ModelAdapter
 
 // Generic factory
-createModel({ provider, apiKey?, baseUrl?, model? }): ModelAdapter
+createModel(config: {
+  provider: 'openai' | 'anthropic' | 'ollama';
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+}): ModelAdapter
 ```
 
 ### Tools
 
 ```typescript
 // Create custom tool
-createTool({
-  name: string,
-  description: string,
-  parameters: ZodSchema,
-  handler: (args) => Promise<ToolResult>
+createTool(config: {
+  name: string;
+  description: string;
+  parameters: z.ZodSchema;
+  handler: (args: any) => Promise<ToolResult>;
+  isDangerous?: boolean;
+  category?: string;
 }): ToolDefinition
 
 // Tool registry
@@ -456,24 +589,50 @@ class ToolRegistry {
   execute(name: string, args: unknown): Promise<ToolResult>;
   getAll(): ToolDefinition[];
 }
+
+// Get global registry (singleton)
+getGlobalRegistry(): ToolRegistry
+
+// Built-in tools
+getAllBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[]
+getSafeBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[] // 不含危险操作
 ```
 
 ### Storage
 
 ```typescript
 // JSONL storage (persistent)
-createJsonlStorage({ basePath? }): StorageAdapter
+createJsonlStorage(basePath?: string): StorageAdapter
 
 // Memory storage (testing)
 createMemoryStorage(): StorageAdapter
 
+// Generic factory
+createStorage(config: StorageConfig): StorageAdapter
+
+interface StorageConfig {
+  type: 'jsonl' | 'memory';
+  basePath?: string;
+}
+
 // Session manager
 class SessionManager {
-  createSession(id?): string;
-  resumeSession(id): Promise<Message[]>;
-  saveMessages(messages): Promise<void>;
+  constructor(storage?: StorageAdapter);
+  
+  createSession(id?: string): string;
+  resumeSession(id: string): Promise<Message[]>;
+  saveMessages(messages: Message[]): Promise<void>;
   loadMessages(): Promise<Message[]>;
   listSessions(): Promise<SessionInfo[]>;
+  deleteSession(id: string): Promise<void>;
+  getSessionId(): string | undefined;
+}
+
+interface SessionInfo {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
 }
 ```
 
@@ -481,44 +640,104 @@ class SessionManager {
 
 ```typescript
 // Create MCP client
-createMCPClient({
-  name: string,
-  transport: 'stdio' | 'http',
-  command?: string,
-  args?: string[],
-  url?: string
-}): MCPClient
+createMCPClient(config: MCPClientConfig): MCPClient
 
-// Preset servers
-MCPServers.filesystem(dirs)
-MCPServers.git(repoPath)
-MCPServers.sqlite(dbPath)
-MCPServers.braveSearch(apiKey?)
-MCPServers.puppeteer()
+interface StdioMCPConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+interface HttpMCPConfig {
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+}
+
+type MCPClientConfig = StdioMCPConfig | HttpMCPConfig;
+
+class MCPClient {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  getTools(): MCPTool[];
+  getPrompts(): MCPPrompt[];
+  getResources(): MCPResource[];
+}
+
+// MCP adapter (for Agent integration)
+class MCPAdapter {
+  addServer(config: MCPClientConfig): Promise<void>;
+  removeServer(name: string): Promise<void>;
+  disconnectAll(): Promise<void>;
+  getToolDefinitions(): ToolDefinition[];
+}
+
+// Load MCP config from file (Claude Desktop compatible)
+loadMCPConfig(configPath?: string, startDir?: string): MCPConfigLoadResult
+validateMCPConfig(config: MCPConfigFile): string[]
+
+interface MCPConfigFile {
+  mcpServers: {
+    [name: string]: {
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      url?: string;
+      headers?: Record<string, string>;
+    };
+  };
+}
 ```
 
 ### Skills
 
 ```typescript
 // Load skill from path
-const loader = createSkillLoader();
-const skill = await loader.load('./skills/my-skill');
+class SkillLoader {
+  constructor(config?: SkillLoaderConfig);
+  load(path: string): Promise<SkillDefinition>;
+}
+
+interface SkillLoaderConfig {
+  userHomePath?: string;   // Default: ~/.claude/skills/
+  workspacePath?: string;  // Default: ./.claude/skills/
+}
+
+createSkillLoader(config?: SkillLoaderConfig): SkillLoader
 
 // Skill registry
-const registry = createSkillRegistry();
-await registry.loadAll('./skills');
-registry.register(skill);
+class SkillRegistry {
+  register(skill: SkillDefinition): void;
+  load(path: string): Promise<void>;
+  loadAll(paths: string[]): Promise<void>;
+  getFormattedList(): string;
+}
+
+createSkillRegistry(): SkillRegistry
+
+// Parse SKILL.md file
+parseSkillMd(content: string): ParsedSkill
+
+interface SkillDefinition {
+  metadata: SkillMetadata;
+  path: string;
+  instructions: string;
+}
+
+interface SkillMetadata {
+  name: string;
+  description: string;
+  version?: string;
+  author?: string;
+  dependencies?: string[];
+  tags?: string[];
+}
 ```
 
 ### Memory
 
 ```typescript
-// Memory configuration
-interface MemoryConfig {
-  userHomePath?: string;   // Custom user home memory path
-  workspacePath?: string;  // Custom workspace memory path
-}
-
 // Memory manager
 class MemoryManager {
   constructor(workspaceRoot?: string, config?: MemoryConfig);
@@ -529,6 +748,56 @@ class MemoryManager {
   // Check if memory files exist
   checkMemoryFiles(): { userHome: boolean; workspace: boolean };
 }
+
+interface MemoryConfig {
+  userHomePath?: string;   // Default: ~/.claude/CLAUDE.md
+  workspacePath?: string;  // Default: ./.claude/CLAUDE.md
+}
+```
+
+### Streaming
+
+```typescript
+// Stream event types
+type StreamEvent =
+  | { type: 'start'; timestamp: number }
+  | { type: 'text_start'; content?: string }
+  | { type: 'text_delta'; content: string }
+  | { type: 'text_end'; content?: string }
+  | { type: 'tool_call_start'; id: string; name: string }
+  | { type: 'tool_call_delta'; id: string; arguments: string }
+  | { type: 'tool_call'; id: string; name: string; arguments: unknown }
+  | { type: 'tool_call_end'; id: string }
+  | { type: 'tool_result'; toolCallId: string; result: string }
+  | { type: 'tool_error'; toolCallId: string; error: Error }
+  | { type: 'thinking'; content: string }
+  | { type: 'error'; error: Error }
+  | { type: 'metadata'; data: Record<string, unknown> }
+  | { type: 'end'; usage?: TokenUsage; timestamp: number };
+
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+// Stream utilities
+class AgentStream {
+  // Convert AsyncIterable to stream
+  static fromAsyncIterable<T>(iterable: AsyncIterable<T>): AgentStream;
+  
+  // Transform stream events
+  pipe(transformer: StreamTransformer): AgentStream;
+}
+
+createStream(iterable: AsyncIterable<StreamChunk>): AgentStream
+
+class StreamTransformer {
+  transform(event: StreamEvent): StreamEvent | null;
+}
+
+transformStream(stream: AgentStream, transformer: StreamTransformer): AgentStream
+toAgentStream(stream: AgentStream): AgentStream
 ```
 
 ## Project Structure
@@ -536,18 +805,52 @@ class MemoryManager {
 ```
 agent-sdk/
 ├── src/
-│   ├── core/          # Agent core, types
-│   ├── models/        # Model adapters (OpenAI, Anthropic, Ollama)
-│   ├── tools/         # Tool registry, built-in tools
-│   ├── storage/       # JSONL/Memory storage
-│   ├── streaming/     # Streaming event system
-│   ├── mcp/           # MCP client integration
-│   ├── skills/        # Skill loader and registry
-│   ├── memory/        # Memory manager (CLAUDE.md loading)
-│   ├── cli/           # Command-line interface
-│   └── index.ts       # Main entry point
-├── tests/             # Unit and integration tests
-├── examples/          # Usage examples
+│   ├── core/              # Agent core, types, prompts
+│   │   ├── agent.ts       # Agent class implementation
+│   │   ├── types.ts       # Type definitions
+│   │   └── prompts.ts     # System prompt templates
+│   ├── models/            # Model adapters
+│   │   ├── base.ts        # Base adapter with utilities
+│   │   ├── openai.ts      # OpenAI adapter
+│   │   ├── anthropic.ts   # Anthropic adapter
+│   │   └── ollama.ts      # Ollama adapter
+│   ├── tools/             # Tool system
+│   │   ├── registry.ts    # Tool registry
+│   │   └── builtin/       # Built-in tools
+│   │       ├── filesystem.ts
+│   │       ├── shell.ts
+│   │       ├── grep.ts
+│   │       ├── web.ts
+│   │       ├── planning.ts
+│   │       ├── interaction.ts
+│   │       └── skill-activation.ts
+│   ├── storage/           # Storage adapters
+│   │   ├── session.ts     # Session manager (JSONL)
+│   │   └── memory.ts      # Memory storage
+│   ├── streaming/         # Streaming system
+│   │   ├── event-emitter.ts
+│   │   └── transform.ts
+│   ├── mcp/               # MCP integration
+│   │   ├── client.ts      # MCP client
+│   │   └── adapter.ts     # MCP adapter for Agent
+│   ├── skills/            # Skill system
+│   │   ├── loader.ts      # Skill loader
+│   │   ├── registry.ts    # Skill registry
+│   │   └── parser.ts      # SKILL.md parser
+│   ├── memory/            # Memory system
+│   │   └── manager.ts     # CLAUDE.md loader
+│   ├── config/            # Configuration
+│   │   └── mcp-config.ts  # MCP config loader
+│   ├── cli/               # Command-line interface
+│   │   ├── index.ts       # CLI entry point
+│   │   └── commands/      # CLI commands
+│   │       ├── chat.ts
+│   │       ├── tools.ts
+│   │       ├── sessions.ts
+│   │       └── mcp.ts
+│   └── index.ts           # Main entry point
+├── tests/                 # Unit and integration tests
+├── examples/              # Usage examples
 ├── package.json
 ├── tsconfig.json
 └── tsup.config.ts
@@ -555,19 +858,90 @@ agent-sdk/
 
 ## Built-in Tools
 
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read file contents |
-| `write_file` | Write to a file |
-| `list_files` | List directory contents |
-| `delete_file` | Delete a file |
-| `file_exists` | Check if file exists |
-| `execute_command` | Run shell command |
-| `run_python` | Execute Python code |
-| `run_node` | Execute Node.js code |
-| `http_request` | Make HTTP request |
-| `fetch_webpage` | Fetch webpage content |
-| `download_file` | Download a file |
+SDK 提供以下内置工具：
+
+### 文件系统 (filesystem)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `read_file` | Read file contents | ❌ |
+| `write_file` | Write to a file | ✅ |
+| `list_files` | List directory contents | ❌ |
+| `delete_file` | Delete a file | ✅ |
+| `file_exists` | Check if file exists | ❌ |
+
+### Shell 命令 (shell)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `execute_command` | Run shell command | ✅ |
+
+### 搜索 (grep)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `grep_search` | Search for pattern in files | ❌ |
+
+### Web 访问 (web)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `http_request` | Make HTTP request | ❌ |
+| `fetch_webpage` | Fetch webpage content | ❌ |
+| `download_file` | Download a file | ❌ |
+
+### 规划与思考 (planning)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `plan_task` | Create a task plan | ❌ |
+| `think` | Record thinking process | ❌ |
+
+### 交互 (interaction)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `ask_question` | Ask user for input | ❌ |
+
+### Skill 激活 (skill-activation)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `activate_skill` | Load and activate a skill | ❌ |
+
+> **Dangerous** 标记表示该工具可能修改系统或执行危险操作，使用时需要谨慎。
+
+## Module Exports
+
+SDK 提供以下模块导出：
+
+```typescript
+// Main entry point
+import { Agent, createAgent } from 'agent-sdk';
+
+// Models sub-module
+import { createOpenAI, createAnthropic, createOllama } from 'agent-sdk/models';
+
+// Tools sub-module
+import { createTool, ToolRegistry } from 'agent-sdk/tools';
+```
+
+完整的导出列表：
+
+### Main (`agent-sdk`)
+- **Agent**: `Agent`, `createAgent`
+- **Types**: `StreamOptions`, all types from `core/types.js`
+- **Prompts**: `DEFAULT_SYSTEM_PROMPT`
+- **Models**: `createModel`, `createOpenAI`, `createAnthropic`, `createOllama`, adapters
+- **Tools**: `ToolRegistry`, `createTool`, `getGlobalRegistry`, all built-in tools
+- **Storage**: `createStorage`, `JsonlStorage`, `MemoryStorage`, `SessionManager`
+- **Streaming**: `AgentStream`, `createStream`, `StreamTransformer`, `transformStream`
+- **MCP**: `MCPClient`, `MCPAdapter`, `createMCPClient`, `createMCPAdapter`
+- **Skills**: `SkillLoader`, `SkillRegistry`, `createSkillLoader`, `createSkillRegistry`, `parseSkillMd`
+- **Memory**: `MemoryManager`
+- **Config**: `loadMCPConfig`, `validateMCPConfig`
+
+### Models (`agent-sdk/models`)
+- `createModel`, `createOpenAI`, `createAnthropic`, `createOllama`
+- `OpenAIAdapter`, `AnthropicAdapter`, `OllamaAdapter`
+- Types: `OpenAIConfig`, `AnthropicConfig`, `OllamaConfig`, `ModelProvider`, `CreateModelConfig`
+
+### Tools (`agent-sdk/tools`)
+- `ToolRegistry`, `createTool`, `getGlobalRegistry`
+- Types: `ToolDefinition`, `ToolResult`, `ToolSchema`
 
 ## License
 
