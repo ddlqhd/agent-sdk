@@ -234,6 +234,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
       model: this.model,
       messages,
       stream,
+      ...(stream && { stream_options: { include_usage: true } }),
       ...(params.temperature !== undefined && { temperature: params.temperature }),
       ...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
       ...(params.stopSequences && { stop: params.stopSequences })
