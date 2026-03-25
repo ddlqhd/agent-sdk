@@ -11,7 +11,6 @@ import type {
   ContextManagerConfig,
   Message
 } from '../core/types.js';
-import type { CompressionStats } from './compressor.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
@@ -251,28 +250,11 @@ export class Agent {
       };
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
-        // ===== 上下文压缩检查 =====
-        if (this.contextManager) {
-          // 先执行 prune 清理旧工具输出
-          this.messages = this.contextManager.prune(this.messages);
-
-          // 检查是否需要压缩
-          if (this.contextManager.shouldCompress(this.sessionUsage)) {
-            const result = await this.contextManager.compress(this.messages);
-            this.messages = result.messages;
-            this.sessionUsage = this.contextManager.resetUsage();
-
-            const stats: CompressionStats = result.stats;
-            yield {
-              type: 'metadata',
-              data: {
-                event: 'context_compressed',
-                stats
-              }
-            };
-          }
+        // 上下文压缩检查
+        const contextEvents = await this.checkContextCompression();
+        for (const event of contextEvents) {
+          yield event;
         }
-        // ===== 压缩检查结束 =====
 
         const modelParams = {
           messages: this.messages,
@@ -634,6 +616,36 @@ export class Agent {
     }
 
     return this.contextManager.getStatus(this.sessionUsage);
+  }
+
+  /**
+   * 检查并执行上下文压缩
+   * @returns 压缩事件数组（可能为空）
+   */
+  private async checkContextCompression(): Promise<StreamEvent[]> {
+    if (!this.contextManager) {
+      return [];
+    }
+
+    // 先执行 prune 清理旧工具输出
+    this.messages = this.contextManager.prune(this.messages);
+
+    // 检查是否需要压缩
+    if (!this.contextManager.shouldCompress(this.sessionUsage)) {
+      return [];
+    }
+
+    const result = await this.contextManager.compress(this.messages);
+    this.messages = result.messages;
+    this.sessionUsage = this.contextManager.resetUsage();
+
+    return [{
+      type: 'metadata',
+      data: {
+        event: 'context_compressed',
+        stats: result.stats
+      }
+    }];
   }
 
   /**
