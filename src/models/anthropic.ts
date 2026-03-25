@@ -1,9 +1,20 @@
 import type {
   ModelParams,
+  ModelCapabilities,
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+
+/**
+ * Anthropic 模型能力映射
+ */
+const ANTHROPIC_CAPABILITIES: Record<string, ModelCapabilities> = {
+  'claude-sonnet-4-20250514': { contextLength: 200_000, maxOutputTokens: 16_384 },
+  'claude-haiku': { contextLength: 200_000, maxOutputTokens: 8_192 },
+  'claude-3-5-sonnet-20241022': { contextLength: 200_000, maxOutputTokens: 8_192 },
+  'claude-3-haiku-20240307': { contextLength: 200_000, maxOutputTokens: 4_096 },
+};
 
 /**
  * Anthropic 配置
@@ -13,6 +24,8 @@ export interface AnthropicConfig {
   baseUrl?: string;
   model?: string;
   version?: string;
+  /** 自定义模型能力 (覆盖默认值) */
+  capabilities?: ModelCapabilities;
 }
 
 /**
@@ -37,6 +50,11 @@ export class AnthropicAdapter extends BaseModelAdapter {
     }
 
     this.name = `anthropic/${this.model}`;
+
+    // 设置模型能力
+    this.capabilities = config.capabilities
+      ?? ANTHROPIC_CAPABILITIES[this.model]
+      ?? { contextLength: 200_000, maxOutputTokens: 4_096 };
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

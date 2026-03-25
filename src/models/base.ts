@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   ModelAdapter,
+  ModelCapabilities,
   ModelParams,
   StreamChunk,
   CompletionResult,
@@ -112,6 +113,9 @@ export function mergeTokenUsage(...usages: (TokenUsage | undefined)[]): TokenUsa
  */
 export abstract class BaseModelAdapter implements ModelAdapter {
   abstract readonly name: string;
+
+  /** 模型能力描述 */
+  capabilities?: ModelCapabilities;
 
   abstract stream(params: ModelParams): AsyncIterable<StreamChunk>;
   abstract complete(params: ModelParams): Promise<CompletionResult>;

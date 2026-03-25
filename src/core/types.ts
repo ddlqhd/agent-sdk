@@ -144,11 +144,41 @@ export interface TokenUsage {
 }
 
 /**
+ * 会话累计 Token 使用统计
+ * 从 API 响应中累计，不做本地估算
+ */
+export interface SessionTokenUsage {
+  /** 累计输入 tokens */
+  inputTokens: number;
+  /** 累计输出 tokens */
+  outputTokens: number;
+  /** 累计缓存读取 tokens */
+  cacheReadTokens: number;
+  /** 累计缓存写入 tokens */
+  cacheWriteTokens: number;
+  /** 累计总 tokens */
+  totalTokens: number;
+}
+
+/**
+ * 模型能力描述
+ */
+export interface ModelCapabilities {
+  /** 上下文窗口长度 (tokens) */
+  contextLength: number;
+  /** 最大输出 token 数 */
+  maxOutputTokens?: number;
+}
+
+/**
  * 模型适配器接口
  */
 export interface ModelAdapter {
   /** 模型名称 */
   name: string;
+
+  /** 模型能力 (可选) */
+  capabilities?: ModelCapabilities;
 
   /** 流式生成 */
   stream(params: ModelParams): AsyncIterable<StreamChunk>;
@@ -417,6 +447,26 @@ export interface SystemPromptConfig {
 export type SystemPrompt = string | SystemPromptConfig;
 
 /**
+ * 上下文管理配置
+ */
+export interface ContextManagerConfig {
+  /** 上下文窗口大小 (从模型 capabilities 自动获取) */
+  contextLength?: number;
+  /** 最大输出 token 数 (从模型 capabilities 自动获取) */
+  maxOutputTokens?: number;
+  /** 压缩预留空间 (tokens), 默认 min(20000, maxOutputTokens) */
+  reserved?: number;
+  /** 自定义压缩器 */
+  compressor?: import('./compressor.js').Compressor;
+  /** 是否启用 prune (清理旧工具输出), 默认 true */
+  prune?: boolean;
+  /** prune 触发阈值 (tokens), 默认 20000 */
+  pruneMinimum?: number;
+  /** prune 保护范围 (最近 N tokens 的工具输出不清理), 默认 40000 */
+  pruneProtect?: number;
+}
+
+/**
  * Agent 配置
  */
 export interface AgentConfig {
@@ -464,6 +514,9 @@ export interface AgentConfig {
 
   /** Skill 加载配置 */
   skillConfig?: SkillConfig;
+
+  /** 上下文管理配置 */
+  contextManagement?: boolean | ContextManagerConfig;
 }
 
 /**

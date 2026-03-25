@@ -1,9 +1,26 @@
 import type {
   ModelParams,
+  ModelCapabilities,
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+
+/**
+ * Ollama 常见模型能力映射
+ */
+const OLLAMA_CAPABILITIES: Record<string, ModelCapabilities> = {
+  'llama3': { contextLength: 8_192, maxOutputTokens: 2_048 },
+  'llama3:70b': { contextLength: 8_192, maxOutputTokens: 2_048 },
+  'llama3:8b': { contextLength: 8_192, maxOutputTokens: 2_048 },
+  'llama3.1': { contextLength: 131_072, maxOutputTokens: 8_192 },
+  'llama3.1:70b': { contextLength: 131_072, maxOutputTokens: 8_192 },
+  'llama3.1:8b': { contextLength: 131_072, maxOutputTokens: 8_192 },
+  'qwen2': { contextLength: 32_768, maxOutputTokens: 4_096 },
+  'qwen2:7b': { contextLength: 32_768, maxOutputTokens: 4_096 },
+  'mistral': { contextLength: 32_768, maxOutputTokens: 4_096 },
+  'codellama': { contextLength: 16_384, maxOutputTokens: 4_096 },
+};
 
 /**
  * Ollama 配置
@@ -11,6 +28,8 @@ import { BaseModelAdapter, toolsToModelSchema } from './base.js';
 export interface OllamaConfig {
   baseUrl?: string;
   model?: string;
+  /** 自定义模型能力 (覆盖默认值) */
+  capabilities?: ModelCapabilities;
 }
 
 /**
@@ -27,6 +46,11 @@ export class OllamaAdapter extends BaseModelAdapter {
     this.model = config.model || 'llama3';
 
     this.name = `ollama/${this.model}`;
+
+    // 设置模型能力 (Ollama 默认使用较小的上下文)
+    this.capabilities = config.capabilities
+      ?? OLLAMA_CAPABILITIES[this.model]
+      ?? { contextLength: 4_096, maxOutputTokens: 2_048 };
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

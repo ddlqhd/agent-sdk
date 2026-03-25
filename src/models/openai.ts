@@ -1,9 +1,21 @@
 import type {
   ModelParams,
+  ModelCapabilities,
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+
+/**
+ * OpenAI 模型能力映射
+ */
+const OPENAI_CAPABILITIES: Record<string, ModelCapabilities> = {
+  'gpt-4o': { contextLength: 128_000, maxOutputTokens: 16_384 },
+  'gpt-4o-mini': { contextLength: 128_000, maxOutputTokens: 16_384 },
+  'gpt-4-turbo': { contextLength: 128_000, maxOutputTokens: 4_096 },
+  'gpt-4': { contextLength: 8_192, maxOutputTokens: 4_096 },
+  'gpt-3.5-turbo': { contextLength: 16_385, maxOutputTokens: 4_096 },
+};
 
 /**
  * OpenAI 配置
@@ -13,6 +25,8 @@ export interface OpenAIConfig {
   baseUrl?: string;
   model?: string;
   organization?: string;
+  /** 自定义模型能力 (覆盖默认值) */
+  capabilities?: ModelCapabilities;
 }
 
 /**
@@ -37,6 +51,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
     }
 
     this.name = `openai/${this.model}`;
+
+    // 设置模型能力
+    this.capabilities = config.capabilities
+      ?? OPENAI_CAPABILITIES[this.model]
+      ?? { contextLength: 128_000, maxOutputTokens: 4_096 };
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
