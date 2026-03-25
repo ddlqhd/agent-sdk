@@ -106,10 +106,15 @@ function parseSimpleYaml(yaml: string): SkillMetadata {
         }
       } else {
         // 标量值
-        let parsedValue: string | string[] = value.replace(/^["']|["']$/g, '');
+        let parsedValue: string | string[] | boolean = value.replace(/^["']|["']$/g, '');
         
-        // 处理引号包裹的字符串
-        if (parsedValue.startsWith('[') && parsedValue.endsWith(']')) {
+        // 处理布尔值
+        if (parsedValue === 'true') {
+          parsedValue = true;
+        } else if (parsedValue === 'false') {
+          parsedValue = false;
+        } else if (parsedValue.startsWith('[') && parsedValue.endsWith(']')) {
+          // 处理引号包裹的字符串数组
           parsedValue = parsedValue.slice(1, -1)
             .split(',')
             .map(s => s.trim().replace(/^["']|["']$/g, ''));

@@ -19,6 +19,8 @@ import { MemoryManager } from '../memory/manager.js';
 import { MCPAdapter } from '../mcp/adapter.js';
 import type { MCPClientConfig } from '../mcp/client.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
+import { createSkillTemplateProcessor } from '../skills/template.js';
+import type { SkillTemplateContext } from '../skills/template.js';
 import { ContextManager } from './context-manager.js';
 
 function toMCPClientConfig(config: MCPServerConfig): MCPClientConfig {
@@ -233,10 +235,17 @@ export class Agent {
       }
     }
 
+    // 处理 skill 调用
+    let processedInput = input;
+    const processed = await this.processInput(input);
+    if (processed.invoked) {
+      processedInput = processed.prompt;
+    }
+
     // 添加用户消息
     this.messages.push({
       role: 'user',
-      content: input
+      content: processedInput
     });
 
     yield { type: 'start', timestamp: Date.now() };
@@ -441,6 +450,110 @@ export class Agent {
    */
   getSkillRegistry(): SkillRegistry {
     return this.skillRegistry;
+  }
+
+  /**
+   * 处理用户输入，检测并处理 skill 调用
+   * @param input 用户输入
+   * @returns 处理结果
+   */
+  async processInput(input: string): Promise<{
+    invoked: boolean;
+    skillName?: string;
+    prompt: string;
+  }> {
+    const invocation = this.parseSkillInvocation(input);
+
+    if (!invocation) {
+      return { invoked: false, prompt: input };
+    }
+
+    const { name, args } = invocation;
+
+    try {
+      const prompt = await this.invokeSkill(name, args);
+      return { invoked: true, skillName: name, prompt };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return {
+        invoked: false,
+        prompt: `Error invoking skill "${name}": ${errorMsg}\n\nOriginal input: ${input}`
+      };
+    }
+  }
+
+  /**
+   * 调用 skill 并返回处理后的 prompt
+   * @param name Skill 名称
+   * @param args 参数字符串
+   * @returns 处理后的 prompt
+   */
+  async invokeSkill(name: string, args: string = ''): Promise<string> {
+    const skill = this.skillRegistry.get(name);
+
+    if (!skill) {
+      const available = this.skillRegistry.getNames();
+      throw new Error(
+        `Skill "${name}" not found. Available skills: ${available.join(', ') || 'none'}`
+      );
+    }
+
+    // 检查 skill 是否可以被用户调用
+    if (skill.metadata.userInvocable === false) {
+      throw new Error(`Skill "${name}" is not user-invocable`);
+    }
+
+    // 获取 skill 内容
+    const content = await this.skillRegistry.loadFullContent(name);
+
+    // 创建模板处理器
+    const context: SkillTemplateContext = {
+      skillDir: skill.path || '',
+      sessionId: this.sessionManager.sessionId || undefined
+    };
+    const processor = createSkillTemplateProcessor(context);
+
+    // 处理模板
+    let processedContent = await processor.process(content, args);
+
+    // 如果内容中没有 $ARGUMENTS 但有参数，追加到末尾
+    if (args && !content.includes('$ARGUMENTS') && !content.includes('$0')) {
+      processedContent += `\n\nARGUMENTS: ${args}`;
+    }
+
+    return processedContent;
+  }
+
+  /**
+   * 解析 skill 调用格式
+   * 格式: /skill-name [args]
+   * @param input 用户输入
+   * @returns 解析结果或 null
+   */
+  private parseSkillInvocation(input: string): { name: string; args: string } | null {
+    const trimmed = input.trim();
+
+    // 必须以 / 开头
+    if (!trimmed.startsWith('/')) {
+      return null;
+    }
+
+    // 提取 skill 名称和参数（支持中文等任意非空白字符）
+    const match = trimmed.match(/^\/([^\s\/]+)(?:\s+(.*))?$/);
+
+    if (!match) {
+      return null;
+    }
+
+    const name = match[1];
+    const args = match[2] || '';
+
+    // 检查 skill 是否存在
+    if (!this.skillRegistry.has(name)) {
+      return null;
+    }
+
+    return { name, args };
   }
 
   /**

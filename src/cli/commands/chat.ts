@@ -61,9 +61,17 @@ export function createChatCommand(): Command {
       // 等待 Agent 初始化完成（skill 加载、MCP 连接等）
       await agent.waitForInit();
 
+      // 显示已加载的 skills
+      const skillRegistry = agent.getSkillRegistry();
+      const skills = skillRegistry.getUserInvocableSkills();
+
       console.log(chalk.cyan('🤖 Agent SDK Chat'));
       console.log(chalk.gray(`Model: ${model.name}`));
-      console.log(chalk.gray('Type "exit" or "quit" to end the session\n'));
+      if (skills.length > 0) {
+        console.log(chalk.gray(`Skills: ${skills.map(s => `/${s.name}`).join(', ')}`));
+      }
+      console.log(chalk.gray('Type "exit" or "quit" to end the session'));
+      console.log(chalk.gray('Use /skill-name to invoke a skill\n'));
 
       const readline = await import('readline');
       const rl = readline.createInterface({
@@ -87,6 +95,12 @@ export function createChatCommand(): Command {
           }
 
           if (!input.trim()) continue;
+
+          // 检测 skill 调用并显示反馈
+          const processed = await agent.processInput(input);
+          if (processed.invoked) {
+            console.log(chalk.yellow(`\n⚡ Invoked skill: ${processed.skillName}`));
+          }
 
           process.stdout.write(chalk.blue('\nAssistant: '));
 

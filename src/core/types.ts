@@ -403,6 +403,15 @@ export interface SkillMetadata {
 
   /** 标签 */
   tags?: string[];
+
+  /** 参数提示，显示在自动补全中，如 "[filename]" */
+  argumentHint?: string;
+
+  /** 禁止模型自动调用此 skill，只能通过 /skill-name 手动调用 */
+  disableModelInvocation?: boolean;
+
+  /** 是否在 / 菜单中显示，默认 true */
+  userInvocable?: boolean;
 }
 
 /**

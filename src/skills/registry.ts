@@ -145,28 +145,76 @@ export class SkillRegistry {
   /**
    * 获取所有 Skill 的元数据列表（用于 System Prompt）
    */
-  getMetadataList(): Array<{ name: string; description: string }> {
+  getMetadataList(): Array<{ name: string; description: string; argumentHint?: string }> {
     return this.getAll().map(skill => ({
       name: skill.metadata.name,
-      description: skill.metadata.description
+      description: skill.metadata.description,
+      argumentHint: skill.metadata.argumentHint
     }));
+  }
+
+  /**
+   * 获取用户可调用的 Skills
+   */
+  getUserInvocableSkills(): Array<{ name: string; description: string; argumentHint?: string }> {
+    return this.getAll()
+      .filter(skill => skill.metadata.userInvocable !== false)
+      .map(skill => ({
+        name: skill.metadata.name,
+        description: skill.metadata.description,
+        argumentHint: skill.metadata.argumentHint
+      }));
+  }
+
+  /**
+   * 获取模型可自动调用的 Skills（用于注入到 system prompt）
+   */
+  getModelInvocableSkills(): Array<{ name: string; description: string }> {
+    return this.getAll()
+      .filter(skill => skill.metadata.disableModelInvocation !== true)
+      .map(skill => ({
+        name: skill.metadata.name,
+        description: skill.metadata.description
+      }));
   }
 
   /**
    * 获取格式化的 Skill 列表文本（用于 System Prompt）
    */
   getFormattedList(): string {
-    const skillList = this.getMetadataList();
-    if (skillList.length === 0) {
+    const userInvocable = this.getUserInvocableSkills();
+    const modelInvocable = this.getModelInvocableSkills();
+
+    if (userInvocable.length === 0 && modelInvocable.length === 0) {
       return 'No skills are currently available.';
     }
-    const skillsText = skillList
-      .map(s => `- **${s.name}**: ${s.description}`)
-      .join('\n');
-    return `**Available Skills:**
-${skillsText}
 
-**Note:** Only activate a skill when you need to perform its specific task. For questions about your capabilities, simply list the available skills.`;
+    const sections: string[] = [];
+
+    // 用户可调用的 skills（显示在 / 菜单中）
+    if (userInvocable.length > 0) {
+      const userSkillsText = userInvocable
+        .map(s => {
+          const hint = s.argumentHint ? ` ${s.argumentHint}` : '';
+          return `- **/${s.name}**${hint}: ${s.description}`;
+        })
+        .join('\n');
+      sections.push(`**User-invocable Skills** (type /skill-name to invoke):
+${userSkillsText}`);
+    }
+
+    // 模型可自动调用的 skills
+    if (modelInvocable.length > 0) {
+      const modelSkillsText = modelInvocable
+        .map(s => `- **${s.name}**: ${s.description}`)
+        .join('\n');
+      sections.push(`**Auto-loadable Skills** (Claude can invoke when relevant):
+${modelSkillsText}`);
+    }
+
+    return sections.join('\n\n') + `
+
+**Note:** Only activate a skill when you need to perform its specific task. For questions about your capabilities, simply describe the available skills.`;
   }
 
   /**
