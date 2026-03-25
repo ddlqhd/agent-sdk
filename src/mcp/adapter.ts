@@ -16,7 +16,7 @@ export class MCPAdapter {
     this.clients.set(config.name, client);
 
     for (const tool of client.tools) {
-      const fullName = `${config.name}__${tool.name}`;
+      const fullName = `mcp_${config.name}__${tool.name}`;
       this.toolMap.set(fullName, { client, toolName: tool.name });
     }
   }

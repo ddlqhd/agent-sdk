@@ -206,7 +206,7 @@ export class MCPClient {
 
   toToolDefinitions(): ToolDefinition[] {
     return this._tools.map(tool => ({
-      name: `${this._name}__${tool.name}`,
+      name: `mcp_${this._name}__${tool.name}`,
       description: tool.description || `MCP tool: ${tool.name}`,
       parameters: this.convertSchema(tool.inputSchema),
       handler: async (args: unknown) => this.callTool(tool.name, args)

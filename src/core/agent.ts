@@ -455,7 +455,7 @@ export class Agent {
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     for (const tool of mcpTools) {
-      if (tool.name.startsWith(`${config.name}__`)) {
+      if (tool.name.startsWith(`mcp_${config.name}__`)) {
         this.toolRegistry.register(tool);
       }
     }
@@ -470,7 +470,7 @@ export class Agent {
     // 获取要移除的工具列表
     const tools = this.toolRegistry.getAll();
     for (const tool of tools) {
-      if (tool.name.startsWith(`${name}__`)) {
+      if (tool.name.startsWith(`mcp_${name}__`)) {
         this.toolRegistry.unregister(tool.name);
       }
     }
@@ -488,7 +488,7 @@ export class Agent {
     // 移除所有 MCP 工具
     const tools = this.toolRegistry.getAll();
     for (const tool of tools) {
-      if (tool.name.includes('__')) {
+      if (tool.name.startsWith('mcp_') && tool.name.includes('__')) {
         this.toolRegistry.unregister(tool.name);
       }
     }
