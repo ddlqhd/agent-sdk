@@ -302,6 +302,7 @@ export class Agent {
         let hasToolCalls = false;
         const toolCalls: ToolCall[] = [];
         let assistantContent = '';
+        let thinkingContent = '';  // 收集 thinking 内容
 
         for await (const chunk of stream) {
           const events = this.processChunk(chunk);
@@ -310,6 +311,10 @@ export class Agent {
 
             if (event.type === 'text_delta') {
               assistantContent += event.content;
+            }
+
+            if (event.type === 'thinking') {
+              thinkingContent += event.content;
             }
 
             if (event.type === 'tool_call') {
@@ -339,11 +344,23 @@ export class Agent {
           }
         }
 
-        // 保存助手消息
+        // 保存助手消息（包含 thinking 内容）
         const assistantMessage: Message = {
           role: 'assistant',
           content: assistantContent
         };
+
+        // 如果有 thinking 内容，使用 ContentPart 数组格式
+        if (thinkingContent) {
+          const contentParts: any[] = [
+            { type: 'thinking', thinking: thinkingContent }
+          ];
+          // 只有当 text 非空时才添加
+          if (assistantContent.trim()) {
+            contentParts.push({ type: 'text', text: assistantContent });
+          }
+          assistantMessage.content = contentParts;
+        }
 
         if (toolCalls.length > 0) {
           assistantMessage.toolCalls = toolCalls;

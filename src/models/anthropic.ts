@@ -230,11 +230,12 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
     const { system, messages } = this.extractSystemMessage(params.messages);
+    const transformedMessages = this.transformAnthropicMessages(messages);
 
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: params.maxTokens || 4096,
-      messages: this.transformAnthropicMessages(messages),
+      messages: transformedMessages,
       stream,
       ...(system && { system }),
       ...(params.temperature !== undefined && { temperature: params.temperature })
@@ -279,8 +280,29 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
       if (typeof msg.content === 'string') {
         transformed.content = [{ type: 'text', text: msg.content }];
-      } else {
-        transformed.content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        // 处理 ContentPart 数组
+        // 将 thinking 类型转换为文本格式（因为大多数 API 不支持 thinking 块）
+        const contentParts: any[] = [];
+        for (const part of msg.content) {
+          if (part.type === 'thinking') {
+            // 将 thinking 内容转换为文本
+            contentParts.push({
+              type: 'text',
+              text: `<thinking>${(part as any).thinking}</thinking>`
+            });
+          } else if (part.type === 'text') {
+            contentParts.push({ type: 'text', text: (part as any).text });
+          } else {
+            contentParts.push(part);
+          }
+        }
+        transformed.content = contentParts;
+
+        // 如果过滤后为空，设置空字符串
+        if (contentParts.length === 0) {
+          transformed.content = '';
+        }
       }
 
       // 处理工具调用

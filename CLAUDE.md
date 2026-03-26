@@ -123,6 +123,10 @@ node dist/cli/index.js --help
 node dist/cli/index.js chat --model openai
 ```
 
+## Git Commits
+
+Do not include `Co-Authored-By:` lines in commit messages.
+
 ## Key Files
 
 - `src/core/agent.ts` - Main Agent class, handles conversation loop

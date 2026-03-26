@@ -11,6 +11,14 @@ export interface TextContent {
 }
 
 /**
+ * 思考内容部分 (用于支持 extended thinking)
+ */
+export interface ThinkingContent {
+  type: 'thinking';
+  thinking: string;
+}
+
+/**
  * 图片内容部分
  */
 export interface ImageContent {
@@ -22,7 +30,7 @@ export interface ImageContent {
 /**
  * 内容部分联合类型
  */
-export type ContentPart = TextContent | ImageContent;
+export type ContentPart = TextContent | ThinkingContent | ImageContent;
 
 /**
  * 工具调用
