@@ -66,9 +66,11 @@ export class Agent {
 
   // Token 使用量统计
   // contextTokens: 当前上下文大小 (用于压缩判断)
-  // outputTokens/totalTokens: 累计消耗
+  // inputTokens/outputTokens: 累计消耗
+  // totalTokens: 累计总消耗 (inputTokens + outputTokens)
   private sessionUsage: SessionTokenUsage = {
     contextTokens: 0,
+    inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
@@ -327,19 +329,25 @@ export class Agent {
             }
 
             if (event.type === 'metadata' && event.data?.usage) {
-              totalUsage = this.mergeUsage(totalUsage, event.data.usage as TokenUsage);
-              // 更新 session token 统计
               const usage = event.data.usage as TokenUsage;
-              // 当前上下文大小 = 最近一次 API 返回的 input_tokens
-              // 注意：message_delta 事件的 promptTokens 为 0，只有 message_start 有值
-              // 所以只在 promptTokens > 0 时更新
+
+              // 更新单次请求统计
+              // promptTokens 是当前迭代的完整上下文大小（不是增量）
+              // 只在 promptTokens > 0 时更新（message_start 事件）
               if (usage.promptTokens > 0) {
+                totalUsage.promptTokens = usage.promptTokens;
+                // contextTokens: 当前上下文大小（用于压缩判断）
                 this.sessionUsage.contextTokens = usage.promptTokens;
+                // inputTokens: 累计所有迭代的 input tokens
+                this.sessionUsage.inputTokens += usage.promptTokens;
               }
+              // completionTokens 是增量，需要累加
+              totalUsage.completionTokens += usage.completionTokens;
+              totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
+
+              // 更新 session token 统计
               // 累计输出 tokens
               this.sessionUsage.outputTokens += usage.completionTokens;
-              // 注意：不再累加 totalTokens，因为 API 返回的 totalTokens 包含完整上下文
-              // totalTokens 在 getSessionUsage() 中实时计算
             }
           }
         }
@@ -786,10 +794,10 @@ export class Agent {
    * 获取会话累计 Token 使用量
    */
   getSessionUsage(): SessionTokenUsage {
-    // 实时计算 totalTokens = 当前上下文 + 累计输出
+    // 实时计算 totalTokens = 累计输入 + 累计输出
     return {
       ...this.sessionUsage,
-      totalTokens: this.sessionUsage.contextTokens + this.sessionUsage.outputTokens
+      totalTokens: this.sessionUsage.inputTokens + this.sessionUsage.outputTokens
     };
   }
 
@@ -916,17 +924,6 @@ export class Agent {
     );
 
     return results;
-  }
-
-  /**
-   * 合并 Token 使用统计
-   */
-  private mergeUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
-    return {
-      promptTokens: a.promptTokens + b.promptTokens,
-      completionTokens: a.completionTokens + b.completionTokens,
-      totalTokens: a.totalTokens + b.totalTokens
-    };
   }
 }
 

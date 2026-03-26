@@ -155,19 +155,23 @@ export interface TokenUsage {
  * 会话 Token 使用统计
  *
  * 关键区分：
- * - contextTokens: 当前上下文大小 (最近一次 API 返回的 input_tokens)
- * - outputTokens/totalTokens: 累计消耗
+ * - contextTokens: 当前上下文大小 (最近一次 API 返回的 input_tokens，用于压缩判断)
+ * - inputTokens: 累计输入消耗
+ * - outputTokens: 累计输出消耗
+ * - totalTokens: 累计总消耗 (inputTokens + outputTokens)
  */
 export interface SessionTokenUsage {
   /** 当前上下文 tokens (最近一次 API 返回的 input_tokens，用于压缩判断) */
   contextTokens: number;
+  /** 累计输入 tokens */
+  inputTokens: number;
   /** 累计输出 tokens */
   outputTokens: number;
   /** 累计缓存读取 tokens */
   cacheReadTokens: number;
   /** 累计缓存写入 tokens */
   cacheWriteTokens: number;
-  /** 累计总 tokens */
+  /** 累计总 tokens (inputTokens + outputTokens) */
   totalTokens: number;
 }
 

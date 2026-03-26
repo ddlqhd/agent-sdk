@@ -144,13 +144,20 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
               case 'message_start':
                 if (data.message?.usage) {
+                  const usage = data.message.usage;
+                  // Anthropic 的 input_tokens 已扣除缓存命中的部分
+                  // 完整的上下文大小 = input_tokens + cache_read_input_tokens
+                  const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
                   yield {
                     type: 'metadata',
                     metadata: {
                       usage: {
-                        promptTokens: data.message.usage.input_tokens,
+                        promptTokens: actualInputTokens,
                         completionTokens: 0,
-                        totalTokens: data.message.usage.input_tokens
+                        totalTokens: actualInputTokens,
+                        // 传递缓存信息
+                        cacheReadTokens: usage.cache_read_input_tokens || 0,
+                        cacheWriteTokens: usage.cache_creation_input_tokens || 0
                       }
                     }
                   };
@@ -218,10 +225,14 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
     // 处理使用统计
     if (data.usage) {
+      const usage = data.usage;
+      // Anthropic 的 input_tokens 已扣除缓存命中的部分
+      // 完整的上下文大小 = input_tokens + cache_read_input_tokens
+      const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
       result.usage = {
-        promptTokens: data.usage.input_tokens,
-        completionTokens: data.usage.output_tokens,
-        totalTokens: data.usage.input_tokens + data.usage.output_tokens
+        promptTokens: actualInputTokens,
+        completionTokens: usage.output_tokens,
+        totalTokens: actualInputTokens + usage.output_tokens
       };
     }
 

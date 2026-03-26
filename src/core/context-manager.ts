@@ -23,7 +23,9 @@ export interface ContextStatus {
  *
  * 核心设计 (借鉴 Opencode):
  * - Token 计算完全依赖 API 返回的实际值，不做本地估算
- * - 压缩触发: count >= usable (context - output预留 - 压缩缓冲)
+ * - 压缩触发: contextTokens >= usable (context - output预留 - 压缩缓冲)
+ * - contextTokens: 当前上下文大小（用于压缩判断）
+ * - inputTokens: 累计输入消耗
  * - 支持 prune 清理旧的工具输出
  */
 export class ContextManager {
@@ -175,6 +177,7 @@ export class ContextManager {
   resetUsage(): SessionTokenUsage {
     return {
       contextTokens: 0,
+      inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,

@@ -22,6 +22,7 @@ describe('ContextManager', () => {
 
       const usage: SessionTokenUsage = {
         contextTokens: 1_000,
+        inputTokens: 1_000,
         outputTokens: 500,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -38,6 +39,7 @@ describe('ContextManager', () => {
 
       const usage: SessionTokenUsage = {
         contextTokens: 7_000,  // 当前上下文大小超过 usable
+        inputTokens: 7_000,
         outputTokens: 2_000,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -56,6 +58,7 @@ describe('ContextManager', () => {
       // 即使 totalTokens 很大，只要 contextTokens 小于 usable 就不压缩
       const usage: SessionTokenUsage = {
         contextTokens: 1_000,  // 当前上下文小
+        inputTokens: 1_000,
         outputTokens: 10_000,  // 累计输出大
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -72,6 +75,7 @@ describe('ContextManager', () => {
 
       const usage: SessionTokenUsage = {
         contextTokens: 6_000,  // 等于 usable
+        inputTokens: 6_000,
         outputTokens: 1_000,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -114,6 +118,7 @@ describe('ContextManager', () => {
       const resetUsage = manager.resetUsage();
 
       expect(resetUsage.contextTokens).toBe(0);
+      expect(resetUsage.inputTokens).toBe(0);
       expect(resetUsage.outputTokens).toBe(0);
       expect(resetUsage.cacheReadTokens).toBe(0);
       expect(resetUsage.cacheWriteTokens).toBe(0);
@@ -175,6 +180,7 @@ describe('ContextManager', () => {
 
       const usage: SessionTokenUsage = {
         contextTokens: 3_000,  // 当前上下文大小
+        inputTokens: 3_000,
         outputTokens: 1_000,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
@@ -195,6 +201,7 @@ describe('ContextManager', () => {
 
       const usage: SessionTokenUsage = {
         contextTokens: 7_000,  // 超过 usable
+        inputTokens: 7_000,
         outputTokens: 2_000,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,

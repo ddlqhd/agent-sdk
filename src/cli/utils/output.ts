@@ -172,14 +172,15 @@ export function formatUsage(usage: TokenUsage, config: OutputConfig = {}): strin
  * 格式化会话 Token 使用统计
  *
  * 区分：
- * - Context: 当前上下文大小
- * - Output: 累计输出
- * - Total: 累计消耗
+ * - Context: 当前上下文大小 (用于压缩判断)
+ * - Input: 累计输入消耗
+ * - Output: 累计输出消耗
+ * - Total: 累计总消耗 (Input + Output)
  */
 export function formatSessionUsage(usage: SessionTokenUsage, config: OutputConfig = {}): string {
   const { color = true } = config;
 
-  let text = `📊 Context: ${usage.contextTokens} | Output: ${usage.outputTokens} | Total: ${usage.totalTokens}`;
+  let text = `📊 Input: ${usage.inputTokens} | Output: ${usage.outputTokens} | Total: ${usage.totalTokens}`;
   if (usage.cacheReadTokens > 0 || usage.cacheWriteTokens > 0) {
     text += ` | Cache: ${usage.cacheReadTokens}r/${usage.cacheWriteTokens}w`;
   }
