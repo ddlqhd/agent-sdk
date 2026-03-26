@@ -201,12 +201,32 @@ export interface ModelAdapter {
 // ==================== Tool 类型 ====================
 
 /**
+ * 工具结果元数据
+ */
+export interface ToolResultMetadata {
+  /** 是否被截断 */
+  truncated?: boolean;
+  /** 原始内容长度 */
+  originalLength?: number;
+  /** 原始行数 */
+  originalLineCount?: number;
+  /** 显示的行数 */
+  displayedLineCount?: number;
+  /** 完整内容保存路径 */
+  storagePath?: string;
+  /** 行数统计 */
+  lineCount?: number;
+  /** 其他自定义字段 */
+  [key: string]: unknown;
+}
+
+/**
  * 工具结果
  */
 export interface ToolResult {
   content: string;
   isError?: boolean;
-  metadata?: Record<string, unknown>;
+  metadata?: ToolResultMetadata;
 }
 
 /**

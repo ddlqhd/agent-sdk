@@ -1,6 +1,17 @@
 import { z } from 'zod';
 import type { ToolDefinition, ToolResult, ToolSchema } from '../core/types.js';
 import { zodToJsonSchema } from '../models/base.js';
+import { OutputHandler, createOutputHandler } from './output-handler.js';
+
+/**
+ * Tool 注册中心配置
+ */
+export interface ToolRegistryConfig {
+  /** 用户基础路径，用于存储超长输出 */
+  userBasePath?: string;
+  /** 是否启用输出处理（默认 true） */
+  enableOutputHandler?: boolean;
+}
 
 /**
  * Tool 注册中心
@@ -8,6 +19,14 @@ import { zodToJsonSchema } from '../models/base.js';
 export class ToolRegistry {
   private tools: Map<string, ToolDefinition> = new Map();
   private categories: Map<string, Set<string>> = new Map();
+  private outputHandler: OutputHandler | null;
+
+  constructor(config?: ToolRegistryConfig) {
+    const enableOutputHandler = config?.enableOutputHandler !== false;
+    this.outputHandler = enableOutputHandler
+      ? createOutputHandler(config?.userBasePath)
+      : null;
+  }
 
   /**
    * 注册工具
@@ -85,7 +104,19 @@ export class ToolRegistry {
     try {
       // 验证参数
       const validatedArgs = tool.parameters.parse(args);
-      return await tool.handler(validatedArgs);
+      const result = await tool.handler(validatedArgs);
+
+      // 输出处理：检查是否需要处理超长输出
+      if (this.outputHandler && this.outputHandler.needsHandling(result.content)) {
+        return await this.outputHandler.handle(
+          result.content,
+          name,
+          tool.category,
+          { args: validatedArgs }
+        );
+      }
+
+      return result;
     } catch (error) {
       if (error instanceof z.ZodError) {
         return {

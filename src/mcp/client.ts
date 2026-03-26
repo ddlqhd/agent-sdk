@@ -209,7 +209,8 @@ export class MCPClient {
       name: `mcp_${this._name}__${tool.name}`,
       description: tool.description || `MCP tool: ${tool.name}`,
       parameters: this.convertSchema(tool.inputSchema),
-      handler: async (args: unknown) => this.callTool(tool.name, args)
+      handler: async (args: unknown) => this.callTool(tool.name, args),
+      category: 'mcp'  // 标记为 MCP 类别，用于输出处理策略选择
     }));
   }
 
