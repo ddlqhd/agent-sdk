@@ -123,7 +123,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   yield {
                     type: 'thinking',
                     content: data.content_block.thinking,
-                    signature: data.content_block.signature
+                    signature: currentThinkingBlock.signature
                   };
                 }
                 break;

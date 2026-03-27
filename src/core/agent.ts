@@ -86,9 +86,9 @@ export class Agent {
     };
 
     // 初始化 Skill 注册中心
-    this.skillRegistry = createSkillRegistry({ 
+    this.skillRegistry = createSkillRegistry({
       cwd: config.cwd,
-      userBasePath: config.userBasePath 
+      userBasePath: config.userBasePath
     });
 
     // 初始化工具注册中心
@@ -175,7 +175,7 @@ export class Agent {
   private buildSystemPrompt(customPrompt?: SystemPrompt): string {
     // 判断是否需要包含环境信息
     // 优先级：customPrompt.includeEnvironment > config.includeEnvironment > true
-    const shouldIncludeEnv = typeof customPrompt === 'object' 
+    const shouldIncludeEnv = typeof customPrompt === 'object'
       ? customPrompt.includeEnvironment !== false
       : this.config.includeEnvironment !== false;
 
@@ -250,13 +250,13 @@ export class Agent {
     // 2. 这是新用户消息（会话中没有用户消息）
     if (this.config.memory !== false) {
       const hasUserMessages = this.messages.some(m => m.role === 'user');
-      
+
       // 只有当还没有用户消息时才加载记忆
       // 这样可以确保记忆只被加载一次，并且是在对话开始时
       if (!hasUserMessages) {
         const memoryManager = new MemoryManager(this.config.cwd, this.config.memoryConfig, this.config.userBasePath);
         const memoryContent = memoryManager.loadMemory();
-        
+
         if (memoryContent) {
           this.messages.push({
             role: 'system',
@@ -340,12 +340,12 @@ export class Agent {
 
             await this.sessionManager.saveMessages(this.messages);
 
-            yield { 
-              type: 'metadata', 
-              data: { 
-                event: 'aborted', 
-                partialContent: assistantContent 
-              } 
+            yield {
+              type: 'metadata',
+              data: {
+                event: 'aborted',
+                partialContent: assistantContent
+              }
             };
             yield { type: 'end', usage: totalUsage, timestamp: Date.now() };
             return;
@@ -361,6 +361,9 @@ export class Agent {
 
             if (event.type === 'thinking') {
               thinkingContent += event.content;
+              if (event.signature !== undefined && !thinkingSignature) {
+                thinkingSignature = event.signature;
+              }
             }
 
             if (event.type === 'tool_call') {
@@ -394,10 +397,10 @@ export class Agent {
 
         if (thinkingContent) {
           const contentParts: any[] = [
-            { 
-              type: 'thinking', 
+            {
+              type: 'thinking',
               thinking: thinkingContent,
-              signature: thinkingSignature || ''
+              signature: thinkingSignature
             }
           ];
           if (assistantContent.trim()) {
@@ -783,8 +786,8 @@ export class Agent {
     const systemMessage = this.messages.find(m => m.role === 'system');
     if (!systemMessage) return undefined;
     // 系统消息的 content 一定是 string
-    return typeof systemMessage.content === 'string' 
-      ? systemMessage.content 
+    return typeof systemMessage.content === 'string'
+      ? systemMessage.content
       : undefined;
   }
 
@@ -921,8 +924,12 @@ export class Agent {
         break;
 
       case 'thinking':
-        if (chunk.content) {
-          events.push({ type: 'thinking', content: chunk.content });
+        if (chunk.content !== undefined) {
+          events.push({
+            type: 'thinking',
+            content: chunk.content,
+            signature: chunk.signature
+          });
         }
         break;
 
