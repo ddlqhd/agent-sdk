@@ -4,6 +4,11 @@ import { createTool } from '../registry.js';
 import { getShellPath } from '../../core/environment.js';
 import type { ToolDefinition } from '../../core/types.js';
 
+// Maximum output size (10MB) to prevent memory issues
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
+// Grace period before SIGKILL after SIGTERM (ms)
+const KILL_DELAY = 5000;
+
 /**
  * Bash 命令执行工具
  */
@@ -35,6 +40,7 @@ export const bashTool = createTool({
       const shellPath = getShellPath();
       let stdout = '';
       let stderr = '';
+      let outputTruncated = false;
 
       const child = spawn(command, [], {
         shell: shellPath,
@@ -43,7 +49,20 @@ export const bashTool = createTool({
       });
 
       const timer = setTimeout(() => {
-        child.kill();
+        // Try SIGTERM first, then SIGKILL if process doesn't exit
+        child.kill('SIGTERM');
+        
+        const killTimer = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // Process already exited
+          }
+        }, KILL_DELAY);
+
+        // Clean up kill timer if process exits
+        child.on('exit', () => clearTimeout(killTimer));
+
         resolve({
           content: `${desc ? `[${desc}]\n` : ''}Command timed out after ${timeout}ms`,
           isError: true
@@ -51,11 +70,23 @@ export const bashTool = createTool({
       }, timeout);
 
       child.stdout.on('data', (data) => {
-        stdout += data.toString();
+        if (!outputTruncated && stdout.length < MAX_OUTPUT_SIZE) {
+          stdout += data.toString();
+          if (stdout.length >= MAX_OUTPUT_SIZE) {
+            stdout += '\n[Output truncated due to size limit]';
+            outputTruncated = true;
+          }
+        }
       });
 
       child.stderr.on('data', (data) => {
-        stderr += data.toString();
+        if (!outputTruncated && stderr.length < MAX_OUTPUT_SIZE) {
+          stderr += data.toString();
+          if (stderr.length >= MAX_OUTPUT_SIZE) {
+            stderr += '\n[Output truncated due to size limit]';
+            outputTruncated = true;
+          }
+        }
       });
 
       child.on('error', (error) => {

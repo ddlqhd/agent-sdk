@@ -9,35 +9,79 @@ export interface EnvironmentInfo {
   shell: string | undefined;
 }
 
+// Cache for shell path to avoid repeated sync calls
+let cachedShellPath: string | null = null;
+
+/**
+ * Find an executable in PATH using 'where' command (Windows only)
+ */
+function findInPath(executable: string): string | null {
+  try {
+    const result = execSync(`where ${executable}`, { 
+      encoding: 'utf-8', 
+      timeout: 1000 
+    }).trim().split('\n')[0];
+    return result && existsSync(result) ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the shell path with caching to improve performance
+ */
 export function getShellPath(): string {
+  // Return cached result if available
+  if (cachedShellPath !== null) {
+    return cachedShellPath;
+  }
+
   if (process.platform === 'win32') {
+    // Priority: Git Bash > system bash > pwsh > powershell
+    // Use 'where' command first to find bash in PATH (covers scoop, chocolatey, custom installs)
+    const bashPath = findInPath('bash');
+    if (bashPath) {
+      cachedShellPath = bashPath;
+      return bashPath;
+    }
+
+    // Check Git Bash in common install locations
     const gitBashPaths = [
       'C:\\Program Files\\Git\\bin\\bash.exe',
       'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
     ];
     for (const path of gitBashPaths) {
-      if (existsSync(path)) return path;
+      if (existsSync(path)) {
+        cachedShellPath = path;
+        return path;
+      }
     }
-    try {
-      const bashPath = execSync('where bash', { encoding: 'utf-8' }).trim().split('\n')[0];
-      if (bashPath && existsSync(bashPath)) return bashPath;
-    } catch { /* not found */ }
 
-    try {
-      execSync('where pwsh', { encoding: 'utf-8' });
+    // Check for PowerShell Core (pwsh)
+    const pwshPath = findInPath('pwsh');
+    if (pwshPath) {
+      cachedShellPath = 'pwsh';
       return 'pwsh';
-    } catch { /* not found */ }
+    }
 
+    // Fallback to Windows PowerShell
+    cachedShellPath = 'powershell.exe';
     return 'powershell.exe';
   }
 
-  return process.env.SHELL || '/bin/bash';
+  // Unix: use SHELL env or fallback to bash
+  cachedShellPath = process.env.SHELL || '/bin/bash';
+  return cachedShellPath;
 }
 
 export function getEnvironmentInfo(cwd: string): EnvironmentInfo {
   let isGitRepo = false;
   try {
-    execSync('git rev-parse --is-inside-work-tree', { cwd, stdio: 'pipe' });
+    execSync('git rev-parse --is-inside-work-tree', { 
+      cwd, 
+      stdio: 'pipe', 
+      timeout: 2000 
+    });
     isGitRepo = true;
   } catch { /* not a git repo */ }
 

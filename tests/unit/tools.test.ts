@@ -256,6 +256,81 @@ describe('Builtin Tools', () => {
 
 });
 
+describe('Read File Tool', () => {
+  it('should read a file with line numbers', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    await fs.writeFile(tmpFile, 'line1\nline2\nline3', 'utf-8');
+
+    const result = await registry.execute('read_file', { path: tmpFile });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('line1');
+    expect(result.content).toContain('line2');
+    expect(result.content).toContain('End of file');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should truncate long lines', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_long_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+
+    const longLine = 'a'.repeat(3000);
+    await fs.writeFile(tmpFile, longLine, 'utf-8');
+
+    const result = await registry.execute('read_file', { path: tmpFile });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('line truncated to 2000 chars');
+    expect(result.content.length).toBeLessThan(3000);
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should respect offset and limit parameters', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_offset_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    await fs.writeFile(tmpFile, 'line1\nline2\nline3\nline4\nline5', 'utf-8');
+
+    const result = await registry.execute('read_file', {
+      path: tmpFile,
+      offset: 2,
+      limit: 2
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('line2');
+    expect(result.content).toContain('line3');
+    expect(result.content).not.toContain('line1');
+    expect(result.content).not.toContain('line4');
+    expect(result.content).toContain('Showing lines 2-3');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+});
+
 describe('Edit Tool', () => {
   it('should reject same old_string and new_string', async () => {
     const { editTool } = await import('../../src/tools/builtin/index.js');

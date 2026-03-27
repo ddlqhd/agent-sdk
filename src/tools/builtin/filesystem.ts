@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
 
+const DEFAULT_READ_LIMIT = 2000;
+const MAX_LINE_LENGTH = 2000;
+const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
+const MAX_BYTES = 50 * 1024;
+const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
+
 /**
  * 读取文件工具
  */
@@ -28,21 +34,84 @@ export const readFileTool = createTool({
   handler: async ({ path, offset, limit }) => {
     try {
       const fs = await import('fs/promises');
-      const content = await fs.readFile(path, 'utf-8');
-      const lines = content.split('\n');
+      const { createReadStream } = await import('fs');
+      const { createInterface } = await import('readline');
 
-      const start = offset ? offset - 1 : 0;
-      const end = limit ? start + limit : Math.min(start + 2000, lines.length);
-      const selectedLines = lines.slice(start, end);
+      const stat = await fs.stat(path);
+      if (!stat.isFile()) {
+        return {
+          content: `Error: ${path} is not a file`,
+          isError: true
+        };
+      }
+
+      const startLine = offset ? offset - 1 : 0;
+      const maxLines = limit ?? DEFAULT_READ_LIMIT;
+
+      const stream = createReadStream(path, { encoding: 'utf8' });
+      const rl = createInterface({
+        input: stream,
+        crlfDelay: Infinity
+      });
+
+      const selectedLines: string[] = [];
+      let totalLines = 0;
+      let totalBytes = 0;
+      let truncatedByBytes = false;
+      let hasMoreLines = false;
+
+      try {
+        for await (const line of rl) {
+          totalLines++;
+          if (totalLines <= startLine) continue;
+
+          if (selectedLines.length >= maxLines) {
+            hasMoreLines = true;
+            continue;
+          }
+
+          const processedLine =
+            line.length > MAX_LINE_LENGTH
+              ? line.substring(0, MAX_LINE_LENGTH) + MAX_LINE_SUFFIX
+              : line;
+
+          const lineBytes = Buffer.byteLength(processedLine, 'utf-8') + 1;
+          if (totalBytes + lineBytes > MAX_BYTES) {
+            truncatedByBytes = true;
+            hasMoreLines = true;
+            break;
+          }
+
+          selectedLines.push(processedLine);
+          totalBytes += lineBytes;
+        }
+      } finally {
+        rl.close();
+        stream.destroy();
+      }
+
+      if (totalLines < startLine && !(totalLines === 0 && startLine === 0)) {
+        return {
+          content: `Error: Offset ${offset} is out of range for this file (${totalLines} lines)`,
+          isError: true
+        };
+      }
 
       const numbered = selectedLines
-        .map((line, i) => `${String(start + i + 1).padStart(5)}\t${line}`)
+        .map((line, i) => `${String(startLine + i + 1).padStart(5)}\t${line}`)
         .join('\n');
 
-      const suffix =
-        end < lines.length
-          ? `\n... (${lines.length - end} more lines remaining)`
-          : '';
+      const lastReadLine = startLine + selectedLines.length;
+      const nextOffset = lastReadLine + 1;
+      let suffix: string;
+
+      if (truncatedByBytes) {
+        suffix = `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset ?? 1}-${lastReadLine}. Use offset=${nextOffset} to continue.)`;
+      } else if (hasMoreLines) {
+        suffix = `\n\n(Showing lines ${offset ?? 1}-${lastReadLine} of ${totalLines}. Use offset=${nextOffset} to continue.)`;
+      } else {
+        suffix = `\n\n(End of file - total ${totalLines} lines)`;
+      }
 
       return { content: numbered + suffix };
     } catch (error) {
