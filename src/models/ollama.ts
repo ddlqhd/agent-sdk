@@ -180,22 +180,42 @@ export class OllamaAdapter extends BaseModelAdapter {
   }
 
   /**
-   * Ollama 要求 tool_calls.function.arguments 为对象，而非 JSON 字符串
+   * Ollama 要求 tool_calls.function.arguments 为对象，而非 JSON 字符串。
+   * 工具结果消息使用 tool_name（见 https://docs.ollama.com/capabilities/tool-calling ），非 OpenAI 的 tool_call_id。
    */
   protected override transformMessages(messages: ModelParams['messages']): unknown[] {
-    return messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
-        id: tc.id,
-        type: 'function',
-        function: {
-          name: tc.name,
-          arguments: this.parseToolArguments(tc.arguments)
+    const toolCallIdToName = new Map<string, string>();
+    for (const msg of messages) {
+      if (msg.role === 'assistant' && msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          toolCallIdToName.set(tc.id, tc.name);
         }
-      }))}),
-      ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
-    }));
+      }
+    }
+
+    return messages.map(msg => {
+      if (msg.role === 'tool' && msg.toolCallId) {
+        const toolName = toolCallIdToName.get(msg.toolCallId) ?? msg.name;
+        return {
+          role: 'tool' as const,
+          content: typeof msg.content === 'string' ? msg.content : '',
+          ...(toolName && { tool_name: toolName })
+        };
+      }
+
+      return {
+        role: msg.role,
+        content: msg.content,
+        ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.name,
+            arguments: this.parseToolArguments(tc.arguments)
+          }
+        }))})
+      };
+    });
   }
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
@@ -206,9 +226,13 @@ export class OllamaAdapter extends BaseModelAdapter {
       ...(params.temperature !== undefined && { options: { temperature: params.temperature } })
     };
 
-    // 添加工具
+    // 与 OpenAI 一致：每项为 { type: 'function', function: { name, description, parameters } }
+    // 参见 https://docs.ollama.com/api/chat ToolDefinition
     if (params.tools && params.tools.length > 0) {
-      body.tools = toolsToModelSchema(params.tools);
+      body.tools = toolsToModelSchema(params.tools).map(tool => ({
+        type: 'function' as const,
+        function: tool
+      }));
     }
 
     return body;
