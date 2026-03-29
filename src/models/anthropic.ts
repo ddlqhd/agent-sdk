@@ -102,6 +102,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
           try {
             const data = JSON.parse(jsonStr);
+            const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
 
             switch (data.type) {
               case 'content_block_start':
@@ -113,8 +114,12 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   };
                   yield {
                     type: 'tool_call_start',
-                    content: data.content_block.name,
-                    toolCallId: data.content_block.id
+                    toolCall: {
+                      id: data.content_block.id,
+                      name: data.content_block.name,
+                      arguments: {}
+                    },
+                    ...raw
                   };
                 } else if (data.content_block?.type === 'thinking') {
                   currentThinkingBlock = {
@@ -123,26 +128,29 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   yield {
                     type: 'thinking',
                     content: data.content_block.thinking,
-                    signature: currentThinkingBlock.signature
+                    signature: currentThinkingBlock.signature,
+                    ...raw
                   };
                 }
                 break;
 
               case 'content_block_delta':
                 if (data.delta?.type === 'text_delta') {
-                  yield { type: 'text', content: data.delta.text };
+                  yield { type: 'text', content: data.delta.text, ...raw };
                 } else if (data.delta?.type === 'thinking_delta') {
                   yield {
                     type: 'thinking',
                     content: data.delta.thinking,
-                    signature: currentThinkingBlock?.signature
+                    signature: currentThinkingBlock?.signature,
+                    ...raw
                   };
                 } else if (data.delta?.type === 'input_json_delta' && currentToolCall) {
                   currentToolCall.input += data.delta.partial_json;
                   yield {
                     type: 'tool_call_delta',
                     content: data.delta.partial_json,
-                    toolCallId: currentToolCall.id
+                    toolCallId: currentToolCall.id,
+                    ...raw
                   };
                 }
                 break;
@@ -155,7 +163,8 @@ export class AnthropicAdapter extends BaseModelAdapter {
                       id: currentToolCall.id,
                       name: currentToolCall.name,
                       arguments: this.safeParseJSON(currentToolCall.input)
-                    }
+                    },
+                    ...raw
                   };
                   currentToolCall = null;
                 }
@@ -181,7 +190,8 @@ export class AnthropicAdapter extends BaseModelAdapter {
                         cacheReadTokens: usage.cache_read_input_tokens || 0,
                         cacheWriteTokens: usage.cache_creation_input_tokens || 0
                       }
-                    }
+                    },
+                    ...raw
                   };
                 }
                 break;
@@ -196,7 +206,8 @@ export class AnthropicAdapter extends BaseModelAdapter {
                         completionTokens: data.usage.output_tokens,
                         totalTokens: data.usage.output_tokens
                       }
-                    }
+                    },
+                    ...raw
                   };
                 }
                 break;

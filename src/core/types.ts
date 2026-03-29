@@ -105,6 +105,10 @@ export interface ModelParams {
   maxTokens?: number;
   stopSequences?: string[];
   signal?: AbortSignal;
+  /**
+   * When true, adapters may attach `providerRaw` on each {@link StreamChunk} (e.g. Anthropic SSE JSON object).
+   */
+  includeRawStreamEvents?: boolean;
 }
 
 /**
@@ -132,6 +136,8 @@ export interface StreamChunk {
   error?: Error;
   metadata?: Record<string, unknown>;
   signature?: string;
+  /** Raw provider streaming payload when {@link ModelParams.includeRawStreamEvents} is enabled */
+  providerRaw?: unknown;
 }
 
 /**
@@ -331,12 +337,23 @@ export type StreamEventType =
   | 'error'
   | 'start'
   | 'end'
-  | 'metadata';
+  | 'metadata'
+  | 'context_compressed';
+
+/**
+ * Optional fields on any stream event (observability, Claude-style correlation).
+ */
+export interface StreamEventAnnotations {
+  streamEventId?: string;
+  /** Agent model-call iteration (0-based) when produced by {@link Agent.stream} */
+  iteration?: number;
+  sessionId?: string;
+}
 
 /**
  * 流式事件
  */
-export type StreamEvent =
+export type StreamEvent = (
   | { type: 'start'; timestamp: number }
   | { type: 'text_start'; content?: string }
   | { type: 'text_delta'; content: string }
@@ -350,7 +367,17 @@ export type StreamEvent =
   | { type: 'thinking'; content: string; signature?: string }
   | { type: 'error'; error: Error }
   | { type: 'metadata'; data: Record<string, unknown> }
-  | { type: 'end'; usage?: TokenUsage; timestamp: number };
+  | { type: 'end'; usage?: TokenUsage; timestamp: number }
+  | {
+      type: 'context_compressed';
+      stats: {
+        originalMessageCount: number;
+        compressedMessageCount: number;
+        durationMs: number;
+      };
+    }
+) &
+  StreamEventAnnotations;
 
 // ==================== MCP 类型 ====================
 

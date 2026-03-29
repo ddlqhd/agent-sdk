@@ -759,8 +759,14 @@ interface MemoryConfig {
 
 ### Streaming
 
+Model adapters yield `StreamChunk` values. The library normalizes them to `StreamEvent` using `StreamChunkProcessor` (shared by `Agent.stream()` and `transformStream()`).
+
+Optional fields on every event (when produced by `Agent.stream()`): `streamEventId`, `iteration`, `sessionId` (`StreamEventAnnotations`).
+
+`StreamOptions` / `ModelParams` support `includeRawStreamEvents?: boolean`. When set, adapters attach `providerRaw` on each chunk (e.g. the parsed Anthropic SSE JSON object).
+
 ```typescript
-// Stream event types
+// Stream event types (each may also include StreamEventAnnotations)
 type StreamEvent =
   | { type: 'start'; timestamp: number }
   | { type: 'text_start'; content?: string }
@@ -772,9 +778,13 @@ type StreamEvent =
   | { type: 'tool_call_end'; id: string }
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
-  | { type: 'thinking'; content: string }
+  | { type: 'thinking'; content: string; signature?: string }
   | { type: 'error'; error: Error }
   | { type: 'metadata'; data: Record<string, unknown> }
+  | {
+      type: 'context_compressed';
+      stats: { originalMessageCount: number; compressedMessageCount: number; durationMs: number };
+    }
   | { type: 'end'; usage?: TokenUsage; timestamp: number };
 
 interface TokenUsage {
@@ -783,24 +793,39 @@ interface TokenUsage {
   totalTokens: number;
 }
 
-// Stream utilities
-class AgentStream {
-  // Convert AsyncIterable to stream
-  static fromAsyncIterable<T>(iterable: AsyncIterable<T>): AgentStream;
-  
-  // Transform stream events
-  pipe(transformer: StreamTransformer): AgentStream;
-}
+// Tool failures: Agent emits `tool_error` first, then `tool_result` with `Error: …` content (backward compatible).
 
-createStream(iterable: AsyncIterable<StreamChunk>): AgentStream
+// Stream utilities
+class AgentStream { /* AsyncIterable<StreamEvent>, push/end/collectText/… */ }
 
 class StreamTransformer {
-  transform(event: StreamEvent): StreamEvent | null;
+  transform(chunks: AsyncIterable<StreamChunk>): AsyncIterable<StreamEvent>;
 }
 
-transformStream(stream: AgentStream, transformer: StreamTransformer): AgentStream
-toAgentStream(stream: AgentStream): AgentStream
+transformStream(chunks: AsyncIterable<StreamChunk>): AsyncIterable<StreamEvent>;
+toAgentStream(chunks: AsyncIterable<StreamChunk>): AgentStream;
+
+class StreamChunkProcessor {
+  processChunk(chunk: StreamChunk): StreamEvent[];
+  flush(): StreamEvent[];
+  getUsage(): TokenUsage | undefined;
+}
 ```
+
+**Rough mapping to Claude Agent SDK streaming** (see Anthropic docs for `includePartialMessages`):
+
+| Claude API / Agent SDK (partial) | agent-sdk `StreamEvent` |
+|----------------------------------|-------------------------|
+| `content_block_start` (text)     | `text_start` (before first `text_delta`) |
+| `content_block_delta` / `text_delta` | `text_delta` |
+| `content_block_stop` (text)      | `text_end` |
+| `content_block_start` (tool_use)   | `tool_call_start` |
+| `content_block_delta` / `input_json_delta` | `tool_call_delta` |
+| `content_block_stop` (tool_use)  | `tool_call_end` then `tool_call` |
+| User/tool result turn            | `tool_result` (+ optional `tool_error`) |
+| Session / correlation            | `sessionId`, `streamEventId`, `iteration` on events |
+| History compacted                | `context_compressed` |
+| Raw SSE record                   | `StreamChunk.providerRaw` when `includeRawStreamEvents` |
 
 ## Project Structure
 
@@ -831,6 +856,7 @@ agent-sdk/
 │   │   └── memory.ts      # Memory storage
 │   ├── streaming/         # Streaming system
 │   │   ├── event-emitter.ts
+│   │   ├── chunk-processor.ts
 │   │   └── transform.ts
 │   ├── mcp/               # MCP integration
 │   │   ├── client.ts      # MCP client
@@ -929,7 +955,7 @@ import { createTool, ToolRegistry } from 'agent-sdk/tools';
 - **Models**: `createModel`, `createOpenAI`, `createAnthropic`, `createOllama`, adapters
 - **Tools**: `ToolRegistry`, `createTool`, `getGlobalRegistry`, all built-in tools
 - **Storage**: `createStorage`, `JsonlStorage`, `MemoryStorage`, `SessionManager`
-- **Streaming**: `AgentStream`, `createStream`, `StreamTransformer`, `transformStream`
+- **Streaming**: `AgentStream`, `createStream`, `StreamChunkProcessor`, `StreamTransformer`, `transformStream`, `toAgentStream`
 - **MCP**: `MCPClient`, `MCPAdapter`, `createMCPClient`, `createMCPAdapter`
 - **Skills**: `SkillLoader`, `SkillRegistry`, `createSkillLoader`, `createSkillRegistry`, `parseSkillMd`
 - **Memory**: `MemoryManager`

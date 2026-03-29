@@ -1,5 +1,4 @@
 import type {
-  StreamChunk,
   ToolCall,
   TokenUsage,
   SessionTokenUsage,
@@ -11,6 +10,7 @@ import type {
   ContextManagerConfig,
   Message
 } from '../core/types.js';
+import { randomUUID } from 'crypto';
 import { homedir } from 'os';
 import { join } from 'path';
 import { ToolRegistry } from '../tools/registry.js';
@@ -26,6 +26,7 @@ import { createSkillTemplateProcessor } from '../skills/template.js';
 import type { SkillTemplateContext } from '../skills/template.js';
 import { ContextManager } from './context-manager.js';
 import { HookManager } from '../tools/hooks/manager.js';
+import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 
 function toMCPClientConfig(config: MCPServerConfig): MCPClientConfig {
   if (config.transport === 'http') {
@@ -50,6 +51,8 @@ export interface StreamOptions {
   sessionId?: string;
   systemPrompt?: SystemPrompt;
   signal?: AbortSignal;
+  /** Pass through to {@link ModelParams.includeRawStreamEvents} (e.g. Anthropic `providerRaw` on chunks). */
+  includeRawStreamEvents?: boolean;
 }
 
 /**
@@ -182,6 +185,15 @@ export class Agent {
     }
   }
 
+  private annotateStreamEvent(event: StreamEvent, iteration?: number): StreamEvent {
+    return {
+      ...event,
+      streamEventId: randomUUID(),
+      ...(iteration !== undefined ? { iteration } : {}),
+      sessionId: this.sessionManager.sessionId ?? undefined
+    } as StreamEvent;
+  }
+
   /**
    * 构建系统提示词
    * 处理默认提示词、替换模式、追加模式
@@ -293,7 +305,7 @@ export class Agent {
       content: processedInput
     });
 
-    yield { type: 'start', timestamp: Date.now() };
+    yield this.annotateStreamEvent({ type: 'start', timestamp: Date.now() });
 
     try {
       const maxIterations = this.config.maxIterations || 10;
@@ -305,15 +317,15 @@ export class Agent {
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (signal?.aborted) {
-          yield { type: 'metadata', data: { event: 'aborted' } };
-          yield { type: 'end', usage: totalUsage, timestamp: Date.now() };
+          yield this.annotateStreamEvent({ type: 'metadata', data: { event: 'aborted' } }, iteration);
+          yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() }, iteration);
           return;
         }
 
         // 上下文压缩检查
         const contextEvents = await this.checkContextCompression();
         for (const event of contextEvents) {
-          yield event;
+          yield this.annotateStreamEvent(event, iteration);
         }
 
         const modelParams = {
@@ -321,7 +333,8 @@ export class Agent {
           tools: this.toolRegistry.getAll(),
           temperature: this.config.temperature,
           maxTokens: this.config.maxTokens,
-          signal
+          signal,
+          includeRawStreamEvents: options?.includeRawStreamEvents
         };
 
         const stream = this.config.model.stream(modelParams);
@@ -330,9 +343,46 @@ export class Agent {
         let assistantContent = '';
         let thinkingContent = '';
         let thinkingSignature: string | undefined;
+        const chunkProcessor = new StreamChunkProcessor({ emitTextBoundaries: true });
+
+        const applyStreamOut = (out: StreamEvent): void => {
+          if (out.type === 'text_delta') {
+            assistantContent += out.content;
+          }
+          if (out.type === 'thinking') {
+            thinkingContent += out.content;
+            if (out.signature !== undefined && !thinkingSignature) {
+              thinkingSignature = out.signature;
+            }
+          }
+          if (out.type === 'tool_call') {
+            hasToolCalls = true;
+            toolCalls.push({
+              id: out.id,
+              name: out.name,
+              arguments: out.arguments
+            });
+          }
+          if (out.type === 'metadata' && out.data?.usage) {
+            const usage = out.data.usage as TokenUsage;
+            if (usage.promptTokens > 0) {
+              totalUsage.promptTokens = usage.promptTokens;
+              this.sessionUsage.contextTokens = usage.promptTokens;
+              this.sessionUsage.inputTokens += usage.promptTokens;
+            }
+            totalUsage.completionTokens += usage.completionTokens;
+            totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
+            this.sessionUsage.outputTokens += usage.completionTokens;
+          }
+        };
 
         for await (const chunk of stream) {
           if (signal?.aborted) {
+            for (const event of chunkProcessor.flush()) {
+              const out = this.annotateStreamEvent(event, iteration);
+              yield out;
+              applyStreamOut(out);
+            }
             if (assistantContent) {
               const assistantMessage: Message = {
                 role: 'assistant',
@@ -354,54 +404,32 @@ export class Agent {
 
             await this.sessionManager.saveMessages(this.messages);
 
-            yield {
-              type: 'metadata',
-              data: {
-                event: 'aborted',
-                partialContent: assistantContent
-              }
-            };
-            yield { type: 'end', usage: totalUsage, timestamp: Date.now() };
+            yield this.annotateStreamEvent(
+              {
+                type: 'metadata',
+                data: {
+                  event: 'aborted',
+                  partialContent: assistantContent
+                }
+              },
+              iteration
+            );
+            yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() }, iteration);
             return;
           }
 
-          const events = this.processChunk(chunk);
+          const events = chunkProcessor.processChunk(chunk);
           for (const event of events) {
-            yield event;
-
-            if (event.type === 'text_delta') {
-              assistantContent += event.content;
-            }
-
-            if (event.type === 'thinking') {
-              thinkingContent += event.content;
-              if (event.signature !== undefined && !thinkingSignature) {
-                thinkingSignature = event.signature;
-              }
-            }
-
-            if (event.type === 'tool_call') {
-              hasToolCalls = true;
-              toolCalls.push({
-                id: event.id,
-                name: event.name,
-                arguments: event.arguments
-              });
-            }
-
-            if (event.type === 'metadata' && event.data?.usage) {
-              const usage = event.data.usage as TokenUsage;
-
-              if (usage.promptTokens > 0) {
-                totalUsage.promptTokens = usage.promptTokens;
-                this.sessionUsage.contextTokens = usage.promptTokens;
-                this.sessionUsage.inputTokens += usage.promptTokens;
-              }
-              totalUsage.completionTokens += usage.completionTokens;
-              totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
-              this.sessionUsage.outputTokens += usage.completionTokens;
-            }
+            const out = this.annotateStreamEvent(event, iteration);
+            yield out;
+            applyStreamOut(out);
           }
+        }
+
+        for (const event of chunkProcessor.flush()) {
+          const out = this.annotateStreamEvent(event, iteration);
+          yield out;
+          applyStreamOut(out);
         }
 
         const assistantMessage: Message = {
@@ -436,11 +464,24 @@ export class Agent {
         const toolResults = await this.executeTools(toolCalls);
 
         for (const result of toolResults) {
-          yield {
-            type: 'tool_result',
-            toolCallId: result.toolCallId,
-            result: result.content
-          };
+          if (result.isError && result.error) {
+            yield this.annotateStreamEvent(
+              {
+                type: 'tool_error',
+                toolCallId: result.toolCallId,
+                error: result.error
+              },
+              iteration
+            );
+          }
+          yield this.annotateStreamEvent(
+            {
+              type: 'tool_result',
+              toolCallId: result.toolCallId,
+              result: result.content
+            },
+            iteration
+          );
 
           this.messages.push({
             role: 'tool',
@@ -452,23 +493,23 @@ export class Agent {
 
       await this.sessionManager.saveMessages(this.messages);
 
-      yield {
+      yield this.annotateStreamEvent({
         type: 'metadata',
         data: {
           sessionId: this.sessionManager.sessionId,
           usage: totalUsage,
           iterations: Math.min(maxIterations, this.messages.length)
         }
-      };
+      });
 
-      yield { type: 'end', usage: totalUsage, timestamp: Date.now() };
+      yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() });
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        yield { type: 'metadata', data: { event: 'aborted' } };
-        yield { type: 'end', timestamp: Date.now() };
+        yield this.annotateStreamEvent({ type: 'metadata', data: { event: 'aborted' } });
+        yield this.annotateStreamEvent({ type: 'end', timestamp: Date.now() });
         return;
       }
-      yield { type: 'error', error: error as Error };
+      yield this.annotateStreamEvent({ type: 'error', error: error as Error });
     }
   }
 
@@ -877,13 +918,12 @@ export class Agent {
     this.messages = result.messages;
     this.sessionUsage = this.contextManager.resetUsage();
 
-    return [{
-      type: 'metadata',
-      data: {
-        event: 'context_compressed',
+    return [
+      {
+        type: 'context_compressed',
         stats: result.stats
       }
-    }];
+    ];
   }
 
   /**
@@ -894,93 +934,28 @@ export class Agent {
   }
 
   /**
-   * 处理流式块
-   */
-  private processChunk(chunk: StreamChunk): StreamEvent[] {
-    const events: StreamEvent[] = [];
-
-    switch (chunk.type) {
-      case 'text':
-        if (chunk.content) {
-          events.push({ type: 'text_delta', content: chunk.content });
-        }
-        break;
-
-      case 'tool_call':
-        if (chunk.toolCall) {
-          events.push({
-            type: 'tool_call',
-            id: chunk.toolCall.id,
-            name: chunk.toolCall.name,
-            arguments: chunk.toolCall.arguments
-          });
-        }
-        break;
-
-      case 'tool_call_start':
-        if (chunk.toolCall) {
-          events.push({
-            type: 'tool_call_start',
-            id: chunk.toolCall.id,
-            name: chunk.toolCall.name
-          });
-        }
-        break;
-
-      case 'tool_call_delta':
-        if (chunk.toolCallId && chunk.content) {
-          events.push({
-            type: 'tool_call_delta',
-            id: chunk.toolCallId,
-            arguments: chunk.content
-          });
-        }
-        break;
-
-      case 'thinking':
-        if (chunk.content !== undefined) {
-          events.push({
-            type: 'thinking',
-            content: chunk.content,
-            signature: chunk.signature
-          });
-        }
-        break;
-
-      case 'error':
-        if (chunk.error) {
-          events.push({ type: 'error', error: chunk.error });
-        }
-        break;
-
-      case 'metadata':
-        if (chunk.metadata) {
-          events.push({ type: 'metadata', data: chunk.metadata });
-        }
-        break;
-    }
-
-    return events;
-  }
-
-  /**
    * 执行工具调用
    */
-  private async executeTools(toolCalls: ToolCall[]): Promise<Array<{
-    toolCallId: string;
-    content: string;
-  }>> {
+  private async executeTools(toolCalls: ToolCall[]): Promise<
+    Array<{
+      toolCallId: string;
+      content: string;
+      isError: boolean;
+      error?: Error;
+    }>
+  > {
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
         const result = await this.toolRegistry.execute(tc.name, tc.arguments, {
           toolCallId: tc.id,
           projectDir: this.config.cwd || process.cwd()
         });
+        const isError = Boolean(result.isError);
         return {
           toolCallId: tc.id,
-          content: result.isError
-            ? `Error: ${result.content}`
-            : result.content
+          content: isError ? `Error: ${result.content}` : result.content,
+          isError,
+          error: isError ? new Error(result.content) : undefined
         };
       })
     );

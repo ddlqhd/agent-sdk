@@ -69,6 +69,17 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
     case 'end':
       return '';
 
+    case 'tool_call_delta':
+    case 'tool_call_end':
+      return '';
+
+    case 'context_compressed':
+      return color
+        ? chalk.gray(
+            `\n📦 Context compressed (${event.stats.originalMessageCount} → ${event.stats.compressedMessageCount} messages)`
+          )
+        : `\n📦 Context compressed (${event.stats.originalMessageCount} → ${event.stats.compressedMessageCount} messages)`;
+
     default:
       return '';
   }
@@ -119,6 +130,20 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
       }
 
       switch (event.type) {
+        case 'text_start':
+        case 'text_end':
+        case 'tool_call_delta':
+        case 'tool_call_end':
+          break;
+
+        case 'context_compressed':
+          if (verbose) {
+            output += chalk.gray(
+              `\n📦 Context compressed: ${event.stats.originalMessageCount} → ${event.stats.compressedMessageCount} messages (${event.stats.durationMs}ms)\n`
+            );
+          }
+          break;
+
         case 'text_delta':
           output += event.content;
           break;

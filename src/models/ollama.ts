@@ -84,10 +84,11 @@ export class OllamaAdapter extends BaseModelAdapter {
 
           try {
             const data = JSON.parse(trimmed);
+            const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
 
             // 处理内容
             if (data.message?.content) {
-              yield { type: 'text', content: data.message.content };
+              yield { type: 'text', content: data.message.content, ...raw };
             }
 
             // 处理工具调用
@@ -99,7 +100,8 @@ export class OllamaAdapter extends BaseModelAdapter {
                     id: `ollama_${Date.now()}`,
                     name: tc.function?.name || '',
                     arguments: this.parseToolArguments(tc.function?.arguments)
-                  }
+                  },
+                  ...raw
                 };
               }
             }
@@ -115,10 +117,11 @@ export class OllamaAdapter extends BaseModelAdapter {
                       completionTokens: data.eval_count || 0,
                       totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
                     }
-                  }
+                  },
+                  ...raw
                 };
               }
-              yield { type: 'done' };
+              yield { type: 'done', ...raw };
             }
           } catch {
             // 跳过解析错误

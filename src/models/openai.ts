@@ -99,10 +99,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
             const data = JSON.parse(trimmed.slice(6));
             const choice = data.choices?.[0];
             if (!choice) continue;
+            const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
 
             // 处理内容增量
             if (choice.delta?.content) {
-              yield { type: 'text', content: choice.delta.content };
+              yield { type: 'text', content: choice.delta.content, ...raw };
             }
 
             // 处理工具调用
@@ -118,7 +119,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
                           id: currentToolCall.id,
                           name: currentToolCall.name,
                           arguments: this.safeParseJSON(currentToolCall.arguments)
-                        }
+                        },
+                        ...raw
                       };
                     }
                     currentToolCall = {
@@ -129,14 +131,16 @@ export class OpenAIAdapter extends BaseModelAdapter {
                     yield {
                       type: 'tool_call_start',
                       content: toolCall.function.name,
-                      toolCallId: toolCall.id
+                      toolCallId: toolCall.id,
+                      ...raw
                     };
                   } else if (toolCall.function?.arguments && currentToolCall) {
                     currentToolCall.arguments += toolCall.function.arguments;
                     yield {
                       type: 'tool_call_delta',
                       content: toolCall.function.arguments,
-                      toolCallId: currentToolCall.id
+                      toolCallId: currentToolCall.id,
+                      ...raw
                     };
                   }
                 }
@@ -151,7 +155,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
                   id: currentToolCall.id,
                   name: currentToolCall.name,
                   arguments: this.safeParseJSON(currentToolCall.arguments)
-                }
+                },
+                ...raw
               };
               currentToolCall = null;
             }
@@ -166,7 +171,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
                     completionTokens: data.usage.completion_tokens,
                     totalTokens: data.usage.total_tokens
                   }
-                }
+                },
+                ...raw
               };
             }
           } catch {
@@ -183,7 +189,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
             id: currentToolCall.id,
             name: currentToolCall.name,
             arguments: this.safeParseJSON(currentToolCall.arguments)
-          }
+          },
+          ...(params.includeRawStreamEvents ? { providerRaw: { trailing: true } } : {})
         };
       }
 
