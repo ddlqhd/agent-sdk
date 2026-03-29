@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 import type { StorageAdapter, Message, SessionInfo, StorageConfig } from '../core/types.js';
 import { createStorage } from './interface.js';
 
@@ -32,7 +32,7 @@ export class SessionManager {
    * 创建新会话
    */
   createSession(sessionId?: string): string {
-    this.currentSessionId = sessionId || nanoid(21);
+    this.currentSessionId = sessionId || randomUUID();
     return this.currentSessionId;
   }
 
