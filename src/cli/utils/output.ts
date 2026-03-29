@@ -82,11 +82,20 @@ export interface StreamFormatter {
   finalize(): string;
 }
 
+function tokenUsageEqual(a: TokenUsage, b: TokenUsage): boolean {
+  return (
+    a.promptTokens === b.promptTokens &&
+    a.completionTokens === b.completionTokens &&
+    a.totalTokens === b.totalTokens
+  );
+}
+
 export function createStreamFormatter(config: OutputConfig = {}): StreamFormatter {
   const { verbose = false } = config;
   let lastEventType: string | null = null;
   let isFirstThinking = true;
   const toolCalls = new Map<string, { name: string; arguments: unknown }>();
+  let lastPrintedUsage: TokenUsage | null = null;
 
   return {
     format(event: StreamEvent): string {
@@ -155,7 +164,11 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
             break;
           }
           if (event.data?.usage) {
-            output += `\n${formatUsage(event.data.usage as TokenUsage)}`;
+            const usage = event.data.usage as TokenUsage;
+            if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
+              lastPrintedUsage = usage;
+              output += `\n${formatUsage(usage)}`;
+            }
           }
           break;
 

@@ -79,7 +79,7 @@ export function createChatCommand(): Command {
       console.log(chalk.gray('Use /skill-name to invoke a skill\n'));
 
       const readline = await import('readline');
-      const rl = readline.createInterface({
+      let rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
       });
@@ -101,56 +101,72 @@ export function createChatCommand(): Command {
 
           if (!input.trim()) continue;
 
-          // 检测 skill 调用并显示反馈
-          const processed = await agent.processInput(input);
-          if (processed.invoked) {
-            console.log(chalk.yellow(`\n⚡ Invoked skill: ${processed.skillName}`));
-          }
-
-          process.stdout.write(chalk.blue('\nAssistant: '));
-
-          if (options.stream === false) {
-            const result = await agent.run(input, { sessionId: options.session });
-            console.log(result.content);
-            if (result.usage) {
-              console.log(`\n${formatUsage(result.usage)}`);
+          // Pause readline before any post-input output and before raw mode (Windows: avoids duplicate line echo)
+          let streamedThisTurn = false;
+          rl.pause();
+          try {
+            // 检测 skill 调用并显示反馈
+            const processed = await agent.processInput(input);
+            if (processed.invoked) {
+              console.log(chalk.yellow(`\n⚡ Invoked skill: ${processed.skillName}`));
             }
-            console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
-          } else {
-            const abortController = new AbortController();
-            let interrupted = false;
 
-            const cleanupKeypress = initKeypressListener();
-            setKeypressHandler({
-              onAbort: () => {
-                interrupted = true;
-                abortController.abort();
-                process.stdout.write(chalk.yellow('\n[interrupted]\n'));
-              }
-            });
+            process.stdout.write(chalk.blue('\nAssistant: '));
 
-            try {
-              const formatter = createStreamFormatter({ verbose: options.verbose });
-              for await (const event of agent.stream(input, {
-                sessionId: options.session,
-                signal: abortController.signal
-              })) {
-                if (interrupted) break;
-                const output = formatter.format(event);
-                if (output) process.stdout.write(output);
+            if (options.stream === false) {
+              const result = await agent.run(input, { sessionId: options.session });
+              console.log(result.content);
+              if (result.usage) {
+                console.log(`\n${formatUsage(result.usage)}`);
               }
-              if (!interrupted) {
-                const tail = formatter.finalize();
-                if (tail) process.stdout.write(tail);
-                console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
+              console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
+            } else {
+              streamedThisTurn = true;
+              const abortController = new AbortController();
+              let interrupted = false;
+
+              const cleanupKeypress = initKeypressListener();
+              setKeypressHandler({
+                onAbort: () => {
+                  interrupted = true;
+                  abortController.abort();
+                  process.stdout.write(chalk.yellow('\n[interrupted]\n'));
+                }
+              });
+
+              try {
+                const formatter = createStreamFormatter({ verbose: options.verbose });
+                for await (const event of agent.stream(input, {
+                  sessionId: options.session,
+                  signal: abortController.signal
+                })) {
+                  if (interrupted) break;
+                  const output = formatter.format(event);
+                  if (output) process.stdout.write(output);
+                }
+                if (!interrupted) {
+                  const tail = formatter.finalize();
+                  if (tail) process.stdout.write(tail);
+                  console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
+                }
+              } finally {
+                clearKeypressHandler();
+                cleanupKeypress();
               }
-            } finally {
-              clearKeypressHandler();
-              cleanupKeypress();
+            }
+
+            console.log('\n');
+          } finally {
+            rl.resume();
+            // After setRawMode + readline shared stdin, recreate interface so the next prompt does not echo twice (Windows)
+            if (streamedThisTurn) {
+              rl.close();
+              rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout
+              });
             }
           }
-
-          console.log('\n');
         }
       } finally {
         await agent.destroy();
