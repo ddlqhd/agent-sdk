@@ -5,6 +5,7 @@ export interface KeyPressHandler {
 
 let isActive = false;
 let currentHandler: KeyPressHandler | null = null;
+let paused = false;
 
 const onKeypress = (key: string) => {
   if (!isActive || !currentHandler) return;
@@ -36,6 +37,7 @@ export function initKeypressListener(): () => void {
     if (!isActive) return;
     isActive = false;
     currentHandler = null;
+    paused = false;
 
     process.stdin.off('data', onKeypress);
     try {
@@ -52,4 +54,34 @@ export function setKeypressHandler(handler: KeyPressHandler): void {
 
 export function clearKeypressHandler(): void {
   currentHandler = null;
+}
+
+/**
+ * CLI-only: release raw mode and the stdin `data` listener so line-based prompts
+ * (e.g. AskUserQuestion) work while streaming. Pair with the returned resume function.
+ */
+export function pauseKeypressListener(): () => void {
+  if (!process.stdin.isTTY || !isActive || paused) {
+    return () => {};
+  }
+
+  paused = true;
+  process.stdin.off('data', onKeypress);
+  try {
+    process.stdin.setRawMode(false);
+  } catch {
+    // ignore
+  }
+
+  return () => {
+    if (!paused) return;
+    paused = false;
+    if (!process.stdin.isTTY || !isActive) return;
+    try {
+      process.stdin.setRawMode(true);
+    } catch {
+      // ignore
+    }
+    process.stdin.on('data', onKeypress);
+  };
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ToolRegistry, createTool } from '../../src/tools/registry.js';
 import { createSkillRegistry } from '../../src/skills/registry.js';
 import { z } from 'zod';
@@ -495,6 +495,90 @@ describe('AskUserQuestion Tool', () => {
     expect(result.content).toContain('React');
     expect(result.content).toContain('Vue');
     expect(result.metadata).toBeDefined();
+  });
+});
+
+describe('AskUserQuestion interactive (injected readLine)', () => {
+  beforeEach(() => {
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const twoOptions = {
+    question: 'Pick one?',
+    header: 'Pick',
+    options: [
+      { label: 'Alpha', description: 'a' },
+      { label: 'Beta', description: 'b' }
+    ],
+    multiSelect: false as const
+  };
+
+  it('should record single selection and include answers in metadata', async () => {
+    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const queue = ['1'];
+    let i = 0;
+    const readLine = async (_p: string) => queue[i++] ?? '';
+    const tool = createAskUserQuestionTool({ readLine });
+    const registry = new ToolRegistry();
+    registry.register(tool);
+
+    const result = await registry.execute('AskUserQuestion', { questions: [twoOptions] });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('--- User responses ---');
+    expect(result.content).toContain('Alpha');
+    expect(result.metadata).toMatchObject({
+      questions: [twoOptions],
+      answers: [{ questionIndex: 0, selectedLabels: ['Alpha'] }]
+    });
+  });
+
+  it('should record Other with custom text', async () => {
+    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const queue = ['0', 'custom reply'];
+    let i = 0;
+    const readLine = async (_p: string) => queue[i++] ?? '';
+    const tool = createAskUserQuestionTool({ readLine });
+    const registry = new ToolRegistry();
+    registry.register(tool);
+
+    const result = await registry.execute('AskUserQuestion', { questions: [twoOptions] });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('Other: custom reply');
+    expect(result.metadata).toMatchObject({
+      answers: [{ questionIndex: 0, selectedLabels: [], otherText: 'custom reply' }]
+    });
+  });
+
+  it('should record multi-select', async () => {
+    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const q = {
+      question: 'Pick many?',
+      header: 'Multi',
+      options: [
+        { label: 'X', description: 'x' },
+        { label: 'Y', description: 'y' },
+        { label: 'Z', description: 'z' }
+      ],
+      multiSelect: true
+    };
+    const queue = ['1, 3'];
+    let i = 0;
+    const readLine = async (_p: string) => queue[i++] ?? '';
+    const tool = createAskUserQuestionTool({ readLine });
+    const registry = new ToolRegistry();
+    registry.register(tool);
+
+    const result = await registry.execute('AskUserQuestion', { questions: [q] });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.metadata).toMatchObject({
+      answers: [{ questionIndex: 0, selectedLabels: ['X', 'Z'] }]
+    });
   });
 });
 

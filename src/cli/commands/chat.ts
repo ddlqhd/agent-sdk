@@ -3,7 +3,12 @@ import chalk from 'chalk';
 import { createModel, type ModelProvider } from '../../models/index.js';
 import { Agent } from '../../core/agent.js';
 import { formatUsage, formatSessionUsage, createStreamFormatter } from '../utils/output.js';
-import { initKeypressListener, setKeypressHandler, clearKeypressHandler } from '../utils/keypress.js';
+import {
+  initKeypressListener,
+  setKeypressHandler,
+  clearKeypressHandler,
+  pauseKeypressListener
+} from '../utils/keypress.js';
 import type { CLIConfig } from '../../core/types.js';
 import { loadMCPConfig } from '../../config/index.js';
 
@@ -101,9 +106,11 @@ export function createChatCommand(): Command {
 
           if (!input.trim()) continue;
 
-          // Pause readline before any post-input output and before raw mode (Windows: avoids duplicate line echo)
-          let streamedThisTurn = false;
-          rl.pause();
+          // Close outer readline for the assistant turn so tools (e.g. AskUserQuestion) can attach
+          // their own readline to stdin without duplicate echo. Recreate in finally.
+          let releasedOuterReadline = false;
+          rl.close();
+          releasedOuterReadline = true;
           try {
             // 检测 skill 调用并显示反馈
             const processed = await agent.processInput(input);
@@ -121,7 +128,6 @@ export function createChatCommand(): Command {
               }
               console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
             } else {
-              streamedThisTurn = true;
               const abortController = new AbortController();
               let interrupted = false;
 
@@ -134,13 +140,39 @@ export function createChatCommand(): Command {
                 }
               });
 
+              let resumeAskStdin: (() => void) | null = null;
+              const pendingAskToolCallIds = new Set<string>();
+
               try {
                 const formatter = createStreamFormatter({ verbose: options.verbose });
+
                 for await (const event of agent.stream(input, {
                   sessionId: options.session,
                   signal: abortController.signal
                 })) {
                   if (interrupted) break;
+
+                  if (event.type === 'tool_call' && event.name === 'AskUserQuestion') {
+                    pendingAskToolCallIds.add(event.id);
+                    if (!resumeAskStdin) {
+                      resumeAskStdin = pauseKeypressListener();
+                    }
+                  }
+                  if (event.type === 'tool_result' && pendingAskToolCallIds.has(event.toolCallId)) {
+                    pendingAskToolCallIds.delete(event.toolCallId);
+                    if (pendingAskToolCallIds.size === 0 && resumeAskStdin) {
+                      resumeAskStdin();
+                      resumeAskStdin = null;
+                    }
+                  }
+                  if (event.type === 'tool_error' && pendingAskToolCallIds.has(event.toolCallId)) {
+                    pendingAskToolCallIds.delete(event.toolCallId);
+                    if (pendingAskToolCallIds.size === 0 && resumeAskStdin) {
+                      resumeAskStdin();
+                      resumeAskStdin = null;
+                    }
+                  }
+
                   const output = formatter.format(event);
                   if (output) process.stdout.write(output);
                 }
@@ -150,6 +182,9 @@ export function createChatCommand(): Command {
                   console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
                 }
               } finally {
+                if (resumeAskStdin) {
+                  resumeAskStdin();
+                }
                 clearKeypressHandler();
                 cleanupKeypress();
               }
@@ -157,10 +192,7 @@ export function createChatCommand(): Command {
 
             console.log('\n');
           } finally {
-            rl.resume();
-            // After setRawMode + readline shared stdin, recreate interface so the next prompt does not echo twice (Windows)
-            if (streamedThisTurn) {
-              rl.close();
+            if (releasedOuterReadline) {
               rl = readline.createInterface({
                 input: process.stdin,
                 output: process.stdout

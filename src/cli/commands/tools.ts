@@ -85,7 +85,9 @@ export function createToolsCommand(): Command {
   // 测试工具
   command
     .command('test <name>')
-    .description('Test a tool with arguments')
+    .description(
+      'Test a tool with arguments. Note: AskUserQuestion only prompts when stdin is a TTY; in pipes/CI it returns formatted text without blocking.'
+    )
     .option('-a, --args <json>', 'Tool arguments as JSON')
     .action(async (name, options) => {
       const registry = new ToolRegistry();
