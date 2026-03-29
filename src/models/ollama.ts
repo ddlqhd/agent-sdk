@@ -10,16 +10,10 @@ import { BaseModelAdapter, toolsToModelSchema } from './base.js';
  * Ollama 常见模型能力映射
  */
 const OLLAMA_CAPABILITIES: Record<string, ModelCapabilities> = {
-  'llama3': { contextLength: 8_192, maxOutputTokens: 2_048 },
-  'llama3:70b': { contextLength: 8_192, maxOutputTokens: 2_048 },
-  'llama3:8b': { contextLength: 8_192, maxOutputTokens: 2_048 },
-  'llama3.1': { contextLength: 131_072, maxOutputTokens: 8_192 },
-  'llama3.1:70b': { contextLength: 131_072, maxOutputTokens: 8_192 },
-  'llama3.1:8b': { contextLength: 131_072, maxOutputTokens: 8_192 },
-  'qwen2': { contextLength: 32_768, maxOutputTokens: 4_096 },
-  'qwen2:7b': { contextLength: 32_768, maxOutputTokens: 4_096 },
-  'mistral': { contextLength: 32_768, maxOutputTokens: 4_096 },
-  'codellama': { contextLength: 16_384, maxOutputTokens: 4_096 },
+  'qwen3.5:0.8b': { contextLength: 32_768, maxOutputTokens: 4_096 },
+  'minimax-m2.7:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
+  'nemotron-3-super:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
+  'glm-5:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
 };
 
 /**
@@ -43,7 +37,7 @@ export class OllamaAdapter extends BaseModelAdapter {
   constructor(config: OllamaConfig = {}) {
     super();
     this.baseUrl = config.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    this.model = config.model || 'llama3';
+    this.model = config.model || 'qwen3.5:0.8b';
 
     this.name = `ollama/${this.model}`;
 
@@ -104,7 +98,7 @@ export class OllamaAdapter extends BaseModelAdapter {
                   toolCall: {
                     id: `ollama_${Date.now()}`,
                     name: tc.function?.name || '',
-                    arguments: tc.function?.arguments || {}
+                    arguments: this.parseToolArguments(tc.function?.arguments)
                   }
                 };
               }
@@ -155,7 +149,7 @@ export class OllamaAdapter extends BaseModelAdapter {
       result.toolCalls = data.message.tool_calls.map((tc: any) => ({
         id: `ollama_${Date.now()}`,
         name: tc.function?.name || '',
-        arguments: tc.function?.arguments || {}
+        arguments: this.parseToolArguments(tc.function?.arguments)
       }));
     }
 
@@ -169,6 +163,39 @@ export class OllamaAdapter extends BaseModelAdapter {
     }
 
     return result;
+  }
+
+  private parseToolArguments(args: unknown): Record<string, unknown> {
+    if (args == null) return {};
+    if (typeof args === 'object' && !Array.isArray(args)) return args as Record<string, unknown>;
+    if (typeof args === 'string') {
+      try {
+        const parsed = JSON.parse(args);
+        return typeof parsed === 'object' && parsed !== null ? parsed : { value: parsed };
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  /**
+   * Ollama 要求 tool_calls.function.arguments 为对象，而非 JSON 字符串
+   */
+  protected override transformMessages(messages: ModelParams['messages']): unknown[] {
+    return messages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
+        id: tc.id,
+        type: 'function',
+        function: {
+          name: tc.name,
+          arguments: this.parseToolArguments(tc.arguments)
+        }
+      }))}),
+      ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
+    }));
   }
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
