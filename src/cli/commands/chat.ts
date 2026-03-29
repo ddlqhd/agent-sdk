@@ -57,9 +57,11 @@ export function createChatCommand(): Command {
         }
       }
 
+      const cwd = options.cwd || process.cwd();
       const agent = new Agent({
         model,
-        cwd: options.cwd || process.cwd(),
+        cwd,
+        hookConfigDir: cwd,
         systemPrompt: options.system,
         temperature: options.temperature,
         maxTokens: options.maxTokens,
@@ -238,9 +240,11 @@ export function createRunCommand(): Command {
           console.log(chalk.gray(`Loaded MCP config from: ${mcpResult.configPath}`));
         }
 
+        const cwd = options.cwd || process.cwd();
         const agent = new Agent({
           model,
-          cwd: options.cwd || process.cwd(),
+          cwd,
+          hookConfigDir: cwd,
           systemPrompt: options.system,
           temperature: options.temperature,
           maxTokens: options.maxTokens,
