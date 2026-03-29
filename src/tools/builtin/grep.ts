@@ -3,27 +3,34 @@ import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
 
 /**
- * Grep 内容搜索工具
+ * Grep 工具 - 内容搜索
  */
 export const grepTool = createTool({
-  name: 'grep',
+  name: 'Grep',
   category: 'search',
-  description:
-    'Searches for patterns in file contents using regular expressions. Returns matching lines with file paths and line numbers. Supports glob filtering, context lines, and case-insensitive search. Use this when you need to find where specific text or patterns appear in the codebase.',
+  description: `A powerful search tool built on ripgrep
+
+Usage:
+- ALWAYS use Grep for search tasks. NEVER invoke grep or rg as a Bash command. The Grep tool has been optimized for correct permissions and access.
+- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Filter files with glob parameter (e.g., "*.js", "**/*.tsx")
+- Use Agent tool for open-ended searches requiring multiple rounds
+- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping
+- Output: Returns matching lines with file paths and line numbers`,
   parameters: z.object({
-    pattern: z.string().describe('The regular expression pattern to search for'),
+    pattern: z.string().describe('The regular expression pattern to search for in file contents'),
     path: z
       .string()
       .optional()
-      .describe('The file or directory to search. Defaults to the current directory.'),
+      .describe('File or directory to search in. Defaults to current working directory.'),
     glob: z
       .string()
       .optional()
-      .describe('Filter files by glob pattern (e.g., "*.ts", "**/*.tsx")'),
+      .describe('Glob pattern to filter files (e.g. "*.js", "*.{ts,tsx}")'),
     case_insensitive: z
       .boolean()
       .default(false)
-      .describe('Case insensitive search (default: false)'),
+      .describe('Case insensitive search'),
     context: z
       .number()
       .int()
@@ -35,7 +42,7 @@ export const grepTool = createTool({
       .int()
       .min(1)
       .optional()
-      .describe('Limit output to first N results')
+      .describe('Limit output to first N results. Defaults to 250 when unspecified.')
   }),
   handler: async ({ pattern, path: searchPath, glob, case_insensitive, context, head_limit }) => {
     try {
@@ -87,7 +94,6 @@ export const grepTool = createTool({
             const fullPath = pathModule.join(dir, entry.name);
 
             if (entry.isDirectory()) {
-              // Skip common non-source directories
               if (['node_modules', '.git', 'dist', 'build', '__pycache__'].includes(entry.name)) {
                 continue;
               }

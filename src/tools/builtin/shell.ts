@@ -10,48 +10,62 @@ const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
 const KILL_DELAY = 5000;
 
 /**
- * Bash 命令执行工具
+ * Bash 工具 - 执行 shell 命令
  */
 export const bashTool = createTool({
-  name: 'bash',
+  name: 'Bash',
   category: 'shell',
-  description:
-    'Executes a given shell command in a persistent session. Use this tool to run system commands, install packages, compile code, or perform any operation that requires a shell. Each command runs in a separate process. Provide a short description of what the command does to help with debugging.',
+  description: `Executes a given bash command and returns its output.
+
+The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).
+
+IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:
+
+ - File search: Use Glob (NOT find or ls)
+ - Content search: Use Grep (NOT grep or rg)
+ - Read files: Use Read (NOT cat/head/tail)
+ - Edit files: Use Edit (NOT sed/awk)
+ - Write files: Use Write (NOT echo >file)
+ - Communication: Output text directly (NOT echo/printf)
+
+# Instructions
+- If your command will create new directories or files, first use this tool to run ls to verify the parent directory exists and is the correct location
+- Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
+- You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).`,
   parameters: z.object({
-    command: z.string().describe('The shell command to execute'),
+    command: z.string().describe('The command to execute'),
     description: z
       .string()
       .optional()
-      .describe('Clear 5-10 word description of what the command does'),
+      .describe('Clear, concise description of what this command does in active voice. Keep it brief (5-10 words).'),
     cwd: z.string().optional().describe('Working directory for the command'),
     timeout: z
       .number()
+      .int()
+      .min(1)
+      .max(600000)
       .optional()
-      .default(120000)
-      .describe('Timeout in milliseconds (default: 120000)'),
-    env: z
-      .record(z.string())
-      .optional()
-      .describe('Additional environment variables to set')
+      .describe('Optional timeout in milliseconds (max 600000)')
   }),
   isDangerous: true,
-  handler: async ({ command, description: desc, cwd, timeout, env }) => {
+  handler: async ({ command, description: desc, cwd, timeout }) => {
     return new Promise((resolve) => {
       const shellPath = getShellPath();
       let stdout = '';
       let stderr = '';
       let outputTruncated = false;
+      const effectiveTimeout = timeout ?? 120000;
 
       const child = spawn(command, [], {
         shell: shellPath,
         cwd,
-        env: { ...process.env, ...env },
+        env: { ...process.env },
       });
 
       const timer = setTimeout(() => {
         // Try SIGTERM first, then SIGKILL if process doesn't exit
         child.kill('SIGTERM');
-        
+
         const killTimer = setTimeout(() => {
           try {
             child.kill('SIGKILL');
@@ -64,10 +78,10 @@ export const bashTool = createTool({
         child.on('exit', () => clearTimeout(killTimer));
 
         resolve({
-          content: `${desc ? `[${desc}]\n` : ''}Command timed out after ${timeout}ms`,
+          content: `${desc ? `[${desc}]\n` : ''}Command timed out after ${effectiveTimeout}ms`,
           isError: true
         });
-      }, timeout);
+      }, effectiveTimeout);
 
       child.stdout.on('data', (data) => {
         if (!outputTruncated && stdout.length < MAX_OUTPUT_SIZE) {

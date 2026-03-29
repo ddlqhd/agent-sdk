@@ -29,7 +29,8 @@ export function zodToJsonSchema(schema: z.ZodSchema): unknown {
     return {
       type: 'object',
       properties,
-      required: required.length > 0 ? required : undefined
+      required: required.length > 0 ? required : undefined,
+      additionalProperties: false
     };
   }
 
@@ -40,22 +41,84 @@ export function zodToJsonSchema(schema: z.ZodSchema): unknown {
  * 将单个 Zod 字段转换为 JSON Schema
  */
 function zodFieldToJsonSchema(schema: z.ZodSchema): unknown {
+  // ZodDefault → unwrap inner type and extract default value
+  if ((schema as any)._def?.typeName === 'ZodDefault') {
+    const inner = zodFieldToJsonSchema((schema as any)._def.innerType);
+    const defaultValue = (schema as any)._def.defaultValue();
+    const desc = schema.description || (inner as Record<string, unknown>)?.description;
+    const result: Record<string, unknown> = { ...(inner as Record<string, unknown>) };
+    if (desc) result.description = desc;
+    result.default = defaultValue;
+    return result;
+  }
+
+  // ZodOptional → unwrap, preserve description from wrapper
+  if (schema instanceof z.ZodOptional) {
+    const inner = zodFieldToJsonSchema(schema.unwrap());
+    const desc = schema.description || (inner as Record<string, unknown>)?.description;
+    if (desc && (inner as Record<string, unknown>)?.description !== desc) {
+      return { ...(inner as Record<string, unknown>), description: desc };
+    }
+    return inner;
+  }
+
+  // ZodNullable → unwrap, preserve description
+  if (schema instanceof z.ZodNullable) {
+    const inner = zodFieldToJsonSchema(schema.unwrap());
+    const desc = schema.description || (inner as Record<string, unknown>)?.description;
+    if (desc && (inner as Record<string, unknown>)?.description !== desc) {
+      return { ...(inner as Record<string, unknown>), description: desc };
+    }
+    return inner;
+  }
+
+  // ZodString → add minLength/maxLength from checks
   if (schema instanceof z.ZodString) {
-    return { type: 'string', description: schema.description };
+    const result: Record<string, unknown> = { type: 'string' };
+    if (schema.description) result.description = schema.description;
+    for (const check of (schema as any)._def.checks) {
+      if (check.kind === 'min') result.minLength = check.value;
+      if (check.kind === 'max') result.maxLength = check.value;
+    }
+    return result;
   }
+
+  // ZodNumber → add int/minimum/maximum from checks
   if (schema instanceof z.ZodNumber) {
-    return { type: 'number', description: schema.description };
+    const result: Record<string, unknown> = { type: 'number' };
+    if (schema.description) result.description = schema.description;
+    for (const check of (schema as any)._def.checks) {
+      if (check.kind === 'int') result.type = 'integer';
+      if (check.kind === 'min') {
+        if (check.inclusive === false) result.exclusiveMinimum = check.value;
+        else result.minimum = check.value;
+      }
+      if (check.kind === 'max') {
+        if (check.inclusive === false) result.exclusiveMaximum = check.value;
+        else result.maximum = check.value;
+      }
+    }
+    return result;
   }
+
+  // ZodBoolean
   if (schema instanceof z.ZodBoolean) {
     return { type: 'boolean', description: schema.description };
   }
+
+  // ZodArray → add minItems/maxItems
   if (schema instanceof z.ZodArray) {
-    return {
+    const result: Record<string, unknown> = {
       type: 'array',
-      items: zodFieldToJsonSchema(schema.element),
-      description: schema.description
+      items: zodFieldToJsonSchema(schema.element)
     };
+    if (schema.description) result.description = schema.description;
+    if ((schema as any)._def.minLength) result.minItems = (schema as any)._def.minLength.value;
+    if ((schema as any)._def.maxLength) result.maxItems = (schema as any)._def.maxLength.value;
+    return result;
   }
+
+  // ZodEnum
   if (schema instanceof z.ZodEnum) {
     return {
       type: 'string',
@@ -63,12 +126,8 @@ function zodFieldToJsonSchema(schema: z.ZodSchema): unknown {
       description: schema.description
     };
   }
-  if (schema instanceof z.ZodOptional) {
-    return zodFieldToJsonSchema(schema.unwrap());
-  }
-  if (schema instanceof z.ZodNullable) {
-    return zodFieldToJsonSchema(schema.unwrap());
-  }
+
+  // Nested ZodObject
   if (schema instanceof z.ZodObject) {
     return zodToJsonSchema(schema);
   }
@@ -83,7 +142,7 @@ export function toolsToModelSchema(tools: ToolDefinition[]): ToolSchema[] {
   return tools.map(tool => ({
     name: tool.name,
     description: tool.description,
-    parameters: zodToJsonSchema(tool.parameters) as ToolSchema['parameters']
+    parameters: zodToJsonSchema(tool.parameters) as Record<string, unknown>
   }));
 }
 

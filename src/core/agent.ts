@@ -94,7 +94,7 @@ export class Agent {
     // 初始化工具注册中心
     this.toolRegistry = new ToolRegistry();
 
-    // 注册内置工具（包含 activate_skill 工具）
+    // 注册内置工具（包含 Skill 工具）
     if (config.tools !== undefined) {
       // 用户提供了自定义工具列表
       this.toolRegistry.registerMany(config.tools);

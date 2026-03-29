@@ -92,7 +92,7 @@ export class FileStorageStrategy implements OutputStrategy {
         `Output too large (${sizeKB} KB, ${lines.length} lines)\n\n` +
         `Summary:\n${summary}\n\n` +
         `Full output saved to: ${filepath}\n` +
-        `Use 'read_file' with offset/limit to view specific sections.`,
+        `Use 'Read' with offset/limit to view specific sections.`,
       metadata: {
         truncated: true,
         originalLength: content.length,
@@ -138,10 +138,10 @@ export class PaginationHintStrategy implements OutputStrategy {
 
     if (filePath) {
       hint += `To read efficiently:\n`;
-      hint += `1. Use 'read_file' with offset and limit:\n`;
-      hint += `   read_file(path="${filePath}", offset=1, limit=500)\n\n`;
-      hint += `2. Use 'grep' to search for patterns:\n`;
-      hint += `   grep(pattern="keyword", path="${filePath}")\n\n`;
+      hint += `1. Use 'Read' with offset and limit:\n`;
+      hint += `   Read(file_path="${filePath}", offset=1, limit=500)\n\n`;
+      hint += `2. Use 'Grep' to search for patterns:\n`;
+      hint += `   Grep(pattern="keyword", path="${filePath}")\n\n`;
     }
 
     hint += `First ${previewLines} lines preview:\n`;

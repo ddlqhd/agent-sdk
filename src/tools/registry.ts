@@ -138,7 +138,7 @@ export class ToolRegistry {
     return this.getAll().map(tool => ({
       name: tool.name,
       description: tool.description,
-      parameters: zodToJsonSchema(tool.parameters) as ToolSchema['parameters']
+      parameters: zodToJsonSchema(tool.parameters) as Record<string, unknown>
     }));
   }
 

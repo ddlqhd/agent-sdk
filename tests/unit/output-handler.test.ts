@@ -55,14 +55,14 @@ describe('OutputHandler', () => {
       const handler = createOutputHandler();
       const lines = Array(100).fill('line content');
       const longContent = lines.join('\n').repeat(1000);
-      const result = await handler.handle(longContent, 'read_file', 'filesystem', {
-        args: { path: '/test/file.txt' }
+      const result = await handler.handle(longContent, 'Read', 'filesystem', {
+        args: { file_path: '/test/file.txt' }
       });
 
       expect(result.metadata?.truncated).toBe(true);
       expect(result.content).toContain('Content is too large');
       expect(result.content).toContain('/test/file.txt');
-      expect(result.content).toContain('read_file');
+      expect(result.content).toContain('Read');
     });
 
     it('should use SmartTruncateStrategy for search category', async () => {
@@ -127,13 +127,13 @@ describe('PaginationHintStrategy', () => {
     const lines = Array(100).fill('content');
     const longContent = lines.join('\n').repeat(1000);
 
-    const result = await strategy.handle(longContent, 'read_file', {
-      args: { path: '/some/file.txt' }
+    const result = await strategy.handle(longContent, 'Read', {
+      args: { file_path: '/some/file.txt' }
     });
 
     expect(result.content).toContain('/some/file.txt');
-    expect(result.content).toContain('read_file');
-    expect(result.content).toContain('grep');
+    expect(result.content).toContain('Read');
+    expect(result.content).toContain('Grep');
   });
 
   it('should show preview lines', async () => {
@@ -141,7 +141,7 @@ describe('PaginationHintStrategy', () => {
     const lines = Array.from({ length: 200 }, (_, i) => `Line ${i}`);
     const longContent = lines.join('\n');
 
-    const result = await strategy.handle(longContent, 'read_file');
+    const result = await strategy.handle(longContent, 'Read');
 
     expect(result.content).toContain(`First ${OUTPUT_CONFIG.summaryHeadLines} lines preview`);
     expect(result.content).toContain('Line 0');

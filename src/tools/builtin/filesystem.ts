@@ -9,38 +9,46 @@ const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
 
 /**
- * 读取文件工具
+ * Read 工具 - 读取文件内容
  */
 export const readFileTool = createTool({
-  name: 'read_file',
+  name: 'Read',
   category: 'filesystem',
-  description:
-    'Reads the contents of a text file. Use this tool when you want to see what is inside a file. Outputs with cat -n style line numbers. Lines longer than 2000 characters are truncated. Use the offset and limit parameters to read specific line ranges of large files. NOTE: This tool only works with text files (e.g., .txt, .md, .json, .ts, .js, .py). Do NOT use it for binary files like .xlsx, .pdf, .png, .zip, .exe, etc., as the output will be garbled.',
+  description: `Reads a file from the local filesystem. You can access any file directly by using this tool.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Results are returned using cat -n style, with line numbers starting at 1
+- Lines longer than 2000 characters are truncated
+- Use the offset and limit parameters to read specific line ranges of large files
+- If you read a file that exists but has empty contents you will receive an error message`,
   parameters: z.object({
-    path: z.string().describe('The absolute path to the file to read'),
+    file_path: z.string().describe('The absolute path to the file to read'),
     offset: z
       .number()
       .int()
       .min(1)
       .optional()
-      .describe('The line number to start reading from (1-indexed)'),
+      .describe('The line number to start reading from (1-indexed). Only provide if the file is too large to read at once'),
     limit: z
       .number()
       .int()
       .min(1)
       .optional()
-      .describe('The number of lines to read. Defaults to 2000.')
+      .describe('The number of lines to read. Only provide if the file is too large to read at once')
   }),
-  handler: async ({ path, offset, limit }) => {
+  handler: async ({ file_path, offset, limit }) => {
     try {
       const fs = await import('fs/promises');
       const { createReadStream } = await import('fs');
       const { createInterface } = await import('readline');
 
-      const stat = await fs.stat(path);
+      const stat = await fs.stat(file_path);
       if (!stat.isFile()) {
         return {
-          content: `Error: ${path} is not a file`,
+          content: `Error: ${file_path} is not a file`,
           isError: true
         };
       }
@@ -48,7 +56,7 @@ export const readFileTool = createTool({
       const startLine = offset ? offset - 1 : 0;
       const maxLines = limit ?? DEFAULT_READ_LIMIT;
 
-      const stream = createReadStream(path, { encoding: 'utf8' });
+      const stream = createReadStream(file_path, { encoding: 'utf8' });
       const rl = createInterface({
         input: stream,
         crlfDelay: Infinity
@@ -124,27 +132,33 @@ export const readFileTool = createTool({
 });
 
 /**
- * 写入文件工具
+ * Write 工具 - 写入文件
  */
 export const writeFileTool = createTool({
-  name: 'write_file',
+  name: 'Write',
   category: 'filesystem',
-  description:
-    'Writes a file to the local filesystem. Prefer to use the edit tool over write_file when making targeted changes to existing files. For new files, use write_file directly. Parent directories are created automatically.',
+  description: `Writes a file to the local filesystem.
+
+Usage:
+- This tool will overwrite the existing file if there is one at the provided path
+- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first
+- Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites
+- NEVER create documentation files (*.md) or README files unless explicitly requested by the User
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked`,
   parameters: z.object({
-    path: z.string().describe('The absolute path to the file to write'),
+    file_path: z.string().describe('The absolute path to the file to write (must be absolute, not relative)'),
     content: z.string().describe('The content to write to the file')
   }),
-  handler: async ({ path, content }) => {
+  handler: async ({ file_path, content }) => {
     try {
       const fs = await import('fs/promises');
       const pathModule = await import('path');
 
-      const dir = pathModule.dirname(path);
+      const dir = pathModule.dirname(file_path);
       await fs.mkdir(dir, { recursive: true });
 
-      await fs.writeFile(path, content, 'utf-8');
-      return { content: `Successfully wrote to ${path}` };
+      await fs.writeFile(file_path, content, 'utf-8');
+      return { content: `Successfully wrote to ${file_path}` };
     } catch (error) {
       return {
         content: `Error writing file: ${error instanceof Error ? error.message : String(error)}`,
@@ -155,21 +169,28 @@ export const writeFileTool = createTool({
 });
 
 /**
- * 编辑文件工具
+ * Edit 工具 - 精确编辑文件
  */
 export const editTool = createTool({
-  name: 'edit',
+  name: 'Edit',
   category: 'filesystem',
-  description:
-    'Makes targeted edits to a specific file by replacing exact text strings. You must use read_file to view the file contents before editing. The old_string must uniquely identify the location to edit (must appear exactly once in the file), unless replace_all is true.',
+  description: `Performs exact string replacements in files.
+
+Usage:
+- You must use the Read tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked
+- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string
+- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance`,
   parameters: z.object({
-    file_path: z.string().describe('The absolute path to the file to edit'),
-    old_string: z.string().describe('The exact text to find and replace'),
-    new_string: z.string().describe('The replacement text (must differ from old_string)'),
+    file_path: z.string().describe('The absolute path to the file to modify'),
+    old_string: z.string().describe('The text to replace'),
+    new_string: z.string().describe('The text to replace it with (must be different from old_string)'),
     replace_all: z
       .boolean()
       .default(false)
-      .describe('Replace all occurrences of old_string (default: false)')
+      .describe('Replace all occurrences of old_string (default false)')
   }),
   handler: async ({ file_path, old_string, new_string, replace_all }) => {
     try {
@@ -222,99 +243,22 @@ export const editTool = createTool({
 });
 
 /**
- * 列出目录文件工具
- */
-export const listDirectoryTool = createTool({
-  name: 'list_directory',
-  category: 'filesystem',
-  description:
-    'Lists files and subdirectories directly within a specified path. Use this to explore directory structures and understand the layout of a codebase. Supports ignore patterns to exclude unwanted entries.',
-  parameters: z.object({
-    path: z.string().default('.').describe('The absolute directory path to list'),
-    recursive: z
-      .preprocess((val) => {
-        if (typeof val === 'string') {
-          return val.toLowerCase() === 'true';
-        }
-        return val;
-      }, z.boolean().default(false))
-      .describe('Whether to list recursively'),
-    ignore: z
-      .array(z.string())
-      .optional()
-      .describe('Glob patterns to exclude from results (e.g., ["node_modules", ".git"])')
-  }),
-  handler: async ({ path, recursive, ignore }) => {
-    try {
-      const fs = await import('fs/promises');
-      const pathModule = await import('path');
-
-      function shouldIgnore(name: string): boolean {
-        if (!ignore) return false;
-        return ignore.some((pattern: string) => {
-          const regex = new RegExp(
-            '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
-          );
-          return regex.test(name);
-        });
-      }
-
-      async function listDir(dirPath: string, prefix: string = ''): Promise<string[]> {
-        const entries = await fs.readdir(dirPath, { withFileTypes: true });
-        const results: string[] = [];
-
-        for (const entry of entries) {
-          if (shouldIgnore(entry.name)) continue;
-
-          const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-
-          if (entry.isDirectory()) {
-            results.push(`${relativePath}/`);
-            if (recursive) {
-              const subResults = await listDir(
-                pathModule.join(dirPath, entry.name),
-                relativePath
-              );
-              results.push(...subResults);
-            }
-          } else {
-            results.push(relativePath);
-          }
-        }
-
-        return results;
-      }
-
-      const files = await listDir(path);
-
-      return {
-        content: files.length > 0 ? files.join('\n') : 'No files found'
-      };
-    } catch (error) {
-      return {
-        content: `Error listing directory: ${error instanceof Error ? error.message : String(error)}`,
-        isError: true
-      };
-    }
-  }
-});
-
-/**
- * Glob 文件搜索工具
+ * Glob 工具 - 文件模式匹配
  */
 export const globTool = createTool({
-  name: 'glob',
+  name: 'Glob',
   category: 'filesystem',
-  description:
-    'Searches for files matching a glob pattern. Fast file pattern matching that works with any codebase size. Returns matching file paths sorted by modification time. Use this tool when you need to find files by name patterns like **/*.ts or src/**/*.tsx.',
+  description: `- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead`,
   parameters: z.object({
-    pattern: z
-      .string()
-      .describe('The glob pattern to match (e.g., "**/*.ts", "src/**/*.tsx")'),
+    pattern: z.string().describe('The glob pattern to match files against'),
     path: z
       .string()
       .optional()
-      .describe('The directory to search in. Defaults to the current working directory.')
+      .describe('The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. Must be a valid directory path if provided.')
   }),
   handler: async ({ pattern, path: searchPath }) => {
     try {
@@ -343,7 +287,7 @@ export const globTool = createTool({
         }
 
         for (const entry of entries) {
-          // Skip dotfiles unless pattern explicitly targets them (starts with '.' or contains '/.')
+          // Skip dotfiles unless pattern explicitly targets them
           if (entry.name.startsWith('.') && !pattern.startsWith('.') && !pattern.includes('/.')) continue;
 
           const fullPath = pathModule.join(dir, entry.name);
@@ -378,36 +322,6 @@ export const globTool = createTool({
 });
 
 /**
- * 删除文件工具
- */
-export const deleteFileTool = createTool({
-  name: 'delete_file',
-  category: 'filesystem',
-  description:
-    'Deletes a file or directory. Use with caution as this operation cannot be undone. Set recursive to true to delete non-empty directories.',
-  parameters: z.object({
-    path: z.string().describe('The absolute path to delete'),
-    recursive: z
-      .boolean()
-      .default(false)
-      .describe('Delete directories recursively (required for non-empty directories)')
-  }),
-  isDangerous: true,
-  handler: async ({ path, recursive }) => {
-    try {
-      const fs = await import('fs/promises');
-      await fs.rm(path, { recursive, force: true });
-      return { content: `Successfully deleted ${path}` };
-    } catch (error) {
-      return {
-        content: `Error deleting: ${error instanceof Error ? error.message : String(error)}`,
-        isError: true
-      };
-    }
-  }
-});
-
-/**
  * 获取所有文件系统工具
  */
 export function getFileSystemTools(): ToolDefinition[] {
@@ -415,8 +329,6 @@ export function getFileSystemTools(): ToolDefinition[] {
     readFileTool,
     writeFileTool,
     editTool,
-    globTool,
-    listDirectoryTool,
-    deleteFileTool
+    globTool
   ];
 }

@@ -98,7 +98,7 @@ describe('ToolRegistry', () => {
 
   it('should get all tools', () => {
     const registry = new ToolRegistry();
-    
+
     registry.register(createTool({
       name: 'tool1',
       description: 'Tool 1',
@@ -119,7 +119,7 @@ describe('ToolRegistry', () => {
 
   it('should convert to schema', () => {
     const registry = new ToolRegistry();
-    
+
     registry.register(createTool({
       name: 'test',
       description: 'Test tool',
@@ -180,7 +180,7 @@ describe('ToolRegistry', () => {
       isDangerous: false
     }));
 
-    const dangerous = registry.filter(t => t.isDangerous);
+    const dangerous = registry.filter(t => t.isDangerous === true);
     expect(dangerous).toHaveLength(1);
     expect(dangerous[0].name).toBe('tool_a');
   });
@@ -188,13 +188,13 @@ describe('ToolRegistry', () => {
   it('should search tools by name or description', () => {
     const registry = new ToolRegistry();
     registry.register(createTool({
-      name: 'read_file',
+      name: 'Read',
       description: 'Read file contents',
       parameters: z.object({}),
       handler: async () => ({ content: 'ok' })
     }));
     registry.register(createTool({
-      name: 'write_file',
+      name: 'Write',
       description: 'Write to a file',
       parameters: z.object({}),
       handler: async () => ({ content: 'ok' })
@@ -202,7 +202,7 @@ describe('ToolRegistry', () => {
 
     const results = registry.search('read');
     expect(results).toHaveLength(1);
-    expect(results[0].name).toBe('read_file');
+    expect(results[0].name).toBe('Read');
   });
 
   it('should export tool configs', () => {
@@ -229,20 +229,25 @@ describe('Builtin Tools', () => {
     const names = tools.map(t => t.name);
 
     // Core tools should be present
-    expect(names).toContain('read_file');
-    expect(names).toContain('write_file');
-    expect(names).toContain('edit');
-    expect(names).toContain('glob');
-    expect(names).toContain('grep');
-    expect(names).toContain('list_directory');
-    expect(names).toContain('bash');
-    expect(names).toContain('web_fetch');
-    expect(names).toContain('web_search');
-    expect(names).toContain('http_request');
-    expect(names).toContain('download_file');
-    expect(names).toContain('todo_write');
-    expect(names).toContain('question');
-    expect(names).toContain('delete_file');
+    expect(names).toContain('Read');
+    expect(names).toContain('Write');
+    expect(names).toContain('Edit');
+    expect(names).toContain('Glob');
+    expect(names).toContain('Grep');
+    expect(names).toContain('Bash');
+    expect(names).toContain('WebFetch');
+    expect(names).toContain('WebSearch');
+    expect(names).toContain('TaskCreate');
+    expect(names).toContain('TaskUpdate');
+    expect(names).toContain('TaskList');
+    expect(names).toContain('AskUserQuestion');
+
+    // Removed tools should not be present
+    expect(names).not.toContain('DeleteFile');
+    expect(names).not.toContain('list_directory');
+    expect(names).not.toContain('http_request');
+    expect(names).not.toContain('download_file');
+    expect(names).not.toContain('todo_write');
   });
 
   it('should filter safe tools (no dangerous)', async () => {
@@ -253,10 +258,9 @@ describe('Builtin Tools', () => {
 
     expect(dangerous).toHaveLength(0);
   });
-
 });
 
-describe('Read File Tool', () => {
+describe('Read Tool', () => {
   it('should read a file with line numbers', async () => {
     const { readFileTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
@@ -269,7 +273,7 @@ describe('Read File Tool', () => {
     await fs.mkdir(path.dirname(tmpFile), { recursive: true });
     await fs.writeFile(tmpFile, 'line1\nline2\nline3', 'utf-8');
 
-    const result = await registry.execute('read_file', { path: tmpFile });
+    const result = await registry.execute('Read', { file_path: tmpFile });
 
     expect(result.isError).toBeFalsy();
     expect(result.content).toContain('line1');
@@ -293,7 +297,7 @@ describe('Read File Tool', () => {
     const longLine = 'a'.repeat(3000);
     await fs.writeFile(tmpFile, longLine, 'utf-8');
 
-    const result = await registry.execute('read_file', { path: tmpFile });
+    const result = await registry.execute('Read', { file_path: tmpFile });
 
     expect(result.isError).toBeFalsy();
     expect(result.content).toContain('line truncated to 2000 chars');
@@ -314,8 +318,8 @@ describe('Read File Tool', () => {
     await fs.mkdir(path.dirname(tmpFile), { recursive: true });
     await fs.writeFile(tmpFile, 'line1\nline2\nline3\nline4\nline5', 'utf-8');
 
-    const result = await registry.execute('read_file', {
-      path: tmpFile,
+    const result = await registry.execute('Read', {
+      file_path: tmpFile,
       offset: 2,
       limit: 2
     });
@@ -344,7 +348,7 @@ describe('Edit Tool', () => {
     await fs.mkdir(path.dirname(tmpFile), { recursive: true });
     await fs.writeFile(tmpFile, 'hello world', 'utf-8');
 
-    const result = await registry.execute('edit', {
+    const result = await registry.execute('Edit', {
       file_path: tmpFile,
       old_string: 'same',
       new_string: 'same'
@@ -368,7 +372,7 @@ describe('Edit Tool', () => {
     await fs.mkdir(path.dirname(tmpFile), { recursive: true });
     await fs.writeFile(tmpFile, 'hello world', 'utf-8');
 
-    const result = await registry.execute('edit', {
+    const result = await registry.execute('Edit', {
       file_path: tmpFile,
       old_string: 'world',
       new_string: 'universe'
@@ -382,63 +386,108 @@ describe('Edit Tool', () => {
   });
 });
 
-describe('Todo Tool', () => {
-  it('should validate exactly one in_progress task', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+describe('Task Tools', () => {
+  it('should create and list tasks', async () => {
+    const { taskCreateTool, taskListTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(todoWriteTool);
+    registry.register(taskCreateTool);
+    registry.register(taskListTool);
 
-    // Zero in_progress
-    const result1 = await registry.execute('todo_write', {
-      todos: [
-        { content: 'Task 1', activeForm: 'Doing task 1', status: 'pending' }
-      ]
+    const createResult = await registry.execute('TaskCreate', {
+      subject: 'Fix bug',
+      description: 'Fix the login bug'
     });
-    expect(result1.isError).toBe(true);
-    expect(result1.content).toContain('Expected exactly 1');
 
-    // Two in_progress
-    const result2 = await registry.execute('todo_write', {
-      todos: [
-        { content: 'Task 1', activeForm: 'Doing task 1', status: 'in_progress' },
-        { content: 'Task 2', activeForm: 'Doing task 2', status: 'in_progress' }
-      ]
-    });
-    expect(result2.isError).toBe(true);
+    expect(createResult.isError).toBeFalsy();
+    expect(createResult.content).toContain('Task created');
+
+    const listResult = await registry.execute('TaskList', {});
+    expect(listResult.isError).toBeFalsy();
+    expect(listResult.content).toContain('Fix bug');
+    expect(listResult.content).toContain('pending');
   });
 
-  it('should accept valid todo list', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+  it('should update task status', async () => {
+    const { taskCreateTool, taskUpdateTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(todoWriteTool);
+    registry.register(taskCreateTool);
+    registry.register(taskUpdateTool);
 
-    const result = await registry.execute('todo_write', {
-      todos: [
-        { content: 'Task 1', activeForm: 'Doing task 1', status: 'completed' },
-        { content: 'Task 2', activeForm: 'Doing task 2', status: 'in_progress' },
-        { content: 'Task 3', activeForm: 'Doing task 3', status: 'pending' }
-      ]
+    const createResult = await registry.execute('TaskCreate', {
+      subject: 'Write tests',
+      description: 'Write unit tests'
     });
 
-    expect(result.isError).toBeFalsy();
-    expect(result.content).toContain('completed');
-    expect(result.content).toContain('in progress');
-    expect(result.content).toContain('pending');
+    const taskId = (createResult.metadata as any)?.task?.id;
+    expect(taskId).toBeDefined();
+
+    const updateResult = await registry.execute('TaskUpdate', {
+      taskId,
+      status: 'in_progress'
+    });
+
+    expect(updateResult.isError).toBeFalsy();
+    expect(updateResult.content).toContain('>');
+  });
+
+  it('should delete tasks', async () => {
+    const { taskCreateTool, taskUpdateTool, taskListTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(taskCreateTool);
+    registry.register(taskUpdateTool);
+    registry.register(taskListTool);
+
+    const createResult = await registry.execute('TaskCreate', {
+      subject: 'Obsolete task',
+      description: 'To be deleted'
+    });
+
+    const taskId = (createResult.metadata as any)?.task?.id;
+
+    const deleteResult = await registry.execute('TaskUpdate', {
+      taskId,
+      status: 'deleted'
+    });
+
+    expect(deleteResult.isError).toBeFalsy();
+    expect(deleteResult.content).toContain('deleted');
+
+    const listResult = await registry.execute('TaskList', {});
+    expect(listResult.content).not.toContain('Obsolete task');
+  });
+
+  it('should return error for non-existent task', async () => {
+    const { taskUpdateTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(taskUpdateTool);
+
+    const result = await registry.execute('TaskUpdate', {
+      taskId: '999',
+      status: 'completed'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not found');
   });
 });
 
-describe('Question Tool', () => {
-  it('should format question with options', async () => {
+describe('AskUserQuestion Tool', () => {
+  it('should format questions with options', async () => {
     const { questionTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(questionTool);
 
-    const result = await registry.execute('question', {
-      question: 'What framework do you prefer?',
-      header: 'Framework',
-      options: [
-        { label: 'React', description: 'Meta UI library' },
-        { label: 'Vue', description: 'Progressive framework' }
+    const result = await registry.execute('AskUserQuestion', {
+      questions: [
+        {
+          question: 'What framework do you prefer?',
+          header: 'Framework',
+          options: [
+            { label: 'React', description: 'Meta UI library' },
+            { label: 'Vue', description: 'Progressive framework' }
+          ],
+          multiSelect: false
+        }
       ]
     });
 
@@ -446,5 +495,126 @@ describe('Question Tool', () => {
     expect(result.content).toContain('React');
     expect(result.content).toContain('Vue');
     expect(result.metadata).toBeDefined();
+  });
+});
+
+describe('Schema Conversion', () => {
+  it('should include additionalProperties: false for objects', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        name: z.string().describe('A name'),
+        count: z.number().optional()
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    expect(schema[0].parameters.additionalProperties).toBe(false);
+  });
+
+  it('should convert number constraints', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        count: z.number().int().min(1).max(100)
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const countProp = (schema[0].parameters.properties as any).count;
+    expect(countProp.type).toBe('integer');
+    expect(countProp.minimum).toBe(1);
+    expect(countProp.maximum).toBe(100);
+  });
+
+  it('should convert default values', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        flag: z.boolean().default(false)
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const flagProp = (schema[0].parameters.properties as any).flag;
+    expect(flagProp.type).toBe('boolean');
+    expect(flagProp.default).toBe(false);
+  });
+
+  it('should convert array constraints', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        items: z.array(z.string()).min(1).max(4)
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const itemsProp = (schema[0].parameters.properties as any).items;
+    expect(itemsProp.type).toBe('array');
+    expect(itemsProp.minItems).toBe(1);
+    expect(itemsProp.maxItems).toBe(4);
+  });
+
+  it('should convert string constraints', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        query: z.string().min(2)
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const queryProp = (schema[0].parameters.properties as any).query;
+    expect(queryProp.type).toBe('string');
+    expect(queryProp.minLength).toBe(2);
+  });
+
+  it('should preserve description through optional wrapper', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        path: z.string().describe('The path').optional()
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const pathProp = (schema[0].parameters.properties as any).path;
+    expect(pathProp.description).toBe('The path');
+  });
+
+  it('should preserve description through default wrapper', () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'test',
+      description: 'Test',
+      parameters: z.object({
+        flag: z.boolean().describe('Enable feature').default(true)
+      }),
+      handler: async () => ({ content: 'ok' })
+    }));
+
+    const schema = registry.toSchema();
+    const flagProp = (schema[0].parameters.properties as any).flag;
+    expect(flagProp.description).toBe('Enable feature');
+    expect(flagProp.default).toBe(true);
   });
 });

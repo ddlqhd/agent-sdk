@@ -3,38 +3,43 @@ import { createTool } from '../registry.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 
 /**
- * 创建 Skill 激活工具
+ * 创建 Skill 工具
  */
-export function createActivateSkillTool(skillRegistry: SkillRegistry) {
+export function createSkillTool(skillRegistry: SkillRegistry) {
   return createTool({
-    name: 'activate_skill',
+    name: 'Skill',
     category: 'skills',
-    description: 'Activate a skill by loading its full content from SKILL.md. Use this when a task matches a skill\'s description.',
+    description: `Execute a skill within the main conversation.
+
+When users ask you to perform tasks, check if any of the available skills match. Skills provide specialized capabilities and domain knowledge.
+
+How to invoke:
+- Use this tool with the skill name and optional arguments
+- Available skills are listed in system-reminder messages in the conversation
+- When a skill matches the user's request, invoke the relevant Skill tool BEFORE generating any other response about the task
+- Do not invoke a skill that is already running`,
     parameters: z.object({
-      skillName: z.string().describe('The name of the skill to activate')
+      skill: z.string().describe('The skill name. E.g., "commit", "review-pr", or "pdf"'),
+      args: z.string().optional().describe('Optional arguments for the skill')
     }),
-    handler: async ({ skillName }) => {
+    handler: async ({ skill: skillName }) => {
       try {
-        // 检查 skill 是否存在
         if (!skillRegistry.has(skillName)) {
           const available = skillRegistry.getMetadataList();
           const availableList = available.length > 0
             ? available.map(s => `- ${s.name}: ${s.description}`).join('\n')
             : 'No skills available.';
-          
+
           return {
             content: `Skill "${skillName}" not found.\n\nAvailable skills:\n${availableList}`,
             isError: true
           };
         }
 
-        // 加载 skill 全量内容
         const fullContent = await skillRegistry.loadFullContent(skillName);
         const skill = skillRegistry.get(skillName);
 
-        // 格式化返回内容
         const sections: string[] = [];
-
         sections.push(`# Skill: ${skill?.metadata.name || skillName}`);
         sections.push(`Description: ${skill?.metadata.description || ''}`);
         sections.push(`Base Path: ${skill?.path || ''}`);
@@ -60,5 +65,5 @@ export function createActivateSkillTool(skillRegistry: SkillRegistry) {
  * 获取 Skill 相关工具
  */
 export function getSkillTools(skillRegistry: SkillRegistry) {
-  return [createActivateSkillTool(skillRegistry)];
+  return [createSkillTool(skillRegistry)];
 }
