@@ -182,62 +182,18 @@ wss.on('connection', (socket: WebSocket) => {
           const ac = new AbortController();
           state.abortByRequest.set(requestId, ac);
 
-          if (msg.type === 'chat_run') {
-            try {
-              const result = await state.agent.run(msg.text, {
-                sessionId: msg.sessionId,
-                signal: ac.signal
-              });
-              sendJson(socket, { type: 'stream_event', event: { type: 'start', timestamp: Date.now() } });
-              if (result.content) {
-                sendJson(socket, {
-                  type: 'stream_event',
-                  event: { type: 'text_delta', content: result.content }
-                });
-              }
-              sendJson(socket, {
-                type: 'stream_event',
-                event: {
-                  type: 'end',
-                  usage: result.usage,
-                  timestamp: Date.now()
-                }
-              });
-              sendJson(socket, {
-                type: 'chat_done',
-                requestId,
-                sessionId: result.sessionId,
-                finalText: result.content,
-                usage: result.usage as Record<string, unknown> | undefined
-              });
-            } catch (e) {
-              sendJson(socket, {
-                type: 'stream_event',
-                event: serializeStreamEvent({
-                  type: 'error',
-                  error: e instanceof Error ? e : new Error(String(e))
-                })
-              });
-              sendJson(socket, {
-                type: 'chat_done',
-                requestId,
-                sessionId: state.agent.getSessionManager().sessionId || '',
-                finalText: ''
-              });
-            } finally {
-              state.abortByRequest.delete(requestId);
-            }
-            return;
-          }
-
           try {
             let finalText = '';
+            let lastUsage: Record<string, unknown> | undefined;
             for await (const event of state.agent.stream(msg.text, {
               sessionId: msg.sessionId,
               signal: ac.signal
             })) {
               if (event.type === 'text_delta') {
                 finalText += event.content;
+              }
+              if (event.type === 'end' && event.usage) {
+                lastUsage = event.usage as Record<string, unknown>;
               }
               sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });
             }
@@ -246,7 +202,8 @@ wss.on('connection', (socket: WebSocket) => {
               type: 'chat_done',
               requestId,
               sessionId: sid,
-              finalText
+              finalText,
+              usage: lastUsage
             });
           } catch (e) {
             sendJson(socket, {

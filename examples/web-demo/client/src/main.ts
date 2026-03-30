@@ -24,7 +24,10 @@ let configured = false;
 let currentSessionId: string | undefined;
 let activeRequestId: string | null = null;
 let eventFilter: 'all' | 'text' | 'tool' | 'other' = 'all';
-const pendingAssistantChunks: string[] = [];
+/** Body element of the assistant bubble currently receiving streamed text; null when idle. */
+let streamingAssistantBodyEl: HTMLElement | null = null;
+
+const MAX_TOOL_SNIPPET_CHARS = 14_000;
 
 const MODEL_HINTS: Record<ModelProvider, string> = {
   openai: 'gpt-4o',
@@ -48,6 +51,7 @@ function resetChatUiAfterDisconnect(): void {
   activeRequestId = null;
   btnStop.disabled = true;
   btnSend.disabled = false;
+  finishStreamingAssistant();
 }
 
 function connect(): void {
@@ -113,18 +117,16 @@ function handleServerMessage(msg: ServerMessage): void {
       return;
     case 'stream_event':
       logStreamEvent(msg.event);
-      if (msg.event.type === 'text_delta' && typeof msg.event.content === 'string') {
-        pendingAssistantChunks.push(msg.event.content);
-      }
+      handleStreamEventInChatLog(msg.event);
       if (msg.event.type === 'end') {
-        flushAssistantMessage();
+        finishStreamingAssistant();
       }
       return;
     case 'chat_done':
       activeRequestId = null;
       btnStop.disabled = true;
       btnSend.disabled = false;
-      flushAssistantMessage();
+      finishStreamingAssistant();
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
       appendEventLine('chat_done', { requestId: msg.requestId, usage: msg.usage });
@@ -145,16 +147,171 @@ function refreshSessionLabel(): void {
   currentSessionEl.textContent = currentSessionId || '—';
 }
 
-function flushAssistantMessage(): void {
-  if (pendingAssistantChunks.length === 0) return;
-  appendChatMessage('assistant', pendingAssistantChunks.join(''));
-  pendingAssistantChunks.length = 0;
+function ensureStreamingAssistantBubble(): HTMLElement {
+  if (streamingAssistantBodyEl?.isConnected) {
+    return streamingAssistantBodyEl;
+  }
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  const role = document.createElement('div');
+  role.className = 'role';
+  role.textContent = 'assistant';
+  const body = document.createElement('span');
+  body.className = 'msg-body';
+  div.appendChild(role);
+  div.appendChild(body);
+  chatLog.appendChild(div);
+  streamingAssistantBodyEl = body;
+  return body;
+}
+
+function appendAssistantStreamDelta(chunk: string): void {
+  const body = ensureStreamingAssistantBubble();
+  body.textContent += chunk;
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function finishStreamingAssistant(): void {
+  streamingAssistantBodyEl = null;
+}
+
+function truncateForChatSnippet(text: string, max = MAX_TOOL_SNIPPET_CHARS): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n\n… (truncated, ${text.length} chars total)`;
+}
+
+function formatToolArguments(args: unknown): string {
+  if (args === undefined) return '';
+  if (typeof args === 'string') return args;
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function shortId(id: string): string {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 8)}…`;
+}
+
+/** End assistant text before tool UI so deltas are not appended to the wrong bubble. */
+function beforeToolUiInChat(): void {
+  finishStreamingAssistant();
+}
+
+function appendToolCallChatRow(event: Record<string, unknown>): void {
+  const name = typeof event.name === 'string' ? event.name : '(unknown tool)';
+  const id = typeof event.id === 'string' ? event.id : '';
+  const argsText = truncateForChatSnippet(formatToolArguments(event.arguments));
+
+  const div = document.createElement('div');
+  div.className = 'msg tool-call';
+
+  const role = document.createElement('div');
+  role.className = 'role';
+  role.textContent = 'tool call';
+
+  const title = document.createElement('div');
+  title.className = 'msg-tool-title';
+  title.textContent = name;
+
+  div.appendChild(role);
+  div.appendChild(title);
+  if (id) {
+    const idEl = document.createElement('div');
+    idEl.className = 'msg-tool-id';
+    idEl.textContent = `id ${shortId(id)}`;
+    div.appendChild(idEl);
+  }
+
+  const pre = document.createElement('pre');
+  pre.className = 'msg-tool-pre';
+  pre.textContent = argsText || '{}';
+  div.appendChild(pre);
+
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function appendToolResultChatRow(toolCallId: string, body: string, variant: 'result' | 'error'): void {
+  const div = document.createElement('div');
+  div.className = variant === 'error' ? 'msg tool-result tool-result-error' : 'msg tool-result';
+
+  const role = document.createElement('div');
+  role.className = 'role';
+  role.textContent = variant === 'error' ? 'tool error' : 'tool result';
+
+  const idEl = document.createElement('div');
+  idEl.className = 'msg-tool-id';
+  idEl.textContent = `toolCallId ${shortId(toolCallId)}`;
+
+  const pre = document.createElement('pre');
+  pre.className = 'msg-tool-pre';
+  pre.textContent = truncateForChatSnippet(body);
+
+  div.appendChild(role);
+  div.appendChild(idEl);
+  div.appendChild(pre);
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function handleStreamEventInChatLog(event: Record<string, unknown>): void {
+  const t = event.type;
+  if (t === 'tool_call_start' || t === 'tool_call_delta' || t === 'tool_call_end') {
+    if (t === 'tool_call_start') {
+      beforeToolUiInChat();
+    }
+    return;
+  }
+
+  if (t === 'tool_call') {
+    beforeToolUiInChat();
+    appendToolCallChatRow(event);
+    return;
+  }
+
+  if (t === 'tool_result') {
+    const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
+    const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result ?? '');
+    appendToolResultChatRow(id, result, 'result');
+    return;
+  }
+
+  if (t === 'tool_error') {
+    const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
+    const err = event.error as Record<string, unknown> | undefined;
+    const msg =
+      err && typeof err.message === 'string'
+        ? err.message
+        : typeof event.message === 'string'
+          ? event.message
+          : JSON.stringify(event);
+    appendToolResultChatRow(id, msg, 'error');
+    return;
+  }
+
+  if (t === 'text_delta' && typeof event.content === 'string') {
+    appendAssistantStreamDelta(event.content);
+  }
 }
 
 function appendChatMessage(role: 'user' | 'assistant', text: string): void {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  div.innerHTML = `<div class="role">${role}</div>${escapeHtml(text)}`;
+  if (role === 'user') {
+    div.innerHTML = `<div class="role">${role}</div>${escapeHtml(text)}`;
+  } else {
+    const roleEl = document.createElement('div');
+    roleEl.className = 'role';
+    roleEl.textContent = role;
+    const body = document.createElement('span');
+    body.className = 'msg-body';
+    body.textContent = text;
+    div.appendChild(roleEl);
+    div.appendChild(body);
+  }
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -284,7 +441,7 @@ formChat.addEventListener('submit', (e) => {
   }
   chatInput.value = '';
   appendChatMessage('user', text);
-  pendingAssistantChunks.length = 0;
+  finishStreamingAssistant();
 
   const requestId = crypto.randomUUID();
   activeRequestId = requestId;
