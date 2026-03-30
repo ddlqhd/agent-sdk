@@ -1,0 +1,131 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  Agent,
+  createModel,
+  loadMCPConfig,
+  validateMCPConfig,
+  type MCPConfigFile,
+  type MCPServerConfig
+} from 'agent-sdk';
+import type { ModelProvider } from '../shared/ws-protocol.js';
+import { describeMissingKey, getOllamaBaseUrl, requireProviderEnv } from './env.js';
+import { demoCalculatorTool } from './demo-calculator.js';
+import { DEMO_FIXTURES, SDK_ROOT, WEB_DEMO_ROOT } from './paths.js';
+
+export interface BuildAgentOptions {
+  provider: ModelProvider;
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+  storage: 'memory' | 'jsonl';
+  safeToolsOnly?: boolean;
+  /** Long-term CLAUDE.md memory; omit for SDK default (on) */
+  memory?: boolean;
+  /** false disables context compression; true/omit enables with defaults */
+  contextManagement?: boolean;
+  mcpConfigPath?: string;
+  cwd?: string;
+  userBasePath?: string;
+}
+
+function ensureSdkBuilt(): void {
+  const distJs = join(SDK_ROOT, 'dist', 'index.js');
+  if (!existsSync(distJs)) {
+    throw new Error(
+      `agent-sdk is not built. From the repository root run: pnpm build\nExpected: ${distJs}`
+    );
+  }
+}
+
+function resolvePathRelative(p: string, base: string): string {
+  if (!p || !p.trim()) return base;
+  const trimmed = p.trim();
+  if (existsSync(trimmed)) return trimmed;
+  const underDemo = join(WEB_DEMO_ROOT, trimmed);
+  if (existsSync(underDemo)) return underDemo;
+  return join(base, trimmed);
+}
+
+export function buildAgent(config: BuildAgentOptions): { agent: Agent; warnings: string[] } {
+  ensureSdkBuilt();
+
+  const warnings: string[] = [];
+  const key = requireProviderEnv(config.provider);
+  if (config.provider !== 'ollama' && !key) {
+    throw new Error(describeMissingKey(config.provider));
+  }
+
+  const cwd =
+    config.cwd && config.cwd.trim() !== ''
+      ? resolvePathRelative(config.cwd, DEMO_FIXTURES)
+      : DEMO_FIXTURES;
+  const userBasePath =
+    config.userBasePath && config.userBasePath.trim() !== ''
+      ? resolvePathRelative(config.userBasePath, WEB_DEMO_ROOT)
+      : mkdtempSync(join(tmpdir(), 'agent-sdk-demo-'));
+
+  const model = createModel({
+    provider: config.provider,
+    apiKey: key,
+    baseUrl: config.provider === 'ollama' ? getOllamaBaseUrl() : undefined,
+    model: config.model
+  });
+
+  let mcpServers: MCPServerConfig[] | undefined;
+  if (config.mcpConfigPath && config.mcpConfigPath.trim() !== '') {
+    const mcpPath = resolvePathRelative(config.mcpConfigPath, WEB_DEMO_ROOT);
+    if (!existsSync(mcpPath)) {
+      warnings.push(`MCP config not found: ${config.mcpConfigPath}`);
+    } else {
+      try {
+        const raw = JSON.parse(readFileSync(mcpPath, 'utf-8')) as MCPConfigFile;
+        const errs = validateMCPConfig(raw);
+        if (errs.length > 0) {
+          warnings.push(`MCP validation: ${errs.join('; ')}`);
+        } else {
+          const { servers } = loadMCPConfig(mcpPath, WEB_DEMO_ROOT, userBasePath);
+          if (servers.length === 0) {
+            warnings.push('MCP config loaded but no servers defined.');
+          } else {
+            mcpServers = servers;
+          }
+        }
+      } catch (e) {
+        warnings.push(`MCP load error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  const agent = new Agent({
+    model,
+    cwd,
+    userBasePath,
+    storage: { type: config.storage },
+    temperature: config.temperature,
+    maxTokens: config.maxTokens,
+    memory: config.memory,
+    contextManagement: config.contextManagement === false ? false : {},
+    mcpServers,
+    skillConfig: {
+      autoLoad: true,
+      workspacePath: join(cwd, '.claude', 'skills')
+    },
+    includeEnvironment: true
+  });
+
+  return { agent, warnings };
+}
+
+export async function applySafeToolsAndCalculator(agent: Agent, safeToolsOnly: boolean): Promise<void> {
+  if (!safeToolsOnly) return;
+  const reg = agent.getToolRegistry();
+  for (const tool of [...reg.getAll()]) {
+    if (tool.isDangerous) {
+      reg.unregister(tool.name);
+    }
+  }
+  agent.registerTool(demoCalculatorTool);
+}

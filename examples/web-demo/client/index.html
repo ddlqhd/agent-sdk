@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>agent-sdk Web Demo</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <h1>agent-sdk demo</h1>
+        <p class="sub">WebSocket + multi-model agent (keys on server only)</p>
+      </header>
+      <div class="layout">
+        <aside class="panel settings-panel">
+          <h2>Connection</h2>
+          <p id="conn-status" class="status">Disconnected</p>
+          <button type="button" id="btn-reconnect">Reconnect</button>
+
+          <h2>Agent</h2>
+          <form id="form-config">
+            <label>
+              Provider
+              <select name="provider" id="cfg-provider">
+                <option value="ollama" selected>Ollama</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
+            <label>
+              Model
+              <input name="model" id="cfg-model" type="text" value="glm-5:cloud" />
+            </label>
+            <label>
+              Temperature
+              <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
+            </label>
+            <label>
+              Max tokens
+              <input name="maxTokens" type="number" min="1" value="128000" />
+            </label>
+            <label>
+              Storage
+              <select name="storage">
+                <option value="memory">memory</option>
+                <option value="jsonl">jsonl</option>
+              </select>
+            </label>
+            <label class="checkbox">
+              <input name="safeToolsOnly" type="checkbox" checked />
+              Safe tools only (no dangerous builtins + demo calculator)
+            </label>
+            <label class="checkbox">
+              <input name="memory" type="checkbox" checked />
+              Long-term memory (CLAUDE.md)
+            </label>
+            <label class="checkbox">
+              <input name="contextManagement" type="checkbox" checked />
+              Context compression
+            </label>
+            <label>
+              Cwd (skills / CLAUDE.md)
+              <input name="cwd" type="text" placeholder="default: demo-fixtures" />
+            </label>
+            <label>
+              User base path (sessions dir)
+              <input name="userBasePath" type="text" placeholder="empty = temp dir" />
+            </label>
+            <label>
+              MCP config path
+              <input name="mcpConfigPath" type="text" placeholder="demo-fixtures/mcp.demo.json" />
+            </label>
+            <button type="submit">Apply configuration</button>
+          </form>
+          <p id="cfg-warnings" class="warnings"></p>
+
+          <h2>Sessions</h2>
+          <p>Current: <code id="current-session">—</code></p>
+          <div class="row">
+            <button type="button" id="btn-session-new">New session</button>
+            <button type="button" id="btn-session-list">List</button>
+          </div>
+          <ul id="session-list" class="session-list"></ul>
+        </aside>
+
+        <main class="main">
+          <section class="chat">
+            <div id="chat-log" class="chat-log"></div>
+            <form id="form-chat" class="chat-form">
+              <textarea id="chat-input" rows="3" placeholder="Message…"></textarea>
+              <div class="row">
+                <label class="checkbox">
+                  <input id="chat-use-run" type="checkbox" />
+                  Use <code>run()</code> (non-streaming aggregation)
+                </label>
+                <button type="submit" id="btn-send">Send</button>
+                <button type="button" id="btn-stop" disabled>Stop</button>
+              </div>
+            </form>
+          </section>
+          <section class="panel events-panel">
+            <h2>Stream events</h2>
+            <div class="event-filters">
+              <button type="button" class="filter-btn active" data-filter="all">All</button>
+              <button type="button" class="filter-btn" data-filter="text">Text</button>
+              <button type="button" class="filter-btn" data-filter="tool">Tools</button>
+              <button type="button" class="filter-btn" data-filter="other">Other</button>
+              <button type="button" id="btn-events-clear">Clear</button>
+            </div>
+            <pre id="event-log" class="event-log"></pre>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

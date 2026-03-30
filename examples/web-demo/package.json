@@ -1,0 +1,31 @@
+{
+  "name": "agent-sdk-web-demo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:deps": "pnpm install --ignore-workspace",
+    "dev": "concurrently -k \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "wait-on tcp:127.0.0.1:3001 && vite",
+    "build": "vite build",
+    "start": "tsx server/index.ts"
+  },
+  "dependencies": {
+    "agent-sdk": "file:../..",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0",
+    "wait-on": "^8.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
