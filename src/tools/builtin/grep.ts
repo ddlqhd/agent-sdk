@@ -22,7 +22,7 @@ Usage:
     path: z
       .string()
       .optional()
-      .describe('File or directory to search in. Defaults to current working directory.'),
+      .describe('File or directory to search in. Defaults to the agent working directory when available, otherwise current process directory.'),
     glob: z
       .string()
       .optional()
@@ -44,12 +44,12 @@ Usage:
       .optional()
       .describe('Limit output to first N results. Defaults to 250 when unspecified.')
   }),
-  handler: async ({ pattern, path: searchPath, glob, case_insensitive, context, head_limit }) => {
+  handler: async ({ pattern, path: searchPath, glob, case_insensitive, context, head_limit }, toolContext) => {
     try {
       const fs = await import('fs/promises');
       const pathModule = await import('path');
 
-      const rootPath = searchPath || '.';
+      const rootPath = searchPath || toolContext?.projectDir || '.';
 
       // Check if rootPath is a file or directory
       let stat;

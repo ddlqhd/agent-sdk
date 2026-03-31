@@ -258,14 +258,14 @@ export const globTool = createTool({
     path: z
       .string()
       .optional()
-      .describe('The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. Must be a valid directory path if provided.')
+      .describe('The directory to search in. If omitted, uses the agent working directory when available, otherwise the current process directory. IMPORTANT: Omit this field to use the default directory. Must be a valid directory path if provided.')
   }),
-  handler: async ({ pattern, path: searchPath }) => {
+  handler: async ({ pattern, path: searchPath }, context) => {
     try {
       const fs = await import('fs/promises');
       const pathModule = await import('path');
 
-      const rootDir = searchPath || '.';
+      const rootDir = searchPath || context?.projectDir || '.';
 
       // Convert glob pattern to regex
       const regexStr = pattern

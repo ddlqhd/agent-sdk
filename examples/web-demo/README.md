@@ -20,6 +20,8 @@ Local **Node.js** server with **WebSocket** (`/ws`) plus a **Vite + TypeScript**
 
    Or run `npm install` in the same directory if you prefer.
 
+   Note: after updating the local `agent-sdk` source code (especially after `pnpm build` in repo root), run install again in `examples/web-demo` so the `file:../..` dependency picks up the latest SDK build.
+
 ## Run (development)
 
 Starts the API server on **3001** and Vite on **5173** (Vite proxies WebSocket `/ws` → 3001).

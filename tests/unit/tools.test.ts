@@ -582,6 +582,133 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
   });
 });
 
+describe('Builtin Tools cwd inheritance', () => {
+  it('Glob should default to projectDir and allow explicit path override', async () => {
+    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(globTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_glob_project_${Date.now()}`);
+    const overrideDir = path.join(os.tmpdir(), `test_glob_override_${Date.now()}`);
+    const projectHit = path.join(projectDir, 'src', 'project-hit.ts');
+    const overrideHit = path.join(overrideDir, 'src', 'override-hit.ts');
+
+    await fs.mkdir(path.dirname(projectHit), { recursive: true });
+    await fs.mkdir(path.dirname(overrideHit), { recursive: true });
+    await fs.writeFile(projectHit, 'project', 'utf-8');
+    await fs.writeFile(overrideHit, 'override', 'utf-8');
+
+    try {
+      const defaultResult = await registry.execute(
+        'Glob',
+        { pattern: '**/*.ts' },
+        { projectDir }
+      );
+      expect(defaultResult.isError).toBeFalsy();
+      expect(defaultResult.content).toContain(projectHit);
+      expect(defaultResult.content).not.toContain(overrideHit);
+
+      const overrideResult = await registry.execute(
+        'Glob',
+        { pattern: '**/*.ts', path: overrideDir },
+        { projectDir }
+      );
+      expect(overrideResult.isError).toBeFalsy();
+      expect(overrideResult.content).toContain(overrideHit);
+      expect(overrideResult.content).not.toContain(projectHit);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(overrideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Grep should default to projectDir and allow explicit path override', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_project_${Date.now()}`);
+    const overrideDir = path.join(os.tmpdir(), `test_grep_override_${Date.now()}`);
+    const projectFile = path.join(projectDir, 'project.txt');
+    const overrideFile = path.join(overrideDir, 'override.txt');
+
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(overrideDir, { recursive: true });
+    await fs.writeFile(projectFile, 'project_token', 'utf-8');
+    await fs.writeFile(overrideFile, 'override_token', 'utf-8');
+
+    try {
+      const defaultResult = await registry.execute(
+        'Grep',
+        { pattern: 'project_token' },
+        { projectDir }
+      );
+      expect(defaultResult.isError).toBeFalsy();
+      expect(defaultResult.content).toContain('project.txt:1:project_token');
+      expect(defaultResult.content).not.toContain('override.txt');
+
+      const overrideResult = await registry.execute(
+        'Grep',
+        { pattern: 'override_token', path: overrideDir },
+        { projectDir }
+      );
+      expect(overrideResult.isError).toBeFalsy();
+      expect(overrideResult.content).toContain('override.txt:1:override_token');
+      expect(overrideResult.content).not.toContain('project.txt');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(overrideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Bash should default to projectDir and allow explicit cwd override', async () => {
+    const { bashTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(bashTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_bash_project_${Date.now()}`);
+    const overrideDir = path.join(os.tmpdir(), `test_bash_override_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(overrideDir, { recursive: true });
+
+    const normalize = (value: string) => value.trim().replace(/\\/g, '/').toLowerCase();
+
+    try {
+      const defaultResult = await registry.execute(
+        'Bash',
+        { command: 'node -e "console.log(process.cwd())"' },
+        { projectDir }
+      );
+      expect(defaultResult.isError).toBeFalsy();
+      expect(normalize(defaultResult.content)).toContain(normalize(projectDir));
+
+      const overrideResult = await registry.execute(
+        'Bash',
+        { command: 'node -e "console.log(process.cwd())"', cwd: overrideDir },
+        { projectDir }
+      );
+      expect(overrideResult.isError).toBeFalsy();
+      expect(normalize(overrideResult.content)).toContain(normalize(overrideDir));
+      expect(normalize(overrideResult.content)).not.toContain(normalize(projectDir));
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(overrideDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Schema Conversion', () => {
   it('should include additionalProperties: false for objects', () => {
     const registry = new ToolRegistry();

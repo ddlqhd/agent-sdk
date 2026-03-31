@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolDefinition, ToolResult, ToolSchema } from '../core/types.js';
+import type { ToolDefinition, ToolExecutionContext, ToolResult, ToolSchema } from '../core/types.js';
 import { zodToJsonSchema } from '../models/base.js';
 import { OutputHandler, createOutputHandler } from './output-handler.js';
 import type { HookManager } from './hooks/manager.js';
@@ -180,7 +180,11 @@ export class ToolRegistry {
       }
 
       const handlerArgs = workingInput as Parameters<ToolDefinition['handler']>[0];
-      const result = await tool.handler(handlerArgs);
+      const executionContext: ToolExecutionContext = {
+        toolCallId: options?.toolCallId,
+        projectDir: options?.projectDir
+      };
+      const result = await tool.handler(handlerArgs, executionContext);
       const toolResultRaw = result;
 
       if (result.isError) {

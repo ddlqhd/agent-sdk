@@ -31,6 +31,7 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
 # Instructions
 - If your command will create new directories or files, first use this tool to run ls to verify the parent directory exists and is the correct location
 - Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
+- If cwd is omitted, the command runs in the agent working directory when available
 - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).`,
   parameters: z.object({
     command: z.string().describe('The command to execute'),
@@ -48,7 +49,7 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
       .describe('Optional timeout in milliseconds (max 600000)')
   }),
   isDangerous: true,
-  handler: async ({ command, description: desc, cwd, timeout }) => {
+  handler: async ({ command, description: desc, cwd, timeout }, context) => {
     return new Promise((resolve) => {
       const shellPath = getShellPath();
       let stdout = '';
@@ -58,7 +59,7 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
 
       const child = spawn(command, [], {
         shell: shellPath,
-        cwd,
+        cwd: cwd ?? context?.projectDir,
         env: { ...process.env },
       });
 

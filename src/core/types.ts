@@ -242,9 +242,19 @@ export interface ToolResult {
 }
 
 /**
+ * Tool 执行上下文
+ */
+export interface ToolExecutionContext {
+  /** 工具调用 ID */
+  toolCallId?: string;
+  /** Agent 配置的工作目录 */
+  projectDir?: string;
+}
+
+/**
  * 工具处理函数
  */
-export type ToolHandler = (args: any) => Promise<ToolResult>;
+export type ToolHandler = (args: any, context?: ToolExecutionContext) => Promise<ToolResult>;
 
 /**
  * 工具定义
