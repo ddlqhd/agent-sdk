@@ -156,6 +156,7 @@ function handleServerMessage(msg: ServerMessage): void {
     case 'sessions:new':
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
+      clearChatLog();
       return;
     default:
       appendEventLine('unknown', msg);
@@ -192,6 +193,11 @@ function appendAssistantStreamDelta(chunk: string): void {
 
 function finishStreamingAssistant(): void {
   streamingAssistantBodyEl = null;
+}
+
+function clearChatLog(): void {
+  chatLog.innerHTML = '';
+  finishStreamingAssistant();
 }
 
 function truncateForChatSnippet(text: string, max = MAX_TOOL_SNIPPET_CHARS): string {
