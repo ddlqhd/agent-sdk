@@ -103,6 +103,16 @@ wss.on('connection', (socket: WebSocket) => {
     return agent;
   }
 
+  function abortSessionRequests(sessionId: string | null): void {
+    if (!sessionId) return;
+    for (const [requestId, request] of state.abortByRequest.entries()) {
+      if (request.sessionId === sessionId) {
+        request.controller.abort();
+        state.abortByRequest.delete(requestId);
+      }
+    }
+  }
+
   socket.on('message', async (raw: RawData) => {
     let msg: ClientMessage;
     try {
@@ -192,6 +202,8 @@ wss.on('connection', (socket: WebSocket) => {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
+          // Ensure old session streaming/tools execution is terminated before switching.
+          abortSessionRequests(state.activeSessionId);
           const agent = await createConfiguredAgent();
           const id = agent.getSessionManager().createSession(msg.sessionId);
           state.agentsBySession.set(id, agent);

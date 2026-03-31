@@ -74,14 +74,7 @@ export class Agent {
   // contextTokens: 当前上下文大小 (用于压缩判断)
   // inputTokens/outputTokens: 累计消耗
   // totalTokens: 累计总消耗 (inputTokens + outputTokens)
-  private sessionUsage: SessionTokenUsage = {
-    contextTokens: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    totalTokens: 0
-  };
+  private sessionUsage: SessionTokenUsage = Agent.createEmptySessionUsage();
 
   constructor(config: AgentConfig) {
     this.config = {
@@ -194,6 +187,24 @@ export class Agent {
     } as StreamEvent;
   }
 
+  private static createEmptySessionUsage(): SessionTokenUsage {
+    return {
+      contextTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0
+    };
+  }
+
+  private resetSessionState(): void {
+    this.messages = [];
+    this.sessionUsage = this.contextManager
+      ? this.contextManager.resetUsage()
+      : Agent.createEmptySessionUsage();
+  }
+
   /**
    * 构建系统提示词
    * 处理默认提示词、替换模式、追加模式
@@ -249,12 +260,18 @@ export class Agent {
 
     // 恢复或创建会话
     if (options?.sessionId) {
+      const isSwitchingSession = this.sessionManager.sessionId !== options.sessionId;
+      if (isSwitchingSession) {
+        this.resetSessionState();
+      }
       try {
         this.messages = await this.sessionManager.resumeSession(options.sessionId);
       } catch {
+        // 目标会话不存在时，创建新会话并保持已重置的空状态
         this.sessionManager.createSession(options.sessionId);
       }
     } else if (!this.sessionManager.sessionId) {
+      this.resetSessionState();
       this.sessionManager.createSession();
     }
 
@@ -792,7 +809,7 @@ export class Agent {
    * 清空消息历史
    */
   clearMessages(): void {
-    this.messages = [];
+    this.resetSessionState();
   }
 
   /**

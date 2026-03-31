@@ -156,7 +156,11 @@ function handleServerMessage(msg: ServerMessage): void {
     case 'sessions:new':
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
+      activeRequestId = null;
+      btnStop.disabled = true;
+      btnSend.disabled = false;
       clearChatLog();
+      clearInspectorLogs();
       return;
     default:
       appendEventLine('unknown', msg);
@@ -198,6 +202,11 @@ function finishStreamingAssistant(): void {
 function clearChatLog(): void {
   chatLog.innerHTML = '';
   finishStreamingAssistant();
+}
+
+function clearInspectorLogs(): void {
+  eventLog.textContent = '';
+  toolActivityLog.innerHTML = '';
 }
 
 function truncateForChatSnippet(text: string, max = MAX_TOOL_SNIPPET_CHARS): string {
