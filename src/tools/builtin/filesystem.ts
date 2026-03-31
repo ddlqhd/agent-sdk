@@ -1,3 +1,4 @@
+import fg from 'fast-glob';
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
@@ -249,8 +250,9 @@ export const globTool = createTool({
   name: 'Glob',
   category: 'filesystem',
   description: `- Fast file pattern matching tool that works with any codebase size
-- Supports glob patterns like "**/*.js" or "src/**/*.ts"
-- Returns matching file paths sorted by modification time
+- Supports glob patterns like "**/*.js" or "src/**/*.ts" (use forward slashes in patterns; works on Windows)
+- Returns matching file paths as absolute paths, sorted by modification time (newest first)
+- Dotfiles and dot-directories are excluded unless the pattern targets them (starts with "." or contains "/.")
 - Use this tool when you need to find files by name patterns
 - When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead`,
   parameters: z.object({
@@ -265,47 +267,31 @@ export const globTool = createTool({
       const fs = await import('fs/promises');
       const pathModule = await import('path');
 
-      const rootDir = searchPath || context?.projectDir || '.';
+      const rootDir = pathModule.resolve(searchPath || context?.projectDir || '.');
+      const normalizedPattern = pattern.replace(/\\/g, '/');
+      const includeDotfiles =
+        normalizedPattern.startsWith('.') || normalizedPattern.includes('/.');
 
-      // Convert glob pattern to regex
-      const regexStr = pattern
-        .replace(/\./g, '\\.')
-        .replace(/\*\*/g, '{{GLOBSTAR}}')
-        .replace(/\*/g, '[^/]*')
-        .replace(/\{\{GLOBSTAR\}\}/g, '.*')
-        .replace(/\?/g, '[^/]');
-      const regex = new RegExp(`^${regexStr}$`);
+      const entries = await fg(normalizedPattern, {
+        cwd: rootDir,
+        onlyFiles: true,
+        absolute: true,
+        dot: includeDotfiles,
+        suppressErrors: true
+      });
 
       const matches: Array<{ path: string; mtime: number }> = [];
-
-      async function walk(dir: string) {
-        let entries;
+      for (const filePath of entries) {
+        const nativePath = pathModule.normalize(filePath);
         try {
-          entries = await fs.readdir(dir, { withFileTypes: true });
-        } catch {
-          return;
-        }
-
-        for (const entry of entries) {
-          // Skip dotfiles unless pattern explicitly targets them
-          if (entry.name.startsWith('.') && !pattern.startsWith('.') && !pattern.includes('/.')) continue;
-
-          const fullPath = pathModule.join(dir, entry.name);
-          const relativePath = pathModule.relative(rootDir, fullPath);
-
-          if (entry.isDirectory()) {
-            await walk(fullPath);
-          } else if (entry.isFile()) {
-            const normalized = relativePath.split(pathModule.sep).join('/');
-            if (regex.test(normalized)) {
-              const stat = await fs.stat(fullPath);
-              matches.push({ path: fullPath, mtime: stat.mtimeMs });
-            }
+          const stat = await fs.stat(nativePath);
+          if (stat.isFile()) {
+            matches.push({ path: nativePath, mtime: stat.mtimeMs });
           }
+        } catch {
+          // Race: removed between glob and stat
         }
       }
-
-      await walk(rootDir);
 
       matches.sort((a, b) => b.mtime - a.mtime);
 

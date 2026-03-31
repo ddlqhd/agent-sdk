@@ -651,6 +651,96 @@ describe('Builtin Tools cwd inheritance', () => {
     }
   });
 
+  it('Glob **/* should match files at search root (regression)', async () => {
+    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(globTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_glob_star_root_${Date.now()}`);
+    const rootFile = path.join(projectDir, 'CLAUDE.md');
+    const nestedFile = path.join(projectDir, 'src', 'nested.ts');
+
+    await fs.mkdir(path.dirname(nestedFile), { recursive: true });
+    await fs.writeFile(rootFile, 'root', 'utf-8');
+    await fs.writeFile(nestedFile, 'nested', 'utf-8');
+
+    try {
+      const result = await registry.execute('Glob', { pattern: '**/*' }, { projectDir });
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain(rootFile);
+      expect(result.content).toContain(nestedFile);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Glob should skip dotfiles by default but match when pattern targets them', async () => {
+    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(globTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_glob_dot_${Date.now()}`);
+    const visible = path.join(projectDir, 'visible.txt');
+    const dotfile = path.join(projectDir, '.secret.json');
+
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(visible, 'v', 'utf-8');
+    await fs.writeFile(dotfile, '{}', 'utf-8');
+
+    try {
+      const wide = await registry.execute('Glob', { pattern: '**/*' }, { projectDir });
+      expect(wide.isError).toBeFalsy();
+      expect(wide.content).toContain(visible);
+      expect(wide.content).not.toContain(dotfile);
+
+      const targeted = await registry.execute(
+        'Glob',
+        { pattern: '**/.secret.json' },
+        { projectDir }
+      );
+      expect(targeted.isError).toBeFalsy();
+      expect(targeted.content).toContain(dotfile);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Glob should accept Windows backslash patterns by normalizing separators', async () => {
+    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(globTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_glob_backslash_${Date.now()}`);
+    const nestedFile = path.join(projectDir, 'src', 'windows-match.ts');
+
+    await fs.mkdir(path.dirname(nestedFile), { recursive: true });
+    await fs.writeFile(nestedFile, 'ok', 'utf-8');
+
+    try {
+      const result = await registry.execute(
+        'Glob',
+        { pattern: 'src\\**\\*.ts' },
+        { projectDir }
+      );
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain(nestedFile);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('Grep should default to projectDir and allow explicit path override', async () => {
     const { grepTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
