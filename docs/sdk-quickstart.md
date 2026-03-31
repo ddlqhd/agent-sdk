@@ -1,0 +1,115 @@
+# Agent SDK 快速开始
+
+## 1. 安装
+
+```bash
+npm install agent-sdk
+# 或
+pnpm add agent-sdk
+```
+
+## 2. 环境变量
+
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-xxx
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_ORG_ID=org-xxx
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-xxx
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# Ollama
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+## 3. 最小可用示例（建议从这里开始）
+
+```ts
+import { Agent, createOpenAI } from 'agent-sdk';
+
+const agent = new Agent({
+  model: createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'gpt-4o'
+  })
+});
+
+const result = await agent.run('用一句话介绍你自己');
+console.log(result.content);
+
+await agent.destroy();
+```
+
+## 4. 流式输出示例
+
+```ts
+import { Agent, createOpenAI } from 'agent-sdk';
+
+const agent = new Agent({
+  model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+});
+
+for await (const event of agent.stream('解释一下什么是 MCP')) {
+  if (event.type === 'text_delta') {
+    process.stdout.write(event.content);
+  }
+  if (event.type === 'tool_error') {
+    console.error('\n[tool_error]', event.error.message);
+  }
+}
+
+await agent.destroy();
+```
+
+## 5. 三种模型初始化方式
+
+```ts
+import {
+  createModel,
+  createOpenAI,
+  createAnthropic,
+  createOllama
+} from 'agent-sdk';
+
+const openaiModel = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropicModel = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const ollamaModel = createOllama({ baseUrl: process.env.OLLAMA_BASE_URL });
+
+const model = createModel({
+  provider: 'openai',
+  apiKey: process.env.OPENAI_API_KEY,
+  model: 'gpt-4o'
+});
+```
+
+## 6. 默认值与优先级
+
+配置优先级：**代码参数 > 环境变量 > SDK 默认值**。
+
+当前默认值（基于源码）：
+
+- OpenAI: `model = gpt-4o`
+- Anthropic: `model = claude-sonnet-4-20250514`
+- Ollama: `model = qwen3.5:0.8b`
+
+## 7. 会话与上下文
+
+`Agent` 默认会使用 JSONL 会话持久化。你可以通过 `sessionId` 复用上下文：
+
+```ts
+const first = await agent.run('我叫 Alice', { sessionId: 'user-123' });
+const second = await agent.run('我叫什么？', { sessionId: 'user-123' });
+```
+
+## 8. 结束与资源释放
+
+使用完毕后建议调用：
+
+```ts
+await agent.destroy();
+```
+
+这样可以确保 MCP 连接等资源被正确回收。
+
