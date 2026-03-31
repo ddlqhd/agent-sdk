@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import type { Agent, SessionInfo, TokenUsage } from 'agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
-import { applySafeToolsAndCalculator, buildAgent } from './agent-factory.js';
+import { applySafeToolsAndCalculator, buildAgent, type BuildAgentOptions } from './agent-factory.js';
 import { CLIENT_DIST, WEB_DEMO_ROOT } from './paths.js';
 import { serializeStreamEvent } from './serialize-event.js';
 
@@ -69,12 +70,38 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 interface ConnState {
-  agent: Agent | null;
-  abortByRequest: Map<string, AbortController>;
+  agentsBySession: Map<string, Agent>;
+  activeSessionId: string | null;
+  runtimeConfig: (BuildAgentOptions & { safeToolsOnly: boolean }) | null;
+  abortByRequest: Map<string, { sessionId: string; controller: AbortController }>;
 }
 
 wss.on('connection', (socket: WebSocket) => {
-  const state: ConnState = { agent: null, abortByRequest: new Map() };
+  const state: ConnState = {
+    agentsBySession: new Map(),
+    activeSessionId: null,
+    runtimeConfig: null,
+    abortByRequest: new Map()
+  };
+
+  async function destroyAllAgents(): Promise<void> {
+    for (const agent of state.agentsBySession.values()) {
+      await agent.destroy();
+    }
+    state.agentsBySession.clear();
+    state.activeSessionId = null;
+  }
+
+  async function createConfiguredAgent(): Promise<Agent> {
+    if (!state.runtimeConfig) {
+      throw new Error('Configure the agent first.');
+    }
+    const { safeToolsOnly, ...buildConfig } = state.runtimeConfig;
+    const { agent } = buildAgent(buildConfig);
+    await agent.waitForInit();
+    await applySafeToolsAndCalculator(agent, safeToolsOnly);
+    return agent;
+  }
 
   socket.on('message', async (raw: RawData) => {
     let msg: ClientMessage;
@@ -92,11 +119,12 @@ wss.on('connection', (socket: WebSocket) => {
           return;
 
         case 'configure': {
-          if (state.agent) {
-            await state.agent.destroy();
-            state.agent = null;
-          }
-          const { agent, warnings } = buildAgent({
+          await destroyAllAgents();
+          const stableUserBasePath =
+            msg.userBasePath && msg.userBasePath.trim() !== ''
+              ? msg.userBasePath
+              : join(tmpdir(), `agent-sdk-web-demo-${Date.now()}`);
+          state.runtimeConfig = {
             provider: msg.provider,
             model: msg.model,
             temperature: msg.temperature,
@@ -107,25 +135,46 @@ wss.on('connection', (socket: WebSocket) => {
             contextManagement: msg.contextManagement !== false,
             mcpConfigPath: msg.mcpConfigPath,
             cwd: msg.cwd,
-            userBasePath: msg.userBasePath
+            userBasePath: stableUserBasePath
+          };
+          const { agent, warnings } = buildAgent({
+            provider: state.runtimeConfig.provider,
+            model: state.runtimeConfig.model,
+            temperature: state.runtimeConfig.temperature,
+            maxTokens: state.runtimeConfig.maxTokens,
+            storage: state.runtimeConfig.storage,
+            safeToolsOnly: state.runtimeConfig.safeToolsOnly,
+            memory: state.runtimeConfig.memory,
+            contextManagement: state.runtimeConfig.contextManagement,
+            mcpConfigPath: state.runtimeConfig.mcpConfigPath,
+            cwd: state.runtimeConfig.cwd,
+            userBasePath: state.runtimeConfig.userBasePath
           });
           await agent.waitForInit();
-          await applySafeToolsAndCalculator(agent, msg.safeToolsOnly === true);
-          state.agent = agent;
+          await applySafeToolsAndCalculator(agent, state.runtimeConfig.safeToolsOnly);
+          const sessionId = agent.getSessionManager().createSession();
+          state.agentsBySession.set(sessionId, agent);
+          state.activeSessionId = sessionId;
           sendJson(socket, {
             type: 'ready',
             warnings: warnings.length ? warnings : undefined,
-            sessionId: agent.getSessionManager().sessionId
+            sessionId
           });
           return;
         }
 
         case 'sessions:list': {
-          if (!state.agent) {
+          const activeSessionId = state.activeSessionId;
+          if (!activeSessionId) {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          const sessions = await state.agent.getSessionManager().listSessions();
+          const activeAgent = state.agentsBySession.get(activeSessionId);
+          if (!activeAgent) {
+            sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
+            return;
+          }
+          const sessions = await activeAgent.getSessionManager().listSessions();
           sendJson(socket, {
             type: 'sessions:list',
             sessions: sessions.map((s: SessionInfo) => ({
@@ -139,54 +188,80 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         case 'sessions:new': {
-          if (!state.agent) {
+          if (!state.runtimeConfig) {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          const id = state.agent.getSessionManager().createSession(msg.sessionId);
+          const agent = await createConfiguredAgent();
+          const id = agent.getSessionManager().createSession(msg.sessionId);
+          state.agentsBySession.set(id, agent);
+          state.activeSessionId = id;
           sendJson(socket, { type: 'sessions:new', sessionId: id });
           return;
         }
 
         case 'sessions:resume': {
-          if (!state.agent) {
+          if (!state.runtimeConfig) {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
+          if (state.agentsBySession.has(msg.sessionId)) {
+            state.activeSessionId = msg.sessionId;
+            sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
+            return;
+          }
+          const agent = await createConfiguredAgent();
           try {
-            await state.agent.getSessionManager().resumeSession(msg.sessionId);
+            await agent.getSessionManager().resumeSession(msg.sessionId);
           } catch {
+            await agent.destroy();
             sendJson(socket, {
               type: 'error',
               message: `Session not found: ${msg.sessionId}`
             });
             return;
           }
+          state.agentsBySession.set(msg.sessionId, agent);
+          state.activeSessionId = msg.sessionId;
           sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
           return;
         }
 
         case 'cancel': {
-          const ac = state.abortByRequest.get(msg.requestId);
-          ac?.abort();
+          const request = state.abortByRequest.get(msg.requestId);
+          request?.controller.abort();
           return;
         }
 
         case 'chat':
         case 'chat_run': {
-          if (!state.agent) {
+          if (!state.runtimeConfig) {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
+          const requestedSessionId = msg.sessionId || state.activeSessionId;
+          if (!requestedSessionId) {
+            sendJson(socket, { type: 'error', message: 'No active session. Create or resume a session first.' });
+            return;
+          }
+          let targetAgent = state.agentsBySession.get(requestedSessionId);
+          if (!targetAgent) {
+            targetAgent = await createConfiguredAgent();
+            // Bind this runtime to the requested session id for future parallel requests.
+            targetAgent.getSessionManager().createSession(requestedSessionId);
+            state.agentsBySession.set(requestedSessionId, targetAgent);
+          }
+          state.activeSessionId = requestedSessionId;
+
           const requestId = msg.requestId;
           const ac = new AbortController();
-          state.abortByRequest.set(requestId, ac);
+          state.abortByRequest.set(requestId, { sessionId: requestedSessionId, controller: ac });
 
           try {
             let finalText = '';
             let lastUsage: TokenUsage | undefined;
-            for await (const event of state.agent.stream(msg.text, {
-              sessionId: msg.sessionId,
+            for await (const event of targetAgent.stream(msg.text, {
+              sessionId: requestedSessionId,
               signal: ac.signal
             })) {
               if (event.type === 'text_delta') {
@@ -197,7 +272,7 @@ wss.on('connection', (socket: WebSocket) => {
               }
               sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });
             }
-            const sid = state.agent.getSessionManager().sessionId || '';
+            const sid = targetAgent.getSessionManager().sessionId || requestedSessionId;
             sendJson(socket, {
               type: 'chat_done',
               requestId,
@@ -216,7 +291,7 @@ wss.on('connection', (socket: WebSocket) => {
             sendJson(socket, {
               type: 'chat_done',
               requestId,
-              sessionId: state.agent.getSessionManager().sessionId || '',
+              sessionId: targetAgent.getSessionManager().sessionId || requestedSessionId,
               finalText: ''
             });
           } finally {
@@ -235,9 +310,11 @@ wss.on('connection', (socket: WebSocket) => {
   });
 
   socket.on('close', () => {
-    void state.agent?.destroy();
-    state.agent = null;
+    for (const request of state.abortByRequest.values()) {
+      request.controller.abort();
+    }
     state.abortByRequest.clear();
+    void destroyAllAgents();
   });
 });
 
