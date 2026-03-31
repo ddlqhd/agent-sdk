@@ -929,7 +929,14 @@ SDK 提供以下内置工具（名称与 `ToolDefinition.name` 一致，供 CLI 
 |------|-------------|-----------|
 | `Skill` | Invoke a registered skill by name | ❌ |
 
+### Subagent (subagent)
+| Tool | Description | Dangerous |
+|------|-------------|-----------|
+| `Agent` | Delegate work to a subagent with isolated context | ❌ |
+
 > **Dangerous** 对应源码中的 `isDangerous`；当前仅 **Bash** 为 `true`。`getSafeBuiltinTools` 会排除此类工具。
+>
+> Subagent 约束：`Agent` 工具默认禁止嵌套调用（子代理不会再暴露 `Agent` 工具），并可通过 `AgentConfig.subagent` 配置并发、超时和权限策略。
 
 ## Module Exports
 

@@ -6,6 +6,7 @@ export * from './web.js';
 export * from './task.js';
 export * from './interaction.js';
 export * from './skill-activation.js';
+export * from './subagent.js';
 
 import type { ToolDefinition } from '../../core/types.js';
 import type { SkillRegistry } from '../../skills/registry.js';
@@ -16,6 +17,7 @@ import { getWebTools } from './web.js';
 import { getTaskTools } from './task.js';
 import { getInteractionTools } from './interaction.js';
 import { getSkillTools } from './skill-activation.js';
+import { getSubagentTools } from './subagent.js';
 
 /**
  * 获取所有内置工具
@@ -29,6 +31,7 @@ export function getAllBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition
     ...getWebTools(),
     ...getTaskTools(),
     ...getInteractionTools(),
+    ...getSubagentTools(),
     ...getSkillTools(skillRegistry)
   ];
 }

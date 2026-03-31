@@ -29,6 +29,14 @@ interface AgentConfig {
   includeEnvironment?: boolean;
   hookManager?: HookManager;
   hookConfigDir?: string;
+  subagent?: {
+    enabled?: boolean;
+    maxDepth?: number;
+    maxParallel?: number;
+    timeoutMs?: number;
+    allowDangerousTools?: boolean;
+    defaultAllowedTools?: string[];
+  };
 }
 ```
 
@@ -161,6 +169,7 @@ interface ToolResult {
 interface ToolExecutionContext {
   toolCallId?: string;
   projectDir?: string;
+  agentDepth?: number;
 }
 ```
 

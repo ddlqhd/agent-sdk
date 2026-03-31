@@ -19,6 +19,7 @@
 ## 2. 源码级参考（按能力）
 
 - Agent 生命周期：`src/core/agent.ts`
+- Subagent 委派执行：`examples/subagent-demo.ts`
 - 类型定义全集：`src/core/types.ts`
 - 模型工厂与 provider 分发：`src/models/index.ts`
 - OpenAI 适配：`src/models/openai.ts`

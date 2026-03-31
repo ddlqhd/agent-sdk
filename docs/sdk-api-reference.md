@@ -69,6 +69,7 @@
 - 任务：`TaskCreate` `TaskUpdate` `TaskList` 与 `getTaskTools()`
 - 交互：`AskUserQuestion` 与 `getInteractionTools()`
 - Skill 激活：`Skill` 与 `getSkillTools()`
+- Subagent：`Agent`（通过 `createAgentTool()` 创建）与 `getSubagentTools()`
 - 汇总：`getAllBuiltinTools(skillRegistry)` / `getSafeBuiltinTools(skillRegistry)`
 
 ## Storage
@@ -117,6 +118,8 @@
 - MCP：`MCPServerConfig` `MCPResource` `MCPResourceContent` `MCPPrompt` `MCPPromptArgument`
 - Skills：`SkillMetadata` `SkillDefinition` `ParsedSkill`
 - Agent 配置：`SystemPromptConfig` `SystemPrompt` `ContextManagerConfig` `AgentConfig` `SkillConfig` `AgentCallbacks` `AgentResult`
+  - `AgentConfig.subagent` 支持 `enabled/maxDepth/maxParallel/timeoutMs/allowDangerousTools/defaultAllowedTools`
+  - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套
 - CLI 相关导出类型：`CLIConfig` `ChatOptions` `RunOptions` `ToolListOptions` `SessionListOptions` `MCPOptions` `SkillOptions`
 
 ---

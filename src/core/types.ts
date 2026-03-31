@@ -249,6 +249,8 @@ export interface ToolExecutionContext {
   toolCallId?: string;
   /** Agent 配置的工作目录 */
   projectDir?: string;
+  /** 当前 agent 深度（根 agent 为 0） */
+  agentDepth?: number;
 }
 
 /**
@@ -615,6 +617,22 @@ export interface AgentConfig {
    * 解析项目级 `.claude/settings.json` 的目录；设置后将在 Agent 初始化时加载 Hook 配置
    */
   hookConfigDir?: string;
+
+  /** Subagent 工具行为配置 */
+  subagent?: {
+    /** 是否启用 Agent 工具，默认 true */
+    enabled?: boolean;
+    /** 子代理最大深度，默认 1（禁止嵌套） */
+    maxDepth?: number;
+    /** 并发子代理上限，默认 2 */
+    maxParallel?: number;
+    /** 子代理默认超时（毫秒），默认 120000 */
+    timeoutMs?: number;
+    /** 是否允许子代理使用危险工具，默认 false */
+    allowDangerousTools?: boolean;
+    /** 子代理默认允许工具列表（为空时自动使用安全工具） */
+    defaultAllowedTools?: string[];
+  };
 }
 
 /**

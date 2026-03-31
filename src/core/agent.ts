@@ -27,6 +27,7 @@ import type { SkillTemplateContext } from '../skills/template.js';
 import { ContextManager } from './context-manager.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
+import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
 
 function toMCPClientConfig(config: MCPServerConfig): MCPClientConfig {
   if (config.transport === 'http') {
@@ -69,6 +70,8 @@ export class Agent {
   private initPromise: Promise<void>;
   private contextManager: ContextManager | null = null;
   private hookDiscoverPromise: Promise<void> | null = null;
+  private agentDepth = 0;
+  private activeSubagentRuns = 0;
 
   // Token 使用量统计
   // contextTokens: 当前上下文大小 (用于压缩判断)
@@ -99,6 +102,18 @@ export class Agent {
     } else {
       // 使用所有内置工具（包含 skill 工具）
       this.toolRegistry.registerMany(getAllBuiltinTools(this.skillRegistry));
+    }
+
+    const subagentEnabled = this.config.subagent?.enabled !== false;
+    if (subagentEnabled) {
+      if (this.toolRegistry.has('Agent')) {
+        this.toolRegistry.unregister('Agent');
+      }
+      this.toolRegistry.register(createAgentTool({
+        runner: (request, context) => this.runSubagent(request, context)
+      }));
+    } else if (this.toolRegistry.has('Agent')) {
+      this.toolRegistry.unregister('Agent');
     }
 
     if (config.hookManager) {
@@ -943,6 +958,142 @@ export class Agent {
     ];
   }
 
+  private getSubagentConfig() {
+    return {
+      enabled: this.config.subagent?.enabled !== false,
+      maxDepth: this.config.subagent?.maxDepth ?? 1,
+      maxParallel: this.config.subagent?.maxParallel ?? 2,
+      timeoutMs: this.config.subagent?.timeoutMs ?? 120000,
+      allowDangerousTools: this.config.subagent?.allowDangerousTools ?? false,
+      defaultAllowedTools: this.config.subagent?.defaultAllowedTools
+    };
+  }
+
+  private resolveSubagentTools(request: SubagentRequest): {
+    tools?: ReturnType<ToolRegistry['getAll']>;
+    error?: string;
+  } {
+    const subagentConfig = this.getSubagentConfig();
+    const parentTools = this.toolRegistry.getAll();
+    const byName = new Map(parentTools.map(tool => [tool.name, tool] as const));
+
+    const requestedNames = request.allowed_tools
+      ?? subagentConfig.defaultAllowedTools;
+
+    let selected = requestedNames
+      ? requestedNames
+          .map(name => byName.get(name))
+          .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined)
+      : parentTools.filter(tool => !tool.isDangerous);
+
+    selected = selected.filter(tool => tool.name !== 'Agent');
+
+    if (!subagentConfig.allowDangerousTools) {
+      const requestedDangerous = request.allowed_tools?.some(name => byName.get(name)?.isDangerous);
+      if (requestedDangerous) {
+        return {
+          error: 'Subagent dangerous tools are disabled by configuration'
+        };
+      }
+      selected = selected.filter(tool => !tool.isDangerous);
+    }
+
+    if (selected.length === 0) {
+      return { error: 'No tools available for subagent after filtering' };
+    }
+
+    return { tools: selected };
+  }
+
+  private async runSubagent(
+    request: SubagentRequest,
+    context?: { agentDepth?: number }
+  ): Promise<{
+    content: string;
+    isError?: boolean;
+    metadata?: Record<string, unknown>;
+  }> {
+    const subagentConfig = this.getSubagentConfig();
+    const currentDepth = context?.agentDepth ?? this.agentDepth;
+
+    if (!subagentConfig.enabled) {
+      return { content: 'Subagent is disabled by configuration', isError: true };
+    }
+    if (currentDepth >= subagentConfig.maxDepth) {
+      return { content: 'Subagent cannot spawn subagents', isError: true };
+    }
+    if (this.activeSubagentRuns >= subagentConfig.maxParallel) {
+      return { content: 'Subagent concurrency limit reached', isError: true };
+    }
+
+    const normalizedType = request.subagent_type ?? 'general-purpose';
+    const requestedTimeout = request.timeout_ms ?? subagentConfig.timeoutMs;
+    const timeoutMs = Math.min(requestedTimeout, subagentConfig.timeoutMs);
+    const maxIterations = Math.max(1, request.max_iterations ?? this.config.maxIterations ?? 50);
+
+    const resolved = this.resolveSubagentTools(request);
+    if (!resolved.tools) {
+      return {
+        content: resolved.error ?? 'Unable to resolve subagent tools',
+        isError: true
+      };
+    }
+
+    const childConfig: AgentConfig = {
+      ...this.config,
+      tools: resolved.tools,
+      maxIterations,
+      subagent: {
+        ...this.config.subagent,
+        enabled: false
+      }
+    };
+
+    const child = new Agent(childConfig);
+    child.agentDepth = currentDepth + 1;
+    const startedAt = Date.now();
+    this.activeSubagentRuns += 1;
+
+    try {
+      await child.waitForInit();
+      const runPromise = child.run(request.prompt, {
+        systemPrompt: request.system_prompt
+      });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(`Subagent timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        runPromise.finally(() => clearTimeout(timer)).catch(() => {});
+      });
+      const result = await Promise.race([runPromise, timeoutPromise]);
+      return {
+        content: result.content,
+        metadata: {
+          sessionId: result.sessionId,
+          subagentType: normalizedType,
+          durationMs: Date.now() - startedAt,
+          usage: result.usage,
+          toolNames: resolved.tools.map(tool => tool.name),
+          description: request.description
+        }
+      };
+    } catch (error) {
+      return {
+        content: error instanceof Error ? error.message : String(error),
+        isError: true,
+        metadata: {
+          subagentType: normalizedType,
+          durationMs: Date.now() - startedAt,
+          description: request.description,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      };
+    } finally {
+      this.activeSubagentRuns -= 1;
+      await child.destroy();
+    }
+  }
+
   /**
    * 获取默认系统提示词
    */
@@ -965,7 +1116,8 @@ export class Agent {
       toolCalls.map(async (tc) => {
         const result = await this.toolRegistry.execute(tc.name, tc.arguments, {
           toolCallId: tc.id,
-          projectDir: this.config.cwd || process.cwd()
+          projectDir: this.config.cwd || process.cwd(),
+          agentDepth: this.agentDepth
         });
         const isError = Boolean(result.isError);
         return {

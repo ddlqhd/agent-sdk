@@ -241,6 +241,7 @@ describe('Builtin Tools', () => {
     expect(names).toContain('TaskUpdate');
     expect(names).toContain('TaskList');
     expect(names).toContain('AskUserQuestion');
+    expect(names).toContain('Agent');
 
     // Removed tools should not be present
     expect(names).not.toContain('DeleteFile');
@@ -579,6 +580,30 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
     expect(result.metadata).toMatchObject({
       answers: [{ questionIndex: 0, selectedLabels: ['X', 'Z'] }]
     });
+  });
+});
+
+describe('Agent Tool', () => {
+  it('should validate required prompt field', async () => {
+    const { agentTool } = await import('../../src/tools/builtin/subagent.js');
+    const registry = new ToolRegistry();
+    registry.register(agentTool);
+
+    const result = await registry.execute('Agent', {});
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid arguments');
+  });
+
+  it('should return configured error when runner is missing', async () => {
+    const { agentTool } = await import('../../src/tools/builtin/subagent.js');
+    const registry = new ToolRegistry();
+    registry.register(agentTool);
+
+    const result = await registry.execute('Agent', {
+      prompt: 'run task'
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not configured');
   });
 });
 

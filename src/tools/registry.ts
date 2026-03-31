@@ -19,6 +19,7 @@ export interface ToolRegistryConfig {
 export interface ToolExecuteOptions {
   toolCallId?: string;
   projectDir?: string;
+  agentDepth?: number;
 }
 
 /**
@@ -182,7 +183,8 @@ export class ToolRegistry {
       const handlerArgs = workingInput as Parameters<ToolDefinition['handler']>[0];
       const executionContext: ToolExecutionContext = {
         toolCallId: options?.toolCallId,
-        projectDir: options?.projectDir
+        projectDir: options?.projectDir,
+        agentDepth: options?.agentDepth
       };
       const result = await tool.handler(handlerArgs, executionContext);
       const toolResultRaw = result;

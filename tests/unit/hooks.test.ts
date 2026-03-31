@@ -137,6 +137,50 @@ describe('ToolRegistry + HookManager', () => {
     registry.register(tool);
 
     await registry.execute('add', { a: 1 });
-    expect(spy).toHaveBeenCalledWith({ a: 10 });
+    expect(spy).toHaveBeenCalledWith(
+      { a: 10 },
+      expect.objectContaining({
+        toolCallId: undefined,
+        projectDir: undefined
+      })
+    );
+  });
+
+  it('runs hooks for Agent tool', async () => {
+    const registry = new ToolRegistry();
+    const hm = HookManager.create();
+    const preSpy = vi.fn(async () => ({ allowed: true }));
+    const postSpy = vi.fn(async () => ({ continue: true }));
+    hm.register(
+      createFunctionHook({
+        id: 'agent-pre',
+        event: 'preToolUse',
+        matcher: 'Agent',
+        handler: preSpy
+      })
+    );
+    hm.register(
+      createFunctionHook({
+        id: 'agent-post',
+        event: 'postToolUse',
+        matcher: 'Agent',
+        handler: postSpy
+      })
+    );
+    registry.setHookManager(hm);
+
+    const tool = createTool({
+      name: 'Agent',
+      description: 'delegate',
+      parameters: z.object({ prompt: z.string() }),
+      handler: async ({ prompt }) => ({ content: `ok:${prompt}` })
+    });
+    registry.register(tool);
+
+    const result = await registry.execute('Agent', { prompt: 'hello' });
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBe('ok:hello');
+    expect(preSpy).toHaveBeenCalled();
+    expect(postSpy).toHaveBeenCalled();
   });
 });
