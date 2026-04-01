@@ -101,7 +101,11 @@ export class Agent {
       this.toolRegistry.registerMany(config.tools);
     } else {
       // 使用所有内置工具（包含 skill 工具）
-      this.toolRegistry.registerMany(getAllBuiltinTools(this.skillRegistry));
+      this.toolRegistry.registerMany(
+        getAllBuiltinTools(this.skillRegistry, {
+          resolve: this.config.askUserQuestion
+        })
+      );
     }
 
     const subagentEnabled = this.config.subagent?.enabled !== false;
@@ -987,6 +991,7 @@ export class Agent {
       : parentTools.filter(tool => !tool.isDangerous);
 
     selected = selected.filter(tool => tool.name !== 'Agent');
+    selected = selected.filter(tool => tool.name !== 'AskUserQuestion');
 
     if (!subagentConfig.allowDangerousTools) {
       const requestedDangerous = request.allowed_tools?.some(name => byName.get(name)?.isDangerous);

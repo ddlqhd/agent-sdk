@@ -2,7 +2,11 @@
  * WebSocket message types (browser + server).
  */
 
-import type { TokenUsage } from 'agent-sdk';
+import type {
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  TokenUsage
+} from 'agent-sdk';
 
 export type ModelProvider = 'openai' | 'anthropic' | 'ollama';
 
@@ -32,7 +36,8 @@ export type ClientMessage =
   | { type: 'cancel'; requestId: string }
   | { type: 'sessions:list' }
   | { type: 'sessions:new'; sessionId?: string }
-  | { type: 'sessions:resume'; sessionId: string };
+  | { type: 'sessions:resume'; sessionId: string }
+  | { type: 'ask_user_question_reply'; requestId: string; answers: AskUserQuestionAnswer[] };
 
 export type SerializedStreamEvent = Record<string, unknown>;
 
@@ -49,7 +54,8 @@ export type ServerMessage =
       usage?: TokenUsage;
     }
   | { type: 'sessions:list'; sessions: SessionListItem[] }
-  | { type: 'sessions:new'; sessionId: string };
+  | { type: 'sessions:new'; sessionId: string }
+  | { type: 'ask_user_question'; requestId: string; questions: AskUserQuestionItem[] };
 
 export interface SessionListItem {
   id: string;

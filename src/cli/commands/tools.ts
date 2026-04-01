@@ -86,7 +86,7 @@ export function createToolsCommand(): Command {
   command
     .command('test <name>')
     .description(
-      'Test a tool with arguments. Note: AskUserQuestion only prompts when stdin is a TTY; in pipes/CI it returns formatted text without blocking.'
+      'Test a tool with arguments. Note: AskUserQuestion returns formatted text only unless the Agent is configured with askUserQuestion (e.g. CLI TTY).'
     )
     .option('-a, --args <json>', 'Tool arguments as JSON')
     .action(async (name, options) => {

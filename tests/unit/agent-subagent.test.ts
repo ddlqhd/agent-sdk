@@ -105,6 +105,23 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('timed out');
   });
 
+  it('excludes AskUserQuestion from subagent toolset', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false
+    });
+    expect(agent.getToolRegistry().getAll().some((t) => t.name === 'AskUserQuestion')).toBe(true);
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: 'child-task'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const toolNames = result.metadata?.toolNames as string[] | undefined;
+    expect(toolNames).toBeDefined();
+    expect(toolNames).not.toContain('AskUserQuestion');
+  });
+
   it('uses safe tools by default for child toolset', async () => {
     const dangerousTool = createTool({
       name: 'DangerousExec',

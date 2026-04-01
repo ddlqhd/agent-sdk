@@ -67,10 +67,10 @@
 - 搜索：`Grep` 与 `getGrepTools()`
 - Web：`WebFetch` `WebSearch` 与 `getWebTools()`
 - 任务：`TaskCreate` `TaskUpdate` `TaskList` 与 `getTaskTools()`
-- 交互：`AskUserQuestion` 与 `getInteractionTools()`
+- 交互：`AskUserQuestion`、`AskUserQuestionResolver`、`createAskUserQuestionTool()` 与 `getInteractionTools(options?)`；交互需宿主传入 `AgentConfig.askUserQuestion` 或 `getAllBuiltinTools(..., { resolve })`
 - Skill 激活：`Skill` 与 `getSkillTools()`
 - Subagent：`Agent`（通过 `createAgentTool()` 创建）与 `getSubagentTools()`
-- 汇总：`getAllBuiltinTools(skillRegistry)` / `getSafeBuiltinTools(skillRegistry)`
+- 汇总：`getAllBuiltinTools(skillRegistry, interactionOptions?)` / `getSafeBuiltinTools(skillRegistry, interactionOptions?)`
 
 ## Storage
 

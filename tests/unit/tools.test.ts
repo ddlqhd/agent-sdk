@@ -499,14 +499,7 @@ describe('AskUserQuestion Tool', () => {
   });
 });
 
-describe('AskUserQuestion interactive (injected readLine)', () => {
-  beforeEach(() => {
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
+describe('AskUserQuestion interactive (injected resolve)', () => {
   const twoOptions = {
     question: 'Pick one?',
     header: 'Pick',
@@ -519,10 +512,9 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
 
   it('should record single selection and include answers in metadata', async () => {
     const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
-    const queue = ['1'];
-    let i = 0;
-    const readLine = async (_p: string) => queue[i++] ?? '';
-    const tool = createAskUserQuestionTool({ readLine });
+    const tool = createAskUserQuestionTool({
+      resolve: async () => [{ questionIndex: 0, selectedLabels: ['Alpha'] }]
+    });
     const registry = new ToolRegistry();
     registry.register(tool);
 
@@ -539,10 +531,9 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
 
   it('should record Other with custom text', async () => {
     const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
-    const queue = ['0', 'custom reply'];
-    let i = 0;
-    const readLine = async (_p: string) => queue[i++] ?? '';
-    const tool = createAskUserQuestionTool({ readLine });
+    const tool = createAskUserQuestionTool({
+      resolve: async () => [{ questionIndex: 0, selectedLabels: [], otherText: 'custom reply' }]
+    });
     const registry = new ToolRegistry();
     registry.register(tool);
 
@@ -567,10 +558,9 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
       ],
       multiSelect: true
     };
-    const queue = ['1, 3'];
-    let i = 0;
-    const readLine = async (_p: string) => queue[i++] ?? '';
-    const tool = createAskUserQuestionTool({ readLine });
+    const tool = createAskUserQuestionTool({
+      resolve: async () => [{ questionIndex: 0, selectedLabels: ['X', 'Z'] }]
+    });
     const registry = new ToolRegistry();
     registry.register(tool);
 
@@ -580,6 +570,35 @@ describe('AskUserQuestion interactive (injected readLine)', () => {
     expect(result.metadata).toMatchObject({
       answers: [{ questionIndex: 0, selectedLabels: ['X', 'Z'] }]
     });
+  });
+
+  it('should return isError when resolve throws', async () => {
+    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const tool = createAskUserQuestionTool({
+      resolve: async () => {
+        throw new Error('user dismissed');
+      }
+    });
+    const registry = new ToolRegistry();
+    registry.register(tool);
+
+    const result = await registry.execute('AskUserQuestion', {
+      questions: [
+        {
+          question: 'Q?',
+          header: 'H',
+          options: [
+            { label: 'A', description: 'a' },
+            { label: 'B', description: 'b' }
+          ],
+          multiSelect: false
+        }
+      ]
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('AskUserQuestion failed');
+    expect(result.content).toContain('user dismissed');
   });
 });
 

@@ -562,6 +562,11 @@ export interface AgentConfig {
   /** 工具列表 */
   tools?: ToolDefinition[];
 
+  /**
+   * AskUserQuestion 交互解析（CLI / Web 等实现）。未设置时该工具仅返回题面、不阻塞。
+   */
+  askUserQuestion?: import('../tools/builtin/interaction.js').AskUserQuestionResolver;
+
   /** Skill 路径列表 */
   skills?: string[];
 

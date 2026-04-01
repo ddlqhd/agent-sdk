@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "install:deps": "pnpm install --ignore-workspace",
+    "ensure-sdk": "node ./scripts/ensure-agent-sdk.mjs",
+    "predev": "pnpm run ensure-sdk",
     "dev": "concurrently -k \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:server": "tsx server/index.ts",
     "dev:client": "wait-on tcp:127.0.0.1:3001 && vite",

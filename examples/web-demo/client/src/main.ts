@@ -1,3 +1,4 @@
+import type { AskUserQuestionAnswer, AskUserQuestionItem } from 'agent-sdk';
 import type { ClientMessage, ModelProvider, ServerMessage, SessionListItem } from '../../shared/ws-protocol.js';
 
 const connStatus = document.querySelector<HTMLParagraphElement>('#conn-status')!;
@@ -113,6 +114,221 @@ function send(msg: ClientMessage): void {
   ws.send(JSON.stringify(msg));
 }
 
+/**
+ * Modal UI for AskUserQuestion — returns structured answers for the model tool.
+ */
+function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<AskUserQuestionAnswer[]> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ask-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'ask-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    const h = document.createElement('h2');
+    h.className = 'ask-modal-title';
+    h.textContent = '需要你的选择';
+    modal.appendChild(h);
+
+    type RowState =
+      | { multi: false; choice: number | 'other' | null; otherText: string }
+      | { multi: true; selected: Set<number>; otherText: string };
+
+    const rows: RowState[] = questions.map((q) =>
+      q.multiSelect
+        ? { multi: true, selected: new Set<number>(), otherText: '' }
+        : { multi: false, choice: null, otherText: '' }
+    );
+
+    const body = document.createElement('div');
+    body.className = 'ask-modal-body';
+
+    questions.forEach((q, qi) => {
+      const section = document.createElement('section');
+      section.className = 'ask-modal-section';
+      const chip = document.createElement('span');
+      chip.className = 'ask-modal-chip';
+      chip.textContent = q.header;
+      const pq = document.createElement('p');
+      pq.className = 'ask-modal-question';
+      pq.textContent = q.question;
+      section.appendChild(chip);
+      section.appendChild(pq);
+
+      const st = rows[qi]!;
+
+      if (!q.multiSelect) {
+        const group = document.createElement('div');
+        group.className = 'ask-modal-options';
+        q.options.forEach((opt, oi) => {
+          const label = document.createElement('label');
+          label.className = 'ask-modal-option';
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = `aq-${qi}`;
+          radio.addEventListener('change', () => {
+            if (!st.multi) {
+              st.choice = oi;
+            }
+          });
+          label.appendChild(radio);
+          const span = document.createElement('span');
+          span.textContent = `${opt.label} — ${opt.description}`;
+          label.appendChild(span);
+          group.appendChild(label);
+        });
+        const otherLab = document.createElement('label');
+        otherLab.className = 'ask-modal-option';
+        const otherRadio = document.createElement('input');
+        otherRadio.type = 'radio';
+        otherRadio.name = `aq-${qi}`;
+        const otherInp = document.createElement('input');
+        otherInp.type = 'text';
+        otherInp.className = 'ask-modal-other-input';
+        otherInp.placeholder = '自定义回答';
+        otherInp.autocomplete = 'off';
+        otherRadio.addEventListener('change', () => {
+          if (!st.multi) {
+            st.choice = 'other';
+          }
+        });
+        otherInp.addEventListener('input', () => {
+          if (!st.multi) {
+            st.otherText = otherInp.value;
+          }
+        });
+        otherInp.addEventListener('focus', () => {
+          otherRadio.checked = true;
+          if (!st.multi) {
+            st.choice = 'other';
+          }
+        });
+        otherLab.appendChild(otherRadio);
+        otherLab.appendChild(document.createTextNode(' Other — '));
+        otherLab.appendChild(otherInp);
+        group.appendChild(otherLab);
+        section.appendChild(group);
+      } else {
+        const group = document.createElement('div');
+        group.className = 'ask-modal-options';
+        q.options.forEach((opt, oi) => {
+          const label = document.createElement('label');
+          label.className = 'ask-modal-option';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.addEventListener('change', () => {
+            if (st.multi) {
+              if (cb.checked) {
+                st.selected.add(oi);
+              } else {
+                st.selected.delete(oi);
+              }
+            }
+          });
+          label.appendChild(cb);
+          const span = document.createElement('span');
+          span.textContent = `${opt.label} — ${opt.description}`;
+          label.appendChild(span);
+          group.appendChild(label);
+        });
+        const otherWrap = document.createElement('div');
+        otherWrap.className = 'ask-modal-other-wrap';
+        const otherInp = document.createElement('input');
+        otherInp.type = 'text';
+        otherInp.className = 'ask-modal-other-input ask-modal-other-input-block';
+        otherInp.placeholder = 'Other：填写则作为自定义回答（忽略上方选项）';
+        otherInp.autocomplete = 'off';
+        otherInp.addEventListener('input', () => {
+          if (st.multi) {
+            st.otherText = otherInp.value;
+          }
+        });
+        otherWrap.appendChild(otherInp);
+        section.appendChild(group);
+        section.appendChild(otherWrap);
+      }
+
+      body.appendChild(section);
+    });
+
+    modal.appendChild(body);
+
+    function buildAnswers(): AskUserQuestionAnswer[] {
+      return questions.map((q, qi) => {
+        const st = rows[qi]!;
+        if (!q.multiSelect) {
+          if (!st.multi) {
+            if (st.choice === 'other') {
+              return { questionIndex: qi, selectedLabels: [], otherText: st.otherText };
+            }
+            if (typeof st.choice === 'number') {
+              return {
+                questionIndex: qi,
+                selectedLabels: [q.options[st.choice]!.label]
+              };
+            }
+            return { questionIndex: qi, selectedLabels: [], otherText: '(skipped)' };
+          }
+        }
+        if (st.multi) {
+          const trimmed = st.otherText.trim();
+          if (trimmed !== '') {
+            return { questionIndex: qi, selectedLabels: [], otherText: trimmed };
+          }
+          const labels = [...st.selected]
+            .sort((a, b) => a - b)
+            .map((i) => q.options[i]!.label);
+          return { questionIndex: qi, selectedLabels: labels };
+        }
+        return { questionIndex: qi, selectedLabels: [], otherText: '(skipped)' };
+      });
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'ask-modal-footer';
+    const btnSkip = document.createElement('button');
+    btnSkip.type = 'button';
+    btnSkip.className = 'btn btn-secondary';
+    btnSkip.textContent = '跳过';
+    const btnOk = document.createElement('button');
+    btnOk.type = 'button';
+    btnOk.className = 'btn btn-primary';
+    btnOk.textContent = '提交';
+
+    function finish(answers: AskUserQuestionAnswer[]): void {
+      overlay.remove();
+      resolve(answers);
+    }
+
+    btnSkip.addEventListener('click', () => {
+      finish(
+        questions.map((_, qi) => ({
+          questionIndex: qi,
+          selectedLabels: [] as string[],
+          otherText: '(skipped)' as const
+        }))
+      );
+    });
+    btnOk.addEventListener('click', () => {
+      finish(buildAnswers());
+    });
+
+    footer.appendChild(btnSkip);
+    footer.appendChild(btnOk);
+    modal.appendChild(footer);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) {
+        btnSkip.click();
+      }
+    });
+  });
+}
+
 function handleServerMessage(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hello_ok':
@@ -134,6 +350,18 @@ function handleServerMessage(msg: ServerMessage): void {
         setConn('请修正左侧设置后点击「应用配置」', false);
       }
       return;
+    case 'ask_user_question': {
+      const prevDisabled = chatInput.disabled;
+      chatInput.disabled = true;
+      void showAskUserQuestionDialog(msg.questions)
+        .then((answers) => {
+          send({ type: 'ask_user_question_reply', requestId: msg.requestId, answers });
+        })
+        .finally(() => {
+          chatInput.disabled = prevDisabled;
+        });
+      return;
+    }
     case 'stream_event':
       logStreamEvent(msg.event);
       handleStreamEventInChatLog(msg.event);

@@ -15,22 +15,26 @@ import { getShellTools } from './shell.js';
 import { getGrepTools } from './grep.js';
 import { getWebTools } from './web.js';
 import { getTaskTools } from './task.js';
-import { getInteractionTools } from './interaction.js';
+import { getInteractionTools, type CreateAskUserQuestionToolOptions } from './interaction.js';
 import { getSkillTools } from './skill-activation.js';
 import { getSubagentTools } from './subagent.js';
 
 /**
  * 获取所有内置工具
  * @param skillRegistry - Skill注册中心，用于激活skill工具
+ * @param interactionOptions - 可选：AskUserQuestion 的 {@link CreateAskUserQuestionToolOptions}
  */
-export function getAllBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[] {
+export function getAllBuiltinTools(
+  skillRegistry: SkillRegistry,
+  interactionOptions?: CreateAskUserQuestionToolOptions
+): ToolDefinition[] {
   return [
     ...getFileSystemTools(),
     ...getShellTools(),
     ...getGrepTools(),
     ...getWebTools(),
     ...getTaskTools(),
-    ...getInteractionTools(),
+    ...getInteractionTools(interactionOptions),
     ...getSubagentTools(),
     ...getSkillTools(skillRegistry)
   ];
@@ -39,7 +43,11 @@ export function getAllBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition
 /**
  * 获取安全的内置工具 (不含危险操作)
  * @param skillRegistry - Skill注册中心，用于激活skill工具
+ * @param interactionOptions - 可选：AskUserQuestion 的 {@link CreateAskUserQuestionToolOptions}
  */
-export function getSafeBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[] {
-  return getAllBuiltinTools(skillRegistry).filter((tool) => !tool.isDangerous);
+export function getSafeBuiltinTools(
+  skillRegistry: SkillRegistry,
+  interactionOptions?: CreateAskUserQuestionToolOptions
+): ToolDefinition[] {
+  return getAllBuiltinTools(skillRegistry, interactionOptions).filter((tool) => !tool.isDangerous);
 }

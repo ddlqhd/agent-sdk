@@ -6,6 +6,7 @@ import {
   createModel,
   loadMCPConfig,
   validateMCPConfig,
+  type AskUserQuestionResolver,
   type MCPConfigFile,
   type MCPServerConfig
 } from 'agent-sdk';
@@ -28,6 +29,8 @@ export interface BuildAgentOptions {
   mcpConfigPath?: string;
   cwd?: string;
   userBasePath?: string;
+  /** AskUserQuestion 交互（例如 WebSocket 宿主注入） */
+  askUserQuestion?: AskUserQuestionResolver;
 }
 
 function ensureSdkBuilt(): void {
@@ -116,7 +119,8 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
       autoLoad: true,
       workspacePath: join(cwd, '.claude', 'skills')
     },
-    includeEnvironment: true
+    includeEnvironment: true,
+    askUserQuestion: config.askUserQuestion
   });
 
   await agent.waitForInit();

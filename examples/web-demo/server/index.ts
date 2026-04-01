@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
-import type { Agent, SessionInfo, TokenUsage } from 'agent-sdk';
+import type {
+  Agent,
+  AskUserQuestionAnswer,
+  AskUserQuestionResolver,
+  SessionInfo,
+  TokenUsage
+} from 'agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
 import { buildAgent, type BuildAgentOptions } from './agent-factory.js';
@@ -85,6 +92,29 @@ wss.on('connection', (socket: WebSocket) => {
     abortByRequest: new Map()
   };
 
+  const askPending = new Map<
+    string,
+    {
+      resolve: (answers: AskUserQuestionAnswer[]) => void;
+      reject: (e: Error) => void;
+    }
+  >();
+
+  function rejectAllAskPending(reason: string): void {
+    const err = new Error(reason);
+    for (const [, p] of askPending) {
+      p.reject(err);
+    }
+    askPending.clear();
+  }
+
+  const askUserQuestion: AskUserQuestionResolver = (questions) =>
+    new Promise((resolve, reject) => {
+      const id = randomUUID();
+      askPending.set(id, { resolve, reject });
+      sendJson(socket, { type: 'ask_user_question', requestId: id, questions });
+    });
+
   async function destroyAllAgents(): Promise<void> {
     for (const agent of state.agentsBySession.values()) {
       await agent.destroy();
@@ -97,17 +127,22 @@ wss.on('connection', (socket: WebSocket) => {
     if (!state.runtimeConfig) {
       throw new Error('Configure the agent first.');
     }
-    const { agent } = await buildAgent(state.runtimeConfig);
+    const { agent } = await buildAgent({ ...state.runtimeConfig, askUserQuestion });
     return agent;
   }
 
   function abortSessionRequests(sessionId: string | null): void {
     if (!sessionId) return;
+    let aborted = false;
     for (const [requestId, request] of state.abortByRequest.entries()) {
       if (request.sessionId === sessionId) {
         request.controller.abort();
         state.abortByRequest.delete(requestId);
+        aborted = true;
       }
+    }
+    if (aborted) {
+      rejectAllAskPending('session_aborted');
     }
   }
 
@@ -127,6 +162,7 @@ wss.on('connection', (socket: WebSocket) => {
           return;
 
         case 'configure': {
+          rejectAllAskPending('reconfigured');
           await destroyAllAgents();
           const stableUserBasePath =
             msg.userBasePath && msg.userBasePath.trim() !== ''
@@ -145,7 +181,7 @@ wss.on('connection', (socket: WebSocket) => {
             cwd: msg.cwd,
             userBasePath: stableUserBasePath
           };
-          const { agent, warnings } = await buildAgent(state.runtimeConfig);
+          const { agent, warnings } = await buildAgent({ ...state.runtimeConfig, askUserQuestion });
           const sessionId = agent.getSessionManager().createSession();
           state.agentsBySession.set(sessionId, agent);
           state.activeSessionId = sessionId;
@@ -226,6 +262,16 @@ wss.on('connection', (socket: WebSocket) => {
         case 'cancel': {
           const request = state.abortByRequest.get(msg.requestId);
           request?.controller.abort();
+          rejectAllAskPending('cancelled');
+          return;
+        }
+
+        case 'ask_user_question_reply': {
+          const p = askPending.get(msg.requestId);
+          if (p) {
+            p.resolve(msg.answers);
+            askPending.delete(msg.requestId);
+          }
           return;
         }
 
@@ -306,6 +352,7 @@ wss.on('connection', (socket: WebSocket) => {
   });
 
   socket.on('close', () => {
+    rejectAllAskPending('disconnected');
     for (const request of state.abortByRequest.values()) {
       request.controller.abort();
     }

@@ -11,6 +11,7 @@ import {
 } from '../utils/keypress.js';
 import type { CLIConfig } from '../../core/types.js';
 import { loadMCPConfig } from '../../config/index.js';
+import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 
 function addModelOptions(cmd: Command): Command {
   return cmd
@@ -66,7 +67,8 @@ export function createChatCommand(): Command {
         temperature: options.temperature,
         maxTokens: options.maxTokens,
         mcpServers: mcpResult.servers,
-        userBasePath: options.userBasePath
+        userBasePath: options.userBasePath,
+        askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
       });
 
       // 等待 Agent 初始化完成（skill 加载、MCP 连接等）
@@ -249,7 +251,8 @@ export function createRunCommand(): Command {
           temperature: options.temperature,
           maxTokens: options.maxTokens,
           mcpServers: mcpResult.servers,
-          userBasePath: options.userBasePath
+          userBasePath: options.userBasePath,
+          askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
         });
 
         // 等待 Agent 初始化完成

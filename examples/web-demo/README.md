@@ -22,6 +22,8 @@ Local **Node.js** server with **WebSocket** (`/ws`) plus a **Vite + TypeScript**
 
    Note: after updating the local `agent-sdk` source code (especially after `pnpm build` in repo root), run install again in `examples/web-demo` so the `file:../..` dependency picks up the latest SDK build.
 
+3. `pnpm dev` runs **`ensure-sdk`** first (`scripts/ensure-agent-sdk.mjs`): if `node_modules/agent-sdk/dist/index.js` is missing, it exits with a hint to build the SDK and reinstall.
+
 ## Run (development)
 
 Starts the API server on **3001** and Vite on **5173** (Vite proxies WebSocket `/ws` → 3001).
@@ -48,6 +50,7 @@ Open `http://127.0.0.1:5173`, click **Apply configuration**, then chat.
 - **Non-streaming**: optional `Agent.run()` checkbox
 - **Sessions**: new / list / resume; storage **memory** or **jsonl** (under a temp or custom user base path)
 - **Tools**: all built-ins plus **DemoCalculator** (custom `createTool` example); **safe** mode strips `isDangerous` built-ins (e.g. **Bash**)
+- **AskUserQuestion**: server injects `AgentConfig.askUserQuestion` via WebSocket — the UI opens a modal to submit structured answers while the tool call is pending
 - **Skills**: [`demo-fixtures/.claude/skills/DemoSkill/SKILL.md`](demo-fixtures/.claude/skills/DemoSkill/SKILL.md) — try asking the model to use the **Skill** tool with `DemoSkill`
 - **Memory**: [`demo-fixtures/CLAUDE.md`](demo-fixtures/CLAUDE.md) when “Long-term memory” is on
 - **Context compression**: toggle maps to `contextManagement` on the agent
