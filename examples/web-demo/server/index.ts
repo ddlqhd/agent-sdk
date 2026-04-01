@@ -5,7 +5,7 @@ import { extname, join, normalize } from 'node:path';
 import type { Agent, SessionInfo, TokenUsage } from 'agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
-import { applySafeToolsAndCalculator, buildAgent, type BuildAgentOptions } from './agent-factory.js';
+import { buildAgent, type BuildAgentOptions } from './agent-factory.js';
 import { CLIENT_DIST, WEB_DEMO_ROOT } from './paths.js';
 import { serializeStreamEvent } from './serialize-event.js';
 
@@ -72,7 +72,8 @@ server.on('upgrade', (req, socket, head) => {
 interface ConnState {
   agentsBySession: Map<string, Agent>;
   activeSessionId: string | null;
-  runtimeConfig: (BuildAgentOptions & { safeToolsOnly: boolean }) | null;
+  /** Set by `configure`; includes `safeToolsOnly` when present. */
+  runtimeConfig: BuildAgentOptions | null;
   abortByRequest: Map<string, { sessionId: string; controller: AbortController }>;
 }
 
@@ -96,10 +97,7 @@ wss.on('connection', (socket: WebSocket) => {
     if (!state.runtimeConfig) {
       throw new Error('Configure the agent first.');
     }
-    const { safeToolsOnly, ...buildConfig } = state.runtimeConfig;
-    const { agent } = buildAgent(buildConfig);
-    await agent.waitForInit();
-    await applySafeToolsAndCalculator(agent, safeToolsOnly);
+    const { agent } = await buildAgent(state.runtimeConfig);
     return agent;
   }
 
@@ -147,21 +145,7 @@ wss.on('connection', (socket: WebSocket) => {
             cwd: msg.cwd,
             userBasePath: stableUserBasePath
           };
-          const { agent, warnings } = buildAgent({
-            provider: state.runtimeConfig.provider,
-            model: state.runtimeConfig.model,
-            temperature: state.runtimeConfig.temperature,
-            maxTokens: state.runtimeConfig.maxTokens,
-            storage: state.runtimeConfig.storage,
-            safeToolsOnly: state.runtimeConfig.safeToolsOnly,
-            memory: state.runtimeConfig.memory,
-            contextManagement: state.runtimeConfig.contextManagement,
-            mcpConfigPath: state.runtimeConfig.mcpConfigPath,
-            cwd: state.runtimeConfig.cwd,
-            userBasePath: state.runtimeConfig.userBasePath
-          });
-          await agent.waitForInit();
-          await applySafeToolsAndCalculator(agent, state.runtimeConfig.safeToolsOnly);
+          const { agent, warnings } = await buildAgent(state.runtimeConfig);
           const sessionId = agent.getSessionManager().createSession();
           state.agentsBySession.set(sessionId, agent);
           state.activeSessionId = sessionId;

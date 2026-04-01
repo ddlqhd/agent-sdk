@@ -47,7 +47,7 @@ Open `http://127.0.0.1:5173`, click **Apply configuration**, then chat.
 - **Streaming**: `Agent.stream()` → serialized `StreamEvent`s in the event panel
 - **Non-streaming**: optional `Agent.run()` checkbox
 - **Sessions**: new / list / resume; storage **memory** or **jsonl** (under a temp or custom user base path)
-- **Tools**: all built-ins by default (including **Bash**), or **safe** mode (strip `isDangerous` tools + **DemoCalculator**)
+- **Tools**: all built-ins plus **DemoCalculator** (custom `createTool` example); **safe** mode strips `isDangerous` built-ins (e.g. **Bash**)
 - **Skills**: [`demo-fixtures/.claude/skills/DemoSkill/SKILL.md`](demo-fixtures/.claude/skills/DemoSkill/SKILL.md) — try asking the model to use the **Skill** tool with `DemoSkill`
 - **Memory**: [`demo-fixtures/CLAUDE.md`](demo-fixtures/CLAUDE.md) when “Long-term memory” is on
 - **Context compression**: toggle maps to `contextManagement` on the agent

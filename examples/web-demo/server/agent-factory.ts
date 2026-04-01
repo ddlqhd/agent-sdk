@@ -49,7 +49,11 @@ function resolvePathRelative(p: string, base: string): string {
   return join(base, trimmed);
 }
 
-export function buildAgent(config: BuildAgentOptions): { agent: Agent; warnings: string[] } {
+/**
+ * Build an {@link Agent}, wait for init (built-ins / MCP), register demo custom tools, then
+ * apply `safeToolsOnly` by unregistering dangerous built-ins when enabled.
+ */
+export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Agent; warnings: string[] }> {
   ensureSdkBuilt();
 
   const warnings: string[] = [];
@@ -116,16 +120,21 @@ export function buildAgent(config: BuildAgentOptions): { agent: Agent; warnings:
     includeEnvironment: true
   });
 
+  await agent.waitForInit();
+  registerCustomDemoTools(agent);
+  if (config.safeToolsOnly) {
+    const reg = agent.getToolRegistry();
+    for (const tool of [...reg.getAll()]) {
+      if (tool.isDangerous) {
+        reg.unregister(tool.name);
+      }
+    }
+  }
+
   return { agent, warnings };
 }
 
-export async function applySafeToolsAndCalculator(agent: Agent, safeToolsOnly: boolean): Promise<void> {
-  if (!safeToolsOnly) return;
-  const reg = agent.getToolRegistry();
-  for (const tool of [...reg.getAll()]) {
-    if (tool.isDangerous) {
-      reg.unregister(tool.name);
-    }
-  }
+/** After {@link Agent.waitForInit} so built-ins / MCP load first; used only from {@link buildAgent}. */
+function registerCustomDemoTools(agent: Agent): void {
   agent.registerTool(demoCalculatorTool);
 }
