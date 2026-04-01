@@ -399,6 +399,20 @@ function refreshSessionLabel(): void {
   currentSessionEl.textContent = currentSessionId || '—';
 }
 
+const CHAT_LOG_NEAR_BOTTOM_PX = 48;
+
+function isChatLogNearBottom(thresholdPx = CHAT_LOG_NEAR_BOTTOM_PX): boolean {
+  const { scrollHeight, scrollTop, clientHeight } = chatLog;
+  return scrollHeight - scrollTop - clientHeight <= thresholdPx;
+}
+
+/** Call after `#chat-log` content grows; pass whether the user was already at the bottom *before* that update. */
+function scrollChatLogToBottomIfPinned(wasNearBottomBeforeUpdate: boolean): void {
+  if (wasNearBottomBeforeUpdate) {
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+}
+
 function ensureStreamingAssistantBubble(): HTMLElement {
   if (streamingAssistantBodyEl?.isConnected) {
     return streamingAssistantBodyEl;
@@ -418,9 +432,10 @@ function ensureStreamingAssistantBubble(): HTMLElement {
 }
 
 function appendAssistantStreamDelta(chunk: string): void {
+  const pinned = isChatLogNearBottom();
   const body = ensureStreamingAssistantBubble();
   body.textContent += chunk;
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollChatLogToBottomIfPinned(pinned);
 }
 
 function finishStreamingAssistant(): void {
@@ -492,8 +507,9 @@ function appendToolCallChatRow(event: Record<string, unknown>): void {
   pre.textContent = argsText || '{}';
   div.appendChild(pre);
 
+  const pinned = isChatLogNearBottom();
   chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollChatLogToBottomIfPinned(pinned);
 }
 
 function appendToolResultChatRow(toolCallId: string, body: string, variant: 'result' | 'error'): void {
@@ -515,8 +531,9 @@ function appendToolResultChatRow(toolCallId: string, body: string, variant: 'res
   div.appendChild(role);
   div.appendChild(idEl);
   div.appendChild(pre);
+  const pinned = isChatLogNearBottom();
   chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollChatLogToBottomIfPinned(pinned);
 }
 
 function focusToolInspector(): void {
