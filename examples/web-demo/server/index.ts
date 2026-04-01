@@ -314,7 +314,20 @@ wss.on('connection', (socket: WebSocket) => {
   });
 });
 
-server.listen(PORT, () => {
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `[web-demo] 端口 ${PORT} 已被占用。请先结束占用进程，或设置环境变量 PORT 使用其他端口。\n` +
+        `  查看占用: netstat -ano | findstr :${PORT}\n` +
+        `  结束进程: taskkill /PID <上列最后一列> /F`
+    );
+  } else {
+    console.error('[web-demo] HTTP server error:', err);
+  }
+  process.exit(1);
+});
+
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`[web-demo] cwd ${WEB_DEMO_ROOT}`);
   console.log(
     `[web-demo] listening on http://127.0.0.1:${PORT}${PROD ? ' (serving static)' : ' (WebSocket /ws only)'}`

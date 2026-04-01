@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
