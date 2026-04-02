@@ -30,6 +30,16 @@
 - `setSystemPrompt(prompt)` / `appendSystemPrompt(content)` / `getSystemPrompt()`：系统提示词管理
 - `compressContext()` / `getContextStatus()` / `getSessionUsage()`：上下文与 token 状态
 
+### `AgentConfig` 工具与权限相关字段
+
+- `tools`：在默认内置（及 MCP）之后**追加**的自定义工具；同名覆盖内置定义。与 `exclusiveTools` 互斥。
+- `disallowedTools`：按**注册名**禁止的工具；不注册、不暴露给模型、不执行（内置 / MCP / 自定义均生效）。
+- `allowedTools`：按注册名**自动批准**的执行列表。未列出者仍可对模型可见；若配置了 `allowedTools` 且某次调用不在列表内，则需 `canUseTool` 返回 true，否则拒绝。**未设置** `allowedTools` 时保持兼容：非 `disallowedTools` 的工具均自动批准。**空数组** `[]` 表示无任何自动批准：每次调用都需 `canUseTool`，未配置则全部拒绝。
+- `canUseTool`：`(toolName, input) => boolean | Promise<boolean>`，在已配置 `allowedTools` 且调用未命中自动批准时使用。
+- `exclusiveTools`：仅注册此处列出的工具（用于子 Agent 等排他场景），不合并默认内置；仍受 `disallowedTools` 过滤。
+
+类型别名：`CanUseToolCallback`。
+
 ## Models（从根入口再导出）
 
 - `createModel(config)`
@@ -46,7 +56,7 @@
 - `ToolRegistry`
 - `createTool(config)`
 - `getGlobalRegistry()`
-- 类型：`ToolExecuteOptions`
+- 类型：`ToolExecuteOptions` `ToolRegistryConfig`（含可选 `executionPolicy`，与 `AgentConfig` 工具策略字段对应）
 
 ### Hook 相关导出
 
@@ -149,7 +159,7 @@
 - 工具类型：`ToolDefinition` `ToolResult` `ToolSchema` `ToolResultMetadata`
 - Hook：同根入口 hooks
 - 输出处理：`OutputHandler` `createOutputHandler` `FileStorageStrategy` `PaginationHintStrategy` `SmartTruncateStrategy` `OUTPUT_CONFIG`
-- 类型：`OutputStrategy` `ToolExecuteOptions`
+- 类型：`OutputStrategy` `ToolExecuteOptions` `ToolRegistryConfig`
 - 内置工具：`export * from ./builtin`
 
 > 普通应用只需 `createTool` + `ToolRegistry`；`OutputHandler` 与策略类通常用于 CLI/高级输出治理。

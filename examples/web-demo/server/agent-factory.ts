@@ -52,8 +52,10 @@ function resolvePathRelative(p: string, base: string): string {
 }
 
 /**
- * Build an {@link Agent}, wait for init (built-ins / MCP), register demo custom tools, then
- * apply `safeToolsOnly` by unregistering dangerous built-ins when enabled.
+ * Build an {@link Agent}, wait for init (built-ins / MCP).
+ * Demo calculator is passed via {@link AgentConfig.tools} (appended to built-ins).
+ * When `safeToolsOnly`, {@link AgentConfig.disallowedTools} hides `Bash` from the model; any
+ * remaining dangerous tools (e.g. from MCP) are unregistered after init.
  */
 export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Agent; warnings: string[] }> {
   ensureSdkBuilt();
@@ -120,11 +122,12 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
       workspacePath: join(cwd, '.claude', 'skills')
     },
     includeEnvironment: true,
-    askUserQuestion: config.askUserQuestion
+    askUserQuestion: config.askUserQuestion,
+    tools: [demoCalculatorTool],
+    disallowedTools: config.safeToolsOnly ? ['Bash'] : undefined
   });
 
   await agent.waitForInit();
-  registerCustomDemoTools(agent);
   if (config.safeToolsOnly) {
     const reg = agent.getToolRegistry();
     for (const tool of [...reg.getAll()]) {
@@ -135,9 +138,4 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
   }
 
   return { agent, warnings };
-}
-
-/** After {@link Agent.waitForInit} so built-ins / MCP load first; used only from {@link buildAgent}. */
-function registerCustomDemoTools(agent: Agent): void {
-  agent.registerTool(demoCalculatorTool);
 }

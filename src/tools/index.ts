@@ -1,6 +1,6 @@
 // Tools module
 export { ToolRegistry, createTool, getGlobalRegistry } from './registry.js';
-export type { ToolExecuteOptions } from './registry.js';
+export type { ToolExecuteOptions, ToolRegistryConfig } from './registry.js';
 export type { ToolDefinition, ToolResult, ToolSchema, ToolResultMetadata } from '../core/types.js';
 
 // Tool hooks

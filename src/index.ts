@@ -20,7 +20,7 @@ export type { OpenAIConfig, AnthropicConfig, OllamaConfig, ModelProvider, Create
 
 // Tools
 export { ToolRegistry, createTool, getGlobalRegistry } from './tools/index.js';
-export type { ToolExecuteOptions } from './tools/index.js';
+export type { ToolExecuteOptions, ToolRegistryConfig } from './tools/index.js';
 export {
   HookManager,
   createFunctionHook,

@@ -92,21 +92,16 @@ export class Agent {
       userBasePath: config.userBasePath
     });
 
-    // 初始化工具注册中心
-    this.toolRegistry = new ToolRegistry();
+    // 初始化工具注册中心（执行策略与 AgentConfig 对齐，便于在 ToolRegistry.execute 中统一校验）
+    this.toolRegistry = new ToolRegistry({
+      executionPolicy: {
+        disallowedTools: this.config.disallowedTools,
+        allowedTools: this.config.allowedTools,
+        canUseTool: this.config.canUseTool
+      }
+    });
 
-    // 注册内置工具（包含 Skill 工具）
-    if (config.tools !== undefined) {
-      // 用户提供了自定义工具列表
-      this.toolRegistry.registerMany(config.tools);
-    } else {
-      // 使用所有内置工具（包含 skill 工具）
-      this.toolRegistry.registerMany(
-        getAllBuiltinTools(this.skillRegistry, {
-          resolve: this.config.askUserQuestion
-        })
-      );
-    }
+    this.registerInitialTools();
 
     const subagentEnabled = this.config.subagent?.enabled !== false;
     if (subagentEnabled) {
@@ -146,6 +141,37 @@ export class Agent {
 
     // 启动异步初始化，保存 Promise 供外部等待
     this.initPromise = this.initializeAsync();
+  }
+
+  /**
+   * 注册内置 + 自定义工具，或仅 {@link AgentConfig.exclusiveTools}。
+   */
+  private registerInitialTools(): void {
+    if (this.config.exclusiveTools !== undefined) {
+      for (const tool of this.config.exclusiveTools) {
+        if (this.toolRegistry.isDisallowed(tool.name)) {
+          continue;
+        }
+        this.toolRegistry.register(tool);
+      }
+      return;
+    }
+
+    const builtins = getAllBuiltinTools(this.skillRegistry, {
+      resolve: this.config.askUserQuestion
+    }).filter(t => !this.toolRegistry.isDisallowed(t.name));
+
+    this.toolRegistry.registerMany(builtins);
+
+    for (const tool of this.config.tools ?? []) {
+      if (this.toolRegistry.isDisallowed(tool.name)) {
+        continue;
+      }
+      if (this.toolRegistry.has(tool.name)) {
+        this.toolRegistry.unregister(tool.name);
+      }
+      this.toolRegistry.register(tool);
+    }
   }
 
   /**
@@ -611,7 +637,9 @@ export class Agent {
    * 注册多个工具
    */
   registerTools(tools: Parameters<ToolRegistry['registerMany']>[0]): void {
-    this.toolRegistry.registerMany(tools);
+    for (const t of tools) {
+      this.registerTool(t);
+    }
   }
 
   /**
@@ -759,9 +787,13 @@ export class Agent {
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     for (const tool of mcpTools) {
-      if (tool.name.startsWith(`mcp_${config.name}__`)) {
-        this.toolRegistry.register(tool);
+      if (!tool.name.startsWith(`mcp_${config.name}__`)) {
+        continue;
       }
+      if (this.toolRegistry.isDisallowed(tool.name)) {
+        continue;
+      }
+      this.toolRegistry.register(tool);
     }
   }
 
@@ -1046,7 +1078,9 @@ export class Agent {
 
     const childConfig: AgentConfig = {
       ...this.config,
-      tools: resolved.tools,
+      exclusiveTools: resolved.tools,
+      tools: undefined,
+      mcpServers: undefined,
       maxIterations,
       subagent: {
         ...this.config.subagent,

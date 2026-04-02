@@ -550,6 +550,26 @@ export interface ContextManagerConfig {
 }
 
 /**
+ * 非自动批准的工具在调用前回调；返回 true 表示允许执行（与 Claude Agent SDK 的 canUseTool 概念对齐）。
+ */
+export type CanUseToolCallback = (
+  toolName: string,
+  input: Record<string, unknown>
+) => boolean | Promise<boolean>;
+
+/**
+ * {@link ToolRegistry} 可选执行策略（与 {@link AgentConfig} 中 allowedTools / disallowedTools / canUseTool 对应）。
+ */
+export interface ToolExecutionPolicy {
+  disallowedTools?: string[];
+  /**
+   * 与 {@link AgentConfig.allowedTools} 相同。若设为**空数组** `[]`，则没有任何工具自动批准，每次执行均需 {@link canUseTool} 放行（未配置则拒绝）。
+   */
+  allowedTools?: string[];
+  canUseTool?: CanUseToolCallback;
+}
+
+/**
  * Agent 配置
  */
 export interface AgentConfig {
@@ -559,8 +579,35 @@ export interface AgentConfig {
   /** 系统提示 (字符串或配置对象) */
   systemPrompt?: SystemPrompt;
 
-  /** 工具列表 */
+  /**
+   * 追加到默认内置工具（及 MCP）之后的自定义工具；同名会覆盖内置定义。
+   * 与 {@link exclusiveTools} 互斥：若设置了 `exclusiveTools`，则忽略本字段。
+   */
   tools?: ToolDefinition[];
+
+  /**
+   * 自动批准的工具名列表（与注册名一致）。命中的调用直接执行，无需 {@link canUseTool}。
+   * 未列出的工具仍可对模型可见；其调用需经 `canUseTool`（若配置），否则拒绝。
+   * **未设置**时保持兼容：所有非 {@link disallowedTools} 工具均视为自动批准。
+   * **空数组** `[]` 表示无任何自动批准：所有工具调用均需 `canUseTool` 放行，未配置 `canUseTool` 则全部拒绝。
+   */
+  allowedTools?: string[];
+
+  /**
+   * 禁止的工具名：不注册、不纳入模型工具列表、不可执行（内置 / MCP / 自定义均按注册名生效）。
+   */
+  disallowedTools?: string[];
+
+  /**
+   * 当工具不在 {@link allowedTools} 中（且 `allowedTools` 已配置）时调用；返回 true 则执行。
+   */
+  canUseTool?: CanUseToolCallback;
+
+  /**
+   * 仅注册此处列出的工具（用于子 Agent 等排他场景），不合并默认内置，不追加 {@link tools}。
+   * 仍应用 {@link disallowedTools} 过滤。
+   */
+  exclusiveTools?: ToolDefinition[];
 
   /**
    * AskUserQuestion 交互解析（CLI / Web 等实现）。未设置时该工具仅返回题面、不阻塞。

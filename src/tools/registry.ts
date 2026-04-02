@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { ToolDefinition, ToolExecutionContext, ToolResult, ToolSchema } from '../core/types.js';
+import type {
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionPolicy,
+  ToolResult,
+  ToolSchema
+} from '../core/types.js';
 import { zodToJsonSchema } from '../models/base.js';
 import { OutputHandler, createOutputHandler } from './output-handler.js';
 import type { HookManager } from './hooks/manager.js';
@@ -13,6 +19,8 @@ export interface ToolRegistryConfig {
   userBasePath?: string;
   /** 是否启用输出处理（默认 true） */
   enableOutputHandler?: boolean;
+  /** 执行前校验（disallowed / allowedTools / canUseTool）；未设置则不限制 */
+  executionPolicy?: ToolExecutionPolicy;
 }
 
 /** 工具执行选项（Hook 上下文等） */
@@ -30,12 +38,72 @@ export class ToolRegistry {
   private categories: Map<string, Set<string>> = new Map();
   private outputHandler: OutputHandler | null;
   private hookManager: HookManager | null = null;
+  private readonly executionPolicy: ToolExecutionPolicy | undefined;
 
   constructor(config?: ToolRegistryConfig) {
     const enableOutputHandler = config?.enableOutputHandler !== false;
     this.outputHandler = enableOutputHandler
       ? createOutputHandler(config?.userBasePath)
       : null;
+    this.executionPolicy = config?.executionPolicy;
+  }
+
+  /**
+   * 工具名是否在 {@link ToolExecutionPolicy.disallowedTools} 中（无策略时为 false）。
+   */
+  isDisallowed(name: string): boolean {
+    return this.executionPolicy?.disallowedTools?.includes(name) ?? false;
+  }
+
+  /**
+   * `allowedTools` 未设置时视为全部自动批准；已设置时仅列表内自动批准。
+   */
+  private isAutoApproved(name: string): boolean {
+    const allowed = this.executionPolicy?.allowedTools;
+    if (allowed === undefined) {
+      return true;
+    }
+    return allowed.includes(name);
+  }
+
+  private async checkExecutionPolicy(name: string, args: unknown): Promise<ToolResult | null> {
+    const policy = this.executionPolicy;
+    if (!policy) {
+      return null;
+    }
+
+    if (this.isDisallowed(name)) {
+      return {
+        content: `Tool "${name}" is disallowed by configuration`,
+        isError: true
+      };
+    }
+
+    if (this.isAutoApproved(name)) {
+      return null;
+    }
+
+    const canUse = policy.canUseTool;
+    if (!canUse) {
+      return {
+        content: `Tool "${name}" requires approval: configure allowedTools or canUseTool`,
+        isError: true
+      };
+    }
+
+    const raw = args;
+    const input: Record<string, unknown> =
+      raw !== null && raw !== undefined && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const ok = await canUse(name, input);
+    if (!ok) {
+      return {
+        content: `Tool "${name}" was denied by canUseTool`,
+        isError: true
+      };
+    }
+    return null;
   }
 
   setHookManager(manager: HookManager | null): void {
@@ -68,6 +136,11 @@ export class ToolRegistry {
    * 注册工具
    */
   register(tool: ToolDefinition): void {
+    if (this.isDisallowed(tool.name)) {
+      throw new Error(
+        `Cannot register tool "${tool.name}": it is listed in disallowedTools`
+      );
+    }
     if (this.tools.has(tool.name)) {
       throw new Error(`Tool "${tool.name}" is already registered`);
     }
@@ -132,6 +205,11 @@ export class ToolRegistry {
     const hookMgr = this.hookManager;
     const rawArgsObj =
       typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+
+    const policyBlock = await this.checkExecutionPolicy(name, args);
+    if (policyBlock) {
+      return policyBlock;
+    }
 
     const tool = this.tools.get(name);
     if (!tool) {
