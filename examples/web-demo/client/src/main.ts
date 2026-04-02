@@ -1,4 +1,5 @@
 import type { AskUserQuestionAnswer, AskUserQuestionItem } from 'agent-sdk';
+import { chatPreview } from '../../shared/log-utils.js';
 import type { ClientMessage, ModelProvider, ServerMessage, SessionListItem } from '../../shared/ws-protocol.js';
 
 const connStatus = document.querySelector<HTMLParagraphElement>('#conn-status')!;
@@ -43,6 +44,48 @@ const MODEL_HINTS: Record<ModelProvider, string> = {
 
 const DEFAULT_MODEL_NAMES = new Set(Object.values(MODEL_HINTS));
 
+const LOG_PREFIX = '[web-demo]';
+
+function logOutbound(msg: ClientMessage): void {
+  switch (msg.type) {
+    case 'hello':
+      console.log(`${LOG_PREFIX} send hello`);
+      break;
+    case 'configure':
+      console.log(
+        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true}`
+      );
+      break;
+    case 'chat':
+    case 'chat_run': {
+      const { len, preview } = chatPreview(msg.text);
+      console.log(
+        `${LOG_PREFIX} send ${msg.type} requestId=${msg.requestId} sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'} textLen=${len} preview=${JSON.stringify(preview)}`
+      );
+      break;
+    }
+    case 'cancel':
+      console.log(`${LOG_PREFIX} send cancel requestId=${msg.requestId}`);
+      break;
+    case 'sessions:list':
+      console.log(`${LOG_PREFIX} send sessions:list`);
+      break;
+    case 'sessions:new':
+      console.log(`${LOG_PREFIX} send sessions:new sessionId=${msg.sessionId ?? '(auto)'}`);
+      break;
+    case 'sessions:resume':
+      console.log(`${LOG_PREFIX} send sessions:resume sessionId=${msg.sessionId.slice(0, 8)}…`);
+      break;
+    case 'ask_user_question_reply':
+      console.log(`${LOG_PREFIX} send ask_user_question_reply requestId=${msg.requestId}`);
+      break;
+    default: {
+      const _u: never = msg;
+      console.log(`${LOG_PREFIX} send`, _u);
+    }
+  }
+}
+
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}/ws`;
@@ -79,21 +122,26 @@ function connect(): void {
   configured = false;
   resetChatUiAfterDisconnect();
   setConn('连接中…');
-  ws = new WebSocket(wsUrl());
+  const url = wsUrl();
+  console.log(`${LOG_PREFIX} connecting ${url}`);
+  ws = new WebSocket(url);
 
   ws.addEventListener('open', () => {
+    console.log(`${LOG_PREFIX} ws open`);
     // Socket is open; agent is not ready until the server sends `ready` after `configure`.
     setConn('已连接 — 握手中…', false);
     send({ type: 'hello', clientVersion: '0.1' });
   });
 
-  ws.addEventListener('close', () => {
+  ws.addEventListener('close', (ev) => {
+    console.log(`${LOG_PREFIX} ws close code=${ev.code} reason=${ev.reason || '(none)'}`);
     setConn('未连接');
     configured = false;
     resetChatUiAfterDisconnect();
   });
 
   ws.addEventListener('error', () => {
+    console.error(`${LOG_PREFIX} ws error (is the server on :3001?)`);
     setConn('WebSocket 错误（请确认服务端 :3001 已启动）');
   });
 
@@ -102,6 +150,7 @@ function connect(): void {
     try {
       msg = JSON.parse(String(ev.data)) as ServerMessage;
     } catch {
+      console.warn(`${LOG_PREFIX} invalid JSON from server`);
       appendEventLine('error', { parseError: true, raw: ev.data });
       return;
     }
@@ -111,6 +160,7 @@ function connect(): void {
 
 function send(msg: ClientMessage): void {
   if (ws?.readyState !== WebSocket.OPEN) return;
+  logOutbound(msg);
   ws.send(JSON.stringify(msg));
 }
 
@@ -330,6 +380,15 @@ function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<As
 }
 
 function handleServerMessage(msg: ServerMessage): void {
+  if (msg.type === 'stream_event') {
+    const ev = msg.event as Record<string, unknown>;
+    const t = String(ev.type ?? '?');
+    if (t !== 'text_delta' && t !== 'tool_call_delta') {
+      console.log(`${LOG_PREFIX} recv stream_event type=${t}`);
+    }
+  } else {
+    console.log(`${LOG_PREFIX} recv ${msg.type}`);
+  }
   switch (msg.type) {
     case 'hello_ok':
       cfgWarnings.textContent = '';

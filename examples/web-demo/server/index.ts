@@ -12,9 +12,12 @@ import type {
 } from 'agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
+import { chatPreview, truncateForLog } from '../shared/log-utils.js';
 import { buildAgent, type BuildAgentOptions } from './agent-factory.js';
 import { CLIENT_DIST, WEB_DEMO_ROOT } from './paths.js';
 import { serializeStreamEvent } from './serialize-event.js';
+
+const LOG_PREFIX = '[web-demo]';
 
 const PORT = Number(process.env.PORT) || 3001;
 const PROD =
@@ -85,6 +88,9 @@ interface ConnState {
 }
 
 wss.on('connection', (socket: WebSocket) => {
+  const connId = randomUUID().slice(0, 8);
+  console.log(`${LOG_PREFIX} ws connected connId=${connId}`);
+
   const state: ConnState = {
     agentsBySession: new Map(),
     activeSessionId: null,
@@ -147,10 +153,12 @@ wss.on('connection', (socket: WebSocket) => {
   }
 
   socket.on('message', async (raw: RawData) => {
+    const rawStr = String(raw);
     let msg: ClientMessage;
     try {
-      msg = JSON.parse(String(raw)) as ClientMessage;
+      msg = JSON.parse(rawStr) as ClientMessage;
     } catch {
+      console.warn(`${LOG_PREFIX} [${connId}] invalid JSON (length=${rawStr.length})`);
       sendJson(socket, { type: 'error', message: 'Invalid JSON' });
       return;
     }
@@ -158,10 +166,14 @@ wss.on('connection', (socket: WebSocket) => {
     try {
       switch (msg.type) {
         case 'hello':
+          console.log(`${LOG_PREFIX} [${connId}] inbound hello`);
           sendJson(socket, { type: 'hello_ok' });
           return;
 
         case 'configure': {
+          console.log(
+            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
+          );
           rejectAllAskPending('reconfigured');
           await destroyAllAgents();
           const stableUserBasePath =
@@ -185,6 +197,9 @@ wss.on('connection', (socket: WebSocket) => {
           const sessionId = agent.getSessionManager().createSession();
           state.agentsBySession.set(sessionId, agent);
           state.activeSessionId = sessionId;
+          console.log(
+            `${LOG_PREFIX} [${connId}] ready sessionId=${sessionId.slice(0, 8)}… warnings=${warnings.length}`
+          );
           sendJson(socket, {
             type: 'ready',
             warnings: warnings.length ? warnings : undefined,
@@ -194,13 +209,16 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         case 'sessions:list': {
+          console.log(`${LOG_PREFIX} [${connId}] sessions:list`);
           const activeSessionId = state.activeSessionId;
           if (!activeSessionId) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:list rejected: Configure the agent first.`);
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
           const activeAgent = state.agentsBySession.get(activeSessionId);
           if (!activeAgent) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:list rejected: Active session runtime not found.`);
             sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
             return;
           }
@@ -218,7 +236,9 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         case 'sessions:new': {
+          console.log(`${LOG_PREFIX} [${connId}] sessions:new requestedSessionId=${msg.sessionId ?? '(auto)'}`);
           if (!state.runtimeConfig) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:new rejected: Configure the agent first.`);
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
@@ -228,17 +248,21 @@ wss.on('connection', (socket: WebSocket) => {
           const id = agent.getSessionManager().createSession(msg.sessionId);
           state.agentsBySession.set(id, agent);
           state.activeSessionId = id;
+          console.log(`${LOG_PREFIX} [${connId}] sessions:new ok sessionId=${id.slice(0, 8)}…`);
           sendJson(socket, { type: 'sessions:new', sessionId: id });
           return;
         }
 
         case 'sessions:resume': {
+          console.log(`${LOG_PREFIX} [${connId}] sessions:resume sessionId=${msg.sessionId.slice(0, 8)}…`);
           if (!state.runtimeConfig) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:resume rejected: Configure the agent first.`);
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
           if (state.agentsBySession.has(msg.sessionId)) {
             state.activeSessionId = msg.sessionId;
+            console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (existing runtime)`);
             sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
             return;
           }
@@ -247,6 +271,7 @@ wss.on('connection', (socket: WebSocket) => {
             await agent.getSessionManager().resumeSession(msg.sessionId);
           } catch {
             await agent.destroy();
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:resume failed: session not found`);
             sendJson(socket, {
               type: 'error',
               message: `Session not found: ${msg.sessionId}`
@@ -255,11 +280,13 @@ wss.on('connection', (socket: WebSocket) => {
           }
           state.agentsBySession.set(msg.sessionId, agent);
           state.activeSessionId = msg.sessionId;
+          console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (loaded)`);
           sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
           return;
         }
 
         case 'cancel': {
+          console.log(`${LOG_PREFIX} [${connId}] cancel requestId=${msg.requestId}`);
           const request = state.abortByRequest.get(msg.requestId);
           request?.controller.abort();
           rejectAllAskPending('cancelled');
@@ -267,6 +294,7 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         case 'ask_user_question_reply': {
+          console.log(`${LOG_PREFIX} [${connId}] ask_user_question_reply requestId=${msg.requestId}`);
           const p = askPending.get(msg.requestId);
           if (p) {
             p.resolve(msg.answers);
@@ -278,20 +306,29 @@ wss.on('connection', (socket: WebSocket) => {
         case 'chat':
         case 'chat_run': {
           if (!state.runtimeConfig) {
+            console.warn(`${LOG_PREFIX} [${connId}] ${msg.type} rejected: Configure the agent first.`);
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
           const requestedSessionId = msg.sessionId || state.activeSessionId;
           if (!requestedSessionId) {
+            console.warn(
+              `${LOG_PREFIX} [${connId}] ${msg.type} rejected: No active session. Create or resume a session first.`
+            );
             sendJson(socket, { type: 'error', message: 'No active session. Create or resume a session first.' });
             return;
           }
+          const { len, preview } = chatPreview(msg.text);
+          console.log(
+            `${LOG_PREFIX} [${connId}] ${msg.type} requestId=${msg.requestId} sessionId=${requestedSessionId.slice(0, 8)}… textLen=${len} preview=${JSON.stringify(preview)}`
+          );
           let targetAgent = state.agentsBySession.get(requestedSessionId);
           if (!targetAgent) {
             targetAgent = await createConfiguredAgent();
             // Bind this runtime to the requested session id for future parallel requests.
             targetAgent.getSessionManager().createSession(requestedSessionId);
             state.agentsBySession.set(requestedSessionId, targetAgent);
+            console.log(`${LOG_PREFIX} [${connId}] chat: created new agent runtime for session`);
           }
           state.activeSessionId = requestedSessionId;
 
@@ -315,6 +352,9 @@ wss.on('connection', (socket: WebSocket) => {
               sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });
             }
             const sid = targetAgent.getSessionManager().sessionId || requestedSessionId;
+            console.log(
+              `${LOG_PREFIX} [${connId}] chat_done ok requestId=${requestId} sessionId=${sid.slice(0, 8)}… finalTextLen=${finalText.length} usage=${lastUsage ? JSON.stringify(lastUsage) : 'none'}`
+            );
             sendJson(socket, {
               type: 'chat_done',
               requestId,
@@ -323,11 +363,17 @@ wss.on('connection', (socket: WebSocket) => {
               usage: lastUsage
             });
           } catch (e) {
+            const err = e instanceof Error ? e : new Error(String(e));
+            console.error(
+              `${LOG_PREFIX} [${connId}] chat stream error requestId=${requestId} sessionId=${requestedSessionId.slice(0, 8)}…`,
+              err.message,
+              e instanceof Error ? e.stack : ''
+            );
             sendJson(socket, {
               type: 'stream_event',
               event: serializeStreamEvent({
                 type: 'error',
-                error: e instanceof Error ? e : new Error(String(e))
+                error: err
               })
             });
             sendJson(socket, {
@@ -343,15 +389,21 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         default:
+          console.warn(`${LOG_PREFIX} [${connId}] unknown message type`);
           sendJson(socket, { type: 'error', message: 'Unknown message type' });
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      console.error(`${LOG_PREFIX} [${connId}] handler error:`, message, e instanceof Error ? e.stack : '');
       sendJson(socket, { type: 'error', message, detail: e instanceof Error ? e.stack : undefined });
     }
   });
 
-  socket.on('close', () => {
+  socket.on('close', (code: number, reason: Buffer) => {
+    const reasonStr = reason?.length ? reason.toString() : '';
+    console.log(
+      `${LOG_PREFIX} ws disconnected connId=${connId} code=${code}${reasonStr ? ` reason=${reasonStr}` : ''}`
+    );
     rejectAllAskPending('disconnected');
     for (const request of state.abortByRequest.values()) {
       request.controller.abort();

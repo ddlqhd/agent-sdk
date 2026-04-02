@@ -11,9 +11,12 @@ import {
   type MCPServerConfig
 } from 'agent-sdk';
 import type { ModelProvider } from '../shared/ws-protocol.js';
+import { truncateForLog } from '../shared/log-utils.js';
 import { describeMissingKey, getOllamaBaseUrl, requireProviderEnv } from './env.js';
 import { demoCalculatorTool } from './demo-calculator.js';
 import { DEMO_FIXTURES, SDK_ROOT, WEB_DEMO_ROOT } from './paths.js';
+
+const LOG_PREFIX = '[web-demo]';
 
 export interface BuildAgentOptions {
   provider: ModelProvider;
@@ -105,6 +108,16 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
         warnings.push(`MCP load error: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  }
+
+  const mcpRelatedWarnings = warnings.filter((w) => /mcp/i.test(w));
+  console.log(
+    `${LOG_PREFIX} buildAgent cwd=${truncateForLog(cwd)} userBasePath=${truncateForLog(userBasePath)} mcpServers=${mcpServers?.length ?? 0}`
+  );
+  if (mcpRelatedWarnings.length > 0) {
+    console.warn(
+      `${LOG_PREFIX} buildAgent MCP warnings (${mcpRelatedWarnings.length}): ${mcpRelatedWarnings.map((w) => truncateForLog(w, 160)).join(' | ')}`
+    );
   }
 
   const agent = new Agent({
