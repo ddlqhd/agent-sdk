@@ -25,6 +25,68 @@ function cjkTieBreakRank(name: string): number {
   return i === -1 ? 100 : i;
 }
 
+/** Chardet labels for encodings we treat as East Asian multibyte (do not override with GB heuristic). */
+function isCjkChardetName(name: string): boolean {
+  switch (name) {
+    case 'GB18030':
+    case 'GBK':
+    case 'Big5':
+    case 'EUC-JP':
+    case 'EUC-KR':
+    case 'Shift_JIS':
+    case 'ISO-2022-CN':
+    case 'ISO-2022-JP':
+    case 'ISO-2022-KR':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Counts plausible GBK/GB18030 double-byte pairs (lead 0x81–0xFE, trail 0x40–0x7E or 0x80–0xFE).
+ * Used when chardet prefers a single-byte ISO/Windows encoding by a small margin over GB18030.
+ */
+function plausibleGbkDoubleBytePairCount(buf: Buffer): number {
+  let n = 0;
+  for (let i = 0; i < buf.length - 1; i++) {
+    const a = buf[i]!;
+    const b = buf[i + 1]!;
+    if (a >= 0x81 && a <= 0xfe && b >= 0x40 && b <= 0xfe && b !== 0x7f) {
+      n++;
+      i++;
+    }
+  }
+  return n;
+}
+
+/**
+ * If the sample looks like GBK multibyte text but chardet ranks ISO-8859-* / windows-125* etc.
+ * slightly higher than GB18030, prefer GB18030 (common for mixed ASCII + Chinese on Windows).
+ */
+function preferGb18030OverChardetTop(
+  buf: Buffer,
+  matches: Array<{ name: string; confidence: number; lang?: string }>
+): boolean {
+  if (matches.length === 0) return false;
+  if (plausibleGbkDoubleBytePairCount(buf) < 2) return false;
+
+  const top = matches[0];
+  if (!top || isCjkChardetName(top.name)) return false;
+
+  const maxConf = Math.max(...matches.map((m) => m.confidence));
+  const gb = matches.find((m) => {
+    const n = m.name as string;
+    return n === 'GB18030' || n === 'GBK';
+  });
+  if (!gb) return false;
+
+  const margin = 8;
+  if (maxConf - gb.confidence > margin) return false;
+
+  return true;
+}
+
 /**
  * Uses the whole sample as one UTF-8 byte sequence. If the file is damaged (UTF-8 then another
  * encoding), detection may still choose UTF-8 and the rest will look wrong — callers can pass an
@@ -91,6 +153,7 @@ function chardetNameToReadEncoding(name: string): string | null {
     'UTF-32BE': 'utf-32be',
     'UTF-32': 'utf-32le',
     GB18030: 'gb18030',
+    GBK: 'gbk',
     Big5: 'big5',
     'EUC-JP': 'euc-jp',
     'EUC-KR': 'euc-kr',
@@ -192,6 +255,19 @@ export function detectEncodingFromSample(buf: Buffer): string {
     }
     return cjkTieBreakRank(a.name) - cjkTieBreakRank(b.name);
   });
+
+  if (preferGb18030OverChardetTop(buf, matches)) {
+    const gb = matches.find((m) => {
+      const n = m.name as string;
+      return n === 'GB18030' || n === 'GBK';
+    });
+    if (gb) {
+      const enc = chardetNameToReadEncoding(gb.name);
+      if (enc && (isNativeReadEncoding(enc) || iconv.encodingExists(enc))) {
+        return enc;
+      }
+    }
+  }
 
   for (const m of matches) {
     const enc = chardetNameToReadEncoding(m.name);
