@@ -7,20 +7,18 @@ import type { ToolDefinition } from '../../core/types.js';
 import {
   detectEncodingFromSample,
   isNativeReadEncoding,
-  readEncodingSample
-} from './read-encoding.js';
+  isFilesystemEncodingSupported,
+  normalizeFilesystemEncoding,
+  readEncodingSample,
+  readFileAsUnicodeString,
+  writeFileFromUnicodeString
+} from './filesystem-encoding.js';
 
 const DEFAULT_READ_LIMIT = 2000;
 const MAX_LINE_LENGTH = 2000;
 const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
-
-function normalizeExplicitEncoding(encoding: string): string {
-  let e = encoding.trim().toLowerCase();
-  if (e === 'utf-8') e = 'utf8';
-  return e;
-}
 
 /**
  * Read 工具 - 读取文件内容
@@ -85,11 +83,8 @@ Usage:
         normalized = detectEncodingFromSample(sample);
         autoDetected = true;
       } else {
-        normalized = normalizeExplicitEncoding(encTrim);
-        if (normalized === 'cp936') {
-          normalized = 'gbk';
-        }
-        if (!isNativeReadEncoding(normalized) && !iconv.encodingExists(normalized)) {
+        normalized = normalizeFilesystemEncoding(encTrim);
+        if (!isFilesystemEncodingSupported(normalized)) {
           return {
             content: `Error: unsupported encoding: ${encTrim}`,
             isError: true
@@ -208,20 +203,35 @@ Usage:
 - If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first
 - Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User
-- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked`,
+- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked
+- For non-UTF-8 files (e.g. GBK on Windows), set encoding to match what you use with Read; default is utf8`,
   parameters: z.object({
     file_path: z.string().describe('The absolute path to the file to write (must be absolute, not relative)'),
-    content: z.string().describe('The content to write to the file')
+    content: z.string().describe('The content to write to the file'),
+    encoding: z
+      .string()
+      .optional()
+      .describe(
+        'File character encoding. Default utf8. Use gbk or gb18030 for legacy Chinese ANSI text; cp936 is treated as gbk.'
+      )
   }),
-  handler: async ({ file_path, content }) => {
+  handler: async ({ file_path, content, encoding }) => {
     try {
       const fs = await import('fs/promises');
       const pathModule = await import('path');
 
+      const normalized = normalizeFilesystemEncoding(encoding);
+      if (!isFilesystemEncodingSupported(normalized)) {
+        return {
+          content: `Error: unsupported encoding: ${encoding?.trim() || 'utf8'}`,
+          isError: true
+        };
+      }
+
       const dir = pathModule.dirname(file_path);
       await fs.mkdir(dir, { recursive: true });
 
-      await fs.writeFile(file_path, content, 'utf-8');
+      await writeFileFromUnicodeString(file_path, content, normalized);
       return { content: `Successfully wrote to ${file_path}` };
     } catch (error) {
       return {
@@ -246,7 +256,8 @@ Usage:
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked
 - The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string
-- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance`,
+- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance
+- For non-UTF-8 files, set encoding to the same value you used with Read (default is utf8)`,
   parameters: z.object({
     file_path: z.string().describe('The absolute path to the file to modify'),
     old_string: z.string().describe('The text to replace'),
@@ -254,9 +265,15 @@ Usage:
     replace_all: z
       .boolean()
       .default(false)
-      .describe('Replace all occurrences of old_string (default false)')
+      .describe('Replace all occurrences of old_string (default false)'),
+    encoding: z
+      .string()
+      .optional()
+      .describe(
+        'File character encoding. Default utf8. Use gbk or gb18030 for legacy Chinese ANSI text; cp936 is treated as gbk.'
+      )
   }),
-  handler: async ({ file_path, old_string, new_string, replace_all }) => {
+  handler: async ({ file_path, old_string, new_string, replace_all, encoding }) => {
     try {
       if (old_string === new_string) {
         return {
@@ -265,8 +282,15 @@ Usage:
         };
       }
 
-      const fs = await import('fs/promises');
-      const content = await fs.readFile(file_path, 'utf-8');
+      const normalized = normalizeFilesystemEncoding(encoding);
+      if (!isFilesystemEncodingSupported(normalized)) {
+        return {
+          content: `Error: unsupported encoding: ${encoding?.trim() || 'utf8'}`,
+          isError: true
+        };
+      }
+
+      const content = await readFileAsUnicodeString(file_path, normalized);
 
       if (!content.includes(old_string)) {
         return {
@@ -289,7 +313,7 @@ Usage:
         ? content.replaceAll(old_string, new_string)
         : content.replace(old_string, new_string);
 
-      await fs.writeFile(file_path, newContent, 'utf-8');
+      await writeFileFromUnicodeString(file_path, newContent, normalized);
 
       const occurrences = replace_all
         ? content.split(old_string).length - 1

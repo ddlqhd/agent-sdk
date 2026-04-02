@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectEncodingFromSample } from '../../src/tools/builtin/read-encoding.js';
+import { detectEncodingFromSample } from '../../src/tools/builtin/filesystem-encoding.js';
 
 describe('detectEncodingFromSample BOM handling', () => {
   it('detects UTF-32 LE BOM before UTF-16 LE (FF FE 00 00)', () => {

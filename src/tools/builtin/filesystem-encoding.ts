@@ -1,3 +1,6 @@
+/**
+ * Charset detection and encode/decode helpers for builtin filesystem tools (Read / Write / Edit).
+ */
 import { analyse } from 'chardet';
 import iconv from 'iconv-lite';
 
@@ -202,4 +205,56 @@ export function detectEncodingFromSample(buf: Buffer): string {
 
 export function isNativeReadEncoding(enc: string): boolean {
   return enc === 'utf8' || enc === 'utf16le' || enc === 'latin1';
+}
+
+/**
+ * Normalize user-supplied encoding for Read (explicit override), Write, and Edit:
+ * empty/omitted → utf8; utf-8 → utf8; cp936 → gbk.
+ */
+export function normalizeFilesystemEncoding(encoding: string | undefined): string {
+  const raw = encoding?.trim() ?? '';
+  if (raw === '') return 'utf8';
+  let e = raw.toLowerCase();
+  if (e === 'utf-8') e = 'utf8';
+  if (e === 'cp936') e = 'gbk';
+  return e;
+}
+
+export function isFilesystemEncodingSupported(normalized: string): boolean {
+  return isNativeReadEncoding(normalized) || iconv.encodingExists(normalized);
+}
+
+/**
+ * Read a file as a JavaScript string using the given normalized encoding.
+ */
+export async function readFileAsUnicodeString(
+  filePath: string,
+  normalized: string
+): Promise<string> {
+  const fs = await import('fs/promises');
+  if (isNativeReadEncoding(normalized)) {
+    return fs.readFile(filePath, {
+      encoding: normalized as 'utf8' | 'utf16le' | 'latin1'
+    });
+  }
+  const buf = await fs.readFile(filePath);
+  return iconv.decode(buf, normalized);
+}
+
+/**
+ * Write a JavaScript string to a file using the given normalized encoding.
+ */
+export async function writeFileFromUnicodeString(
+  filePath: string,
+  text: string,
+  normalized: string
+): Promise<void> {
+  const fs = await import('fs/promises');
+  if (isNativeReadEncoding(normalized)) {
+    await fs.writeFile(filePath, text, {
+      encoding: normalized as 'utf8' | 'utf16le' | 'latin1'
+    });
+  } else {
+    await fs.writeFile(filePath, iconv.encode(text, normalized));
+  }
 }

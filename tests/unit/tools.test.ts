@@ -388,6 +388,56 @@ describe('Read Tool', () => {
   });
 });
 
+describe('Write Tool', () => {
+  it('should write GBK-encoded file when encoding is gbk', async () => {
+    const { writeFileTool } = await import('../../src/tools/builtin/index.js');
+    const iconv = (await import('iconv-lite')).default;
+    const registry = new ToolRegistry();
+    registry.register(writeFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_write_gbk_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+
+    const text = '你好\n第二行';
+    const result = await registry.execute('Write', {
+      file_path: tmpFile,
+      content: text,
+      encoding: 'gbk'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const buf = await fs.readFile(tmpFile);
+    expect(iconv.decode(buf, 'gbk')).toBe(text);
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should reject unsupported encoding', async () => {
+    const { writeFileTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(writeFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_write_bad_enc_${Date.now()}.txt`);
+
+    const result = await registry.execute('Write', {
+      file_path: tmpFile,
+      content: 'x',
+      encoding: 'not-a-real-encoding-xyz'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('unsupported encoding');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+});
+
 describe('Edit Tool', () => {
   it('should reject same old_string and new_string', async () => {
     const { editTool } = await import('../../src/tools/builtin/index.js');
@@ -434,6 +484,34 @@ describe('Edit Tool', () => {
     expect(result.isError).toBeFalsy();
     const content = await fs.readFile(tmpFile, 'utf-8');
     expect(content).toBe('hello universe');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should edit GBK-encoded file when encoding is gbk', async () => {
+    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const iconv = (await import('iconv-lite')).default;
+    const registry = new ToolRegistry();
+    registry.register(editTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_edit_gbk_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    const original = '第一行\n第二行';
+    await fs.writeFile(tmpFile, iconv.encode(original, 'gbk'));
+
+    const result = await registry.execute('Edit', {
+      file_path: tmpFile,
+      old_string: '第二行',
+      new_string: '已改',
+      encoding: 'gbk'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const buf = await fs.readFile(tmpFile);
+    expect(iconv.decode(buf, 'gbk')).toBe('第一行\n已改');
 
     await fs.unlink(tmpFile).catch(() => {});
   });
