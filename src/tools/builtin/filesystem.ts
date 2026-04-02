@@ -1,13 +1,26 @@
+import type { Readable } from 'node:stream';
+import iconv from 'iconv-lite';
 import fg from 'fast-glob';
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
+import {
+  detectEncodingFromSample,
+  isNativeReadEncoding,
+  readEncodingSample
+} from './read-encoding.js';
 
 const DEFAULT_READ_LIMIT = 2000;
 const MAX_LINE_LENGTH = 2000;
 const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
+
+function normalizeExplicitEncoding(encoding: string): string {
+  let e = encoding.trim().toLowerCase();
+  if (e === 'utf-8') e = 'utf8';
+  return e;
+}
 
 /**
  * Read 工具 - 读取文件内容
@@ -24,9 +37,16 @@ Usage:
 - Results are returned using cat -n style, with line numbers starting at 1
 - Lines longer than 2000 characters are truncated
 - Use the offset and limit parameters to read specific line ranges of large files
-- If you read a file that exists but has empty contents you will receive an error message`,
+- If you read a file that exists but has empty contents you will receive an error message
+- Text encoding is detected automatically from the file (BOM, UTF-8 validity, charset analysis). You rarely need to set encoding; use it only to override detection (e.g. gbk, gb18030, cp936 maps to gbk)`,
   parameters: z.object({
     file_path: z.string().describe('The absolute path to the file to read'),
+    encoding: z
+      .string()
+      .optional()
+      .describe(
+        'Optional. Omit or use "auto" for automatic detection (default). Set only to force a specific encoding (utf8, gbk, gb18030, latin1, etc.; cp936 is treated as gbk).'
+      ),
     offset: z
       .number()
       .int()
@@ -40,7 +60,7 @@ Usage:
       .optional()
       .describe('The number of lines to read. Only provide if the file is too large to read at once')
   }),
-  handler: async ({ file_path, offset, limit }) => {
+  handler: async ({ file_path, encoding, offset, limit }) => {
     try {
       const fs = await import('fs/promises');
       const { createReadStream } = await import('fs');
@@ -54,12 +74,49 @@ Usage:
         };
       }
 
+      const encTrim = encoding?.trim() ?? '';
+      const useAuto = encTrim === '' || encTrim.toLowerCase() === 'auto';
+
+      let normalized: string;
+      let autoDetected = false;
+
+      if (useAuto) {
+        const sample = await readEncodingSample(file_path, stat.size);
+        normalized = detectEncodingFromSample(sample);
+        autoDetected = true;
+      } else {
+        normalized = normalizeExplicitEncoding(encTrim);
+        if (normalized === 'cp936') {
+          normalized = 'gbk';
+        }
+        if (!isNativeReadEncoding(normalized) && !iconv.encodingExists(normalized)) {
+          return {
+            content: `Error: unsupported encoding: ${encTrim}`,
+            isError: true
+          };
+        }
+      }
+
       const startLine = offset ? offset - 1 : 0;
       const maxLines = limit ?? DEFAULT_READ_LIMIT;
 
-      const stream = createReadStream(file_path, { encoding: 'utf8' });
+      const toDestroy: Readable[] = [];
+      let lineInput: Readable;
+      if (isNativeReadEncoding(normalized)) {
+        const stream = createReadStream(file_path, {
+          encoding: normalized as 'utf8' | 'utf16le' | 'latin1'
+        });
+        toDestroy.push(stream);
+        lineInput = stream;
+      } else {
+        const raw = createReadStream(file_path);
+        const decoded = raw.pipe(iconv.decodeStream(normalized)) as unknown as Readable;
+        toDestroy.push(raw, decoded);
+        lineInput = decoded;
+      }
+
       const rl = createInterface({
-        input: stream,
+        input: lineInput,
         crlfDelay: Infinity
       });
 
@@ -96,7 +153,9 @@ Usage:
         }
       } finally {
         rl.close();
-        stream.destroy();
+        for (const s of toDestroy) {
+          s.destroy();
+        }
       }
 
       if (totalLines < startLine && !(totalLines === 0 && startLine === 0)) {
@@ -120,6 +179,10 @@ Usage:
         suffix = `\n\n(Showing lines ${offset ?? 1}-${lastReadLine} of ${totalLines}. Use offset=${nextOffset} to continue.)`;
       } else {
         suffix = `\n\n(End of file - total ${totalLines} lines)`;
+      }
+
+      if (autoDetected) {
+        suffix += `\n\n(Auto-detected encoding: ${normalized}.)`;
       }
 
       return { content: numbered + suffix };

@@ -307,6 +307,58 @@ describe('Read Tool', () => {
     await fs.unlink(tmpFile).catch(() => {});
   });
 
+  it('should decode GBK-encoded files when encoding is gbk', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const iconv = (await import('iconv-lite')).default;
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_gbk_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    const gbkBuf = iconv.encode('第一行\n第二行测试', 'gbk');
+    await fs.writeFile(tmpFile, gbkBuf);
+
+    const result = await registry.execute('Read', {
+      file_path: tmpFile,
+      encoding: 'gbk'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('第一行');
+    expect(result.content).toContain('第二行测试');
+    expect(result.content).toContain('End of file');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should auto-detect GBK-encoded files when encoding is omitted', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const iconv = (await import('iconv-lite')).default;
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_gbk_auto_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    const gbkBuf = iconv.encode('第一行\n第二行测试', 'gbk');
+    await fs.writeFile(tmpFile, gbkBuf);
+
+    const result = await registry.execute('Read', { file_path: tmpFile });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('第一行');
+    expect(result.content).toContain('第二行测试');
+    expect(result.content).toMatch(/Auto-detected encoding: gb18030/i);
+    expect(result.content).toContain('End of file');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
   it('should respect offset and limit parameters', async () => {
     const { readFileTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
