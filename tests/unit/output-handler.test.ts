@@ -51,6 +51,19 @@ describe('OutputHandler', () => {
       expect(result.content).toContain('saved to:');
     });
 
+    it('should use FileStorageStrategy for web category', async () => {
+      const handler = createOutputHandler();
+      const longContent = 'a'.repeat(OUTPUT_CONFIG.maxDirectOutput + 1000);
+      const result = await handler.handle(longContent, 'WebFetch', 'web');
+
+      expect(result.metadata?.truncated).toBe(true);
+      expect(result.metadata?.originalLength).toBe(longContent.length);
+      expect(result.metadata?.storagePath).toBeDefined();
+      expect(result.content).toContain('Output too large');
+      expect(result.content).toContain('saved to:');
+      expect(result.content).toContain("Use 'Read' with offset/limit");
+    });
+
     it('should use PaginationHintStrategy for filesystem category', async () => {
       const handler = createOutputHandler();
       const lines = Array(100).fill('line content');
@@ -230,5 +243,23 @@ describe('ToolRegistry OutputHandler Integration', () => {
 
     const result = await registry.execute('shell_tool', {});
     expect(result.metadata?.storagePath).toBeDefined();
+  });
+
+  it('should use FileStorageStrategy for web category tools', async () => {
+    const registry = new ToolRegistry();
+    registry.register(createTool({
+      name: 'web_long_tool',
+      description: 'Web tool with long output',
+      parameters: z.object({}),
+      handler: async () => ({
+        content: 'a'.repeat(OUTPUT_CONFIG.maxDirectOutput + 1000)
+      }),
+      category: 'web'
+    }));
+
+    const result = await registry.execute('web_long_tool', {});
+    expect(result.metadata?.truncated).toBe(true);
+    expect(result.metadata?.storagePath).toBeDefined();
+    expect(result.content).toContain('saved to:');
   });
 });

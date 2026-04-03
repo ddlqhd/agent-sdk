@@ -39,8 +39,8 @@ export interface OutputStrategy {
 }
 
 /**
- * 文件存储策略 (shell/MCP)
- * 保存完整内容到文件，返回摘要 + 文件路径
+ * 文件存储策略 (shell / MCP / web)
+ * 保存完整内容到文件，返回摘要 + 文件路径；可用 Read 的 offset/limit 分页查看
  */
 export class FileStorageStrategy implements OutputStrategy {
   private userBasePath: string;
@@ -233,6 +233,7 @@ export class OutputHandler {
     // 注册策略
     this.strategies.set('shell', new FileStorageStrategy(userBasePath));
     this.strategies.set('mcp', new FileStorageStrategy(userBasePath));
+    this.strategies.set('web', new FileStorageStrategy(userBasePath));
     this.strategies.set('filesystem', new PaginationHintStrategy());
     this.strategies.set('search', new SmartTruncateStrategy());
 

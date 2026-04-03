@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
+import { fetchUrlToReadableContent } from './web-fetch.js';
 
 /**
  * WebFetch 工具 - 获取网页内容
@@ -8,56 +9,23 @@ import type { ToolDefinition } from '../../core/types.js';
 export const webFetchTool = createTool({
   name: 'WebFetch',
   category: 'web',
-  description: `Fetches content from a specified URL and converts it to readable markdown.
+  description: `Fetches public http(s) URLs and returns readable markdown (HTML), formatted JSON, or plain text.
 
-Usage:
-- The URL must be a fully-formed valid URL
-- HTTP URLs will be automatically upgraded to HTTPS
-- This tool is read-only and does not modify any files
-- Results may be summarized if the content is very large
-- For GitHub URLs, prefer using the gh CLI via Bash instead (e.g., gh pr view, gh issue view, gh api)`,
+Limits and behavior:
+- Only http:// and https:// are allowed; private IPs, loopback, link-local, and common metadata/local hostnames are blocked (SSRF protection).
+- Requests time out, responses are size-capped, and very long markdown may be truncated before return.
+- If the result exceeds the direct context limit, the full text is saved under your user tool-outputs directory; the tool response will include the file path—use **Read** with offset and limit parameters to page through it (same pattern as large shell output).
+- Authenticated or private pages usually cannot be fetched; prefer specialized MCP tools when available.
+- Use https URLs directly when possible (no automatic http→https upgrade).
+- For GitHub URLs, prefer the gh CLI via Bash when appropriate (e.g., gh pr view, gh api).`,
   parameters: z.object({
     url: z.string().describe('The URL to fetch content from')
   }),
   handler: async ({ url }) => {
-    try {
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        return {
-          content: `Failed to fetch: ${response.status} ${response.statusText}`,
-          isError: true
-        };
-      }
-
-      const html = await response.text();
-
-      // Strip script and style tags, then convert to markdown
-      const markdown = html
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
-        .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
-        .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')
-        .replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-        .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-        .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
-        .replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
-        .replace(/<pre[^>]*>(.*?)<\/pre>/gi, '```\n$1\n```')
-        .replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-
-      return { content: markdown };
-    } catch (error) {
-      return {
-        content: `Error fetching webpage: ${error instanceof Error ? error.message : String(error)}`,
-        isError: true
-      };
-    }
+    const result = await fetchUrlToReadableContent(url);
+    return result.isError
+      ? { content: result.content, isError: true }
+      : { content: result.content };
   }
 });
 
