@@ -2,9 +2,15 @@ import type {
   ModelParams,
   ModelCapabilities,
   StreamChunk,
-  CompletionResult
+  CompletionResult,
+  ContentPart
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+
+/**
+ * Ollama `/api/chat` `think` parameter (see https://docs.ollama.com/capabilities/thinking).
+ */
+export type OllamaThinkOption = boolean | 'low' | 'medium' | 'high';
 
 /**
  * Ollama 常见模型能力映射
@@ -24,6 +30,75 @@ export interface OllamaConfig {
   model?: string;
   /** 自定义模型能力 (覆盖默认值) */
   capabilities?: ModelCapabilities;
+  /**
+   * When set, sent as top-level `think` on `/api/chat`.
+   * Omit to use the server default for the model.
+   */
+  think?: OllamaThinkOption;
+}
+
+/**
+ * Map one Ollama `/api/chat` stream JSON object to stream chunks (thinking before text).
+ * @internal Exported for unit tests.
+ */
+export function ollamaStreamChunksFromChatData(
+  data: Record<string, unknown>,
+  parseToolArguments: (args: unknown) => Record<string, unknown>,
+  nextToolCallId: () => string
+): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  const msg = data.message as Record<string, unknown> | undefined;
+  if (!msg) return chunks;
+
+  const thinking = msg.thinking;
+  if (typeof thinking === 'string' && thinking.length > 0) {
+    chunks.push({ type: 'thinking', content: thinking });
+  }
+
+  const content = msg.content;
+  if (typeof content === 'string' && content.length > 0) {
+    chunks.push({ type: 'text', content });
+  }
+
+  const toolCalls = msg.tool_calls as unknown[] | undefined;
+  if (toolCalls && Array.isArray(toolCalls)) {
+    for (const tc of toolCalls) {
+      const t = tc as Record<string, unknown>;
+      const fn = t.function as Record<string, unknown> | undefined;
+      chunks.push({
+        type: 'tool_call',
+        toolCall: {
+          id: nextToolCallId(),
+          name: (typeof fn?.name === 'string' ? fn.name : '') || '',
+          arguments: parseToolArguments(fn?.arguments)
+        }
+      });
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Ollama `/api/chat` requires string `content` on each message. The Agent may persist assistant
+ * turns as `ContentPart[]` (e.g. thinking + text); replay only `text` parts so the JSON matches
+ * Ollama's schema (thinking is not re-sent; the model produces a new trace each request).
+ */
+export function ollamaMessageContentToApiString(content: string | ContentPart[]): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const texts: string[] = [];
+  for (const part of content) {
+    if (part.type === 'text') {
+      texts.push(part.text);
+    }
+  }
+  return texts.join('\n\n');
+}
+
+/** Stable unique id for tool calls in a single adapter response (non-stream complete). */
+function uniqueOllamaToolCallId(batchMs: number, index: number): string {
+  return `ollama_${batchMs}_${index}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**
@@ -33,11 +108,13 @@ export class OllamaAdapter extends BaseModelAdapter {
   readonly name: string;
   private baseUrl: string;
   private model: string;
+  private readonly think: OllamaThinkOption | undefined;
 
   constructor(config: OllamaConfig = {}) {
     super();
     this.baseUrl = config.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     this.model = config.model || 'qwen3.5:0.8b';
+    this.think = config.think;
 
     this.name = `ollama/${this.model}`;
 
@@ -64,6 +141,8 @@ export class OllamaAdapter extends BaseModelAdapter {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    const nextToolCallId = (): string => `ollama_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
     try {
       while (true) {
         if (params.signal?.aborted) {
@@ -83,27 +162,16 @@ export class OllamaAdapter extends BaseModelAdapter {
           if (!trimmed) continue;
 
           try {
-            const data = JSON.parse(trimmed);
+            const data = JSON.parse(trimmed) as Record<string, unknown>;
             const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
 
-            // 处理内容
-            if (data.message?.content) {
-              yield { type: 'text', content: data.message.content, ...raw };
-            }
-
-            // 处理工具调用
-            if (data.message?.tool_calls) {
-              for (const tc of data.message.tool_calls) {
-                yield {
-                  type: 'tool_call',
-                  toolCall: {
-                    id: `ollama_${Date.now()}`,
-                    name: tc.function?.name || '',
-                    arguments: this.parseToolArguments(tc.function?.arguments)
-                  },
-                  ...raw
-                };
-              }
+            const messageChunks = ollamaStreamChunksFromChatData(
+              data,
+              (args) => this.parseToolArguments(args),
+              nextToolCallId
+            );
+            for (const chunk of messageChunks) {
+              yield { ...chunk, ...raw };
             }
 
             // 处理完成
@@ -113,9 +181,10 @@ export class OllamaAdapter extends BaseModelAdapter {
                   type: 'metadata',
                   metadata: {
                     usage: {
-                      promptTokens: data.prompt_eval_count || 0,
-                      completionTokens: data.eval_count || 0,
-                      totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+                      promptTokens: (data.prompt_eval_count as number) || 0,
+                      completionTokens: (data.eval_count as number) || 0,
+                      totalTokens:
+                        ((data.prompt_eval_count as number) || 0) + ((data.eval_count as number) || 0)
                     }
                   },
                   ...raw
@@ -147,10 +216,16 @@ export class OllamaAdapter extends BaseModelAdapter {
       content: data.message?.content || ''
     };
 
-    // 处理工具调用
+    const thinking = data.message?.thinking;
+    if (typeof thinking === 'string' && thinking.length > 0) {
+      result.thinking = thinking;
+    }
+
+    // 处理工具调用（同一毫秒内多条也需唯一 id）
     if (data.message?.tool_calls) {
-      result.toolCalls = data.message.tool_calls.map((tc: any) => ({
-        id: `ollama_${Date.now()}`,
+      const batchMs = Date.now();
+      result.toolCalls = data.message.tool_calls.map((tc: any, index: number) => ({
+        id: uniqueOllamaToolCallId(batchMs, index),
         name: tc.function?.name || '',
         arguments: this.parseToolArguments(tc.function?.arguments)
       }));
@@ -201,14 +276,14 @@ export class OllamaAdapter extends BaseModelAdapter {
         const toolName = toolCallIdToName.get(msg.toolCallId) ?? msg.name;
         return {
           role: 'tool' as const,
-          content: typeof msg.content === 'string' ? msg.content : '',
+          content: ollamaMessageContentToApiString(msg.content as string | ContentPart[]),
           ...(toolName && { tool_name: toolName })
         };
       }
 
       return {
         role: msg.role,
-        content: msg.content,
+        content: ollamaMessageContentToApiString(msg.content),
         ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
@@ -228,6 +303,10 @@ export class OllamaAdapter extends BaseModelAdapter {
       stream,
       ...(params.temperature !== undefined && { options: { temperature: params.temperature } })
     };
+
+    if (this.think !== undefined) {
+      body.think = this.think;
+    }
 
     // 与 OpenAI 一致：每项为 { type: 'function', function: { name, description, parameters } }
     // 参见 https://docs.ollama.com/api/chat ToolDefinition
@@ -254,7 +333,7 @@ export class OllamaAdapter extends BaseModelAdapter {
 }
 
 /**
- * 创建 Ollama 适配器
+ * 创建 Ollama 模型适配器
  */
 export function createOllama(config?: OllamaConfig): OllamaAdapter {
   return new OllamaAdapter(config);

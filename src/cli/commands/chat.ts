@@ -13,6 +13,15 @@ import type { CLIConfig } from '../../core/types.js';
 import { loadMCPConfig } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 
+function parseOllamaThinkCli(value: string | undefined): boolean | 'low' | 'medium' | 'high' {
+  if (value === undefined || value === '') return true;
+  const s = value.toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no') return false;
+  if (s === 'low' || s === 'medium' || s === 'high') return s;
+  throw new Error(`Invalid --ollama-think: ${value} (use true, false, low, medium, or high)`);
+}
+
 function addModelOptions(cmd: Command): Command {
   return cmd
     .option('-m, --model <model>', 'Model to use (openai/anthropic/ollama)', 'openai')
@@ -27,15 +36,24 @@ function addModelOptions(cmd: Command): Command {
     .option('-v, --verbose', 'Show full tool calls and results')
     .option('--mcp-config <path>', 'Path to MCP config file (mcp_config.json)')
     .option('--user-base-path <path>', 'User base path (default: ~)')
-    .option('--cwd <path>', 'Working directory (default: current directory)');
+    .option('--cwd <path>', 'Working directory (default: current directory)')
+    .option(
+      '--ollama-think [value]',
+      'Ollama only: `think` param (true|false|low|medium|high; bare flag => true)',
+      (v: string | undefined) => parseOllamaThinkCli(v)
+    );
 }
 
 function createModelFromOptions(options: CLIConfig) {
+  const provider = (options.model || 'openai') as ModelProvider;
   return createModel({
-    provider: (options.model || 'openai') as ModelProvider,
+    provider,
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
-    model: options.modelName
+    model: options.modelName,
+    ...(provider === 'ollama' && options.ollamaThink !== undefined
+      ? { think: options.ollamaThink }
+      : {})
   });
 }
 

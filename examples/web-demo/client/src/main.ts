@@ -7,6 +7,7 @@ const btnReconnect = document.querySelector<HTMLButtonElement>('#btn-reconnect')
 const formConfig = document.querySelector<HTMLFormElement>('#form-config')!;
 const cfgWarnings = document.querySelector<HTMLParagraphElement>('#cfg-warnings')!;
 const cfgProvider = document.querySelector<HTMLSelectElement>('#cfg-provider')!;
+const cfgOllamaThinkWrap = document.querySelector<HTMLLabelElement>('#cfg-ollama-think-wrap')!;
 const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
 const btnSessionNew = document.querySelector<HTMLButtonElement>('#btn-session-new')!;
@@ -31,8 +32,10 @@ let configured = false;
 let currentSessionId: string | undefined;
 let activeRequestId: string | null = null;
 let eventFilter: 'all' | 'text' | 'tool' | 'other' = 'all';
-/** Body element of the assistant bubble currently receiving streamed text; null when idle. */
-let streamingAssistantBodyEl: HTMLElement | null = null;
+/** Assistant bubble receiving streamed output; null when idle. */
+let streamingAssistantMsgEl: HTMLDivElement | null = null;
+let streamingAssistantThinkingEl: HTMLPreElement | null = null;
+let streamingAssistantBodyEl: HTMLSpanElement | null = null;
 
 const MAX_TOOL_SNIPPET_CHARS = 14_000;
 
@@ -53,7 +56,7 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'configure':
       console.log(
-        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true}`
+        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} ollamaThink=${msg.ollamaThink !== undefined ? String(msg.ollamaThink) : '(default)'}`
       );
       break;
     case 'chat':
@@ -472,32 +475,52 @@ function scrollChatLogToBottomIfPinned(wasNearBottomBeforeUpdate: boolean): void
   }
 }
 
-function ensureStreamingAssistantBubble(): HTMLElement {
-  if (streamingAssistantBodyEl?.isConnected) {
-    return streamingAssistantBodyEl;
+function ensureStreamingAssistantMsg(): HTMLDivElement {
+  if (streamingAssistantMsgEl?.isConnected) {
+    return streamingAssistantMsgEl;
   }
   const div = document.createElement('div');
   div.className = 'msg assistant';
   const role = document.createElement('div');
   role.className = 'role';
   role.textContent = '助手';
-  const body = document.createElement('span');
-  body.className = 'msg-body';
   div.appendChild(role);
-  div.appendChild(body);
   chatLog.appendChild(div);
-  streamingAssistantBodyEl = body;
-  return body;
+  streamingAssistantMsgEl = div;
+  streamingAssistantThinkingEl = null;
+  streamingAssistantBodyEl = null;
+  return div;
+}
+
+function appendThinkingStreamDelta(chunk: string): void {
+  const pinned = isChatLogNearBottom();
+  const msg = ensureStreamingAssistantMsg();
+  if (!streamingAssistantThinkingEl) {
+    const pre = document.createElement('pre');
+    pre.className = 'msg-thinking';
+    msg.appendChild(pre);
+    streamingAssistantThinkingEl = pre;
+  }
+  streamingAssistantThinkingEl.textContent += chunk;
+  scrollChatLogToBottomIfPinned(pinned);
 }
 
 function appendAssistantStreamDelta(chunk: string): void {
   const pinned = isChatLogNearBottom();
-  const body = ensureStreamingAssistantBubble();
-  body.textContent += chunk;
+  const msg = ensureStreamingAssistantMsg();
+  if (!streamingAssistantBodyEl) {
+    const body = document.createElement('span');
+    body.className = 'msg-body';
+    msg.appendChild(body);
+    streamingAssistantBodyEl = body;
+  }
+  streamingAssistantBodyEl.textContent += chunk;
   scrollChatLogToBottomIfPinned(pinned);
 }
 
 function finishStreamingAssistant(): void {
+  streamingAssistantMsgEl = null;
+  streamingAssistantThinkingEl = null;
   streamingAssistantBodyEl = null;
 }
 
@@ -688,6 +711,11 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
     return;
   }
 
+  if (t === 'thinking' && typeof event.content === 'string') {
+    appendThinkingStreamDelta(event.content);
+    return;
+  }
+
   if (t === 'text_delta' && typeof event.content === 'string') {
     appendAssistantStreamDelta(event.content);
   }
@@ -778,6 +806,14 @@ function readConfigureMessage(): ClientMessage {
   const userBasePath = String(fd.get('userBasePath') || '').trim() || undefined;
   const mcpConfigPath = String(fd.get('mcpConfigPath') || '').trim() || undefined;
 
+  let ollamaThink: boolean | 'low' | 'medium' | 'high' | undefined;
+  if (provider === 'ollama') {
+    const raw = String(fd.get('ollamaThink') ?? '').trim();
+    if (raw === 'true') ollamaThink = true;
+    else if (raw === 'false') ollamaThink = false;
+    else if (raw === 'low' || raw === 'medium' || raw === 'high') ollamaThink = raw;
+  }
+
   return {
     type: 'configure',
     provider,
@@ -790,13 +826,19 @@ function readConfigureMessage(): ClientMessage {
     contextManagement,
     cwd,
     userBasePath,
-    mcpConfigPath
+    mcpConfigPath,
+    ...(ollamaThink !== undefined ? { ollamaThink } : {})
   };
+}
+
+function syncOllamaThinkVisibility(): void {
+  cfgOllamaThinkWrap.hidden = cfgProvider.value !== 'ollama';
 }
 
 cfgProvider.addEventListener('change', () => {
   const p = cfgProvider.value as ModelProvider;
   const hint = MODEL_HINTS[p];
+  syncOllamaThinkVisibility();
   if (['gpt-4', 'gpt-4o'].some((x) => cfgModel.value.includes(x)) && p !== 'openai') {
     cfgModel.value = hint;
     return;
@@ -805,6 +847,8 @@ cfgProvider.addEventListener('change', () => {
     cfgModel.value = hint;
   }
 });
+
+syncOllamaThinkVisibility();
 
 formConfig.addEventListener('submit', (e) => {
   e.preventDefault();

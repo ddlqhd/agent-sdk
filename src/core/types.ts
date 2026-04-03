@@ -145,6 +145,8 @@ export interface StreamChunk {
  */
 export interface CompletionResult {
   content: string;
+  /** Ollama extended thinking trace (when using thinking-capable models). */
+  thinking?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
   metadata?: Record<string, unknown>;
@@ -792,6 +794,12 @@ export interface CLIConfig {
 
   /** 工作目录 */
   cwd?: string;
+
+  /**
+   * Ollama `/api/chat` `think` option (boolean or GPT-OSS level).
+   * Used only when `-m`/`--model` is `ollama`.
+   */
+  ollamaThink?: boolean | 'low' | 'medium' | 'high';
 }
 
 /**

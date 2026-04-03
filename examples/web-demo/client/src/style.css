@@ -556,6 +556,19 @@ body {
   letter-spacing: 0.04em;
 }
 
+.msg-thinking {
+  margin: 0 0 0.5rem 0;
+  padding: 0.5rem 0.65rem;
+  font-size: var(--text-ui-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
 .msg.tool-call {
   background: var(--color-tool);
   margin-left: 1rem;

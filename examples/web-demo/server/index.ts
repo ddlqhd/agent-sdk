@@ -172,7 +172,7 @@ wss.on('connection', (socket: WebSocket) => {
 
         case 'configure': {
           console.log(
-            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
+            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} ollamaThink=${msg.ollamaThink !== undefined ? String(msg.ollamaThink) : '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
           );
           rejectAllAskPending('reconfigured');
           await destroyAllAgents();
@@ -191,7 +191,8 @@ wss.on('connection', (socket: WebSocket) => {
             contextManagement: msg.contextManagement !== false,
             mcpConfigPath: msg.mcpConfigPath,
             cwd: msg.cwd,
-            userBasePath: stableUserBasePath
+            userBasePath: stableUserBasePath,
+            ollamaThink: msg.ollamaThink
           };
           const { agent, warnings } = await buildAgent({ ...state.runtimeConfig, askUserQuestion });
           const sessionId = agent.getSessionManager().createSession();
