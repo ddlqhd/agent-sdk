@@ -678,7 +678,7 @@ export interface AgentConfig {
     enabled?: boolean;
     /** 子代理最大深度，默认 1（禁止嵌套） */
     maxDepth?: number;
-    /** 并发子代理上限，默认 2 */
+    /** 并发子代理上限，默认 5 */
     maxParallel?: number;
     /** 子代理默认超时（毫秒），默认 120000 */
     timeoutMs?: number;

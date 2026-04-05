@@ -996,7 +996,7 @@ export class Agent {
     return {
       enabled: this.config.subagent?.enabled !== false,
       maxDepth: this.config.subagent?.maxDepth ?? 1,
-      maxParallel: this.config.subagent?.maxParallel ?? 2,
+      maxParallel: this.config.subagent?.maxParallel ?? 5,
       timeoutMs: this.config.subagent?.timeoutMs ?? 120000,
       allowDangerousTools: this.config.subagent?.allowDangerousTools ?? false,
       defaultAllowedTools: this.config.subagent?.defaultAllowedTools
