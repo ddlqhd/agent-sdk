@@ -6,32 +6,93 @@ function stripAnsi(s: string): string {
 }
 
 describe('createStreamFormatter', () => {
-  it('non-verbose: tool call line and result on separate lines', () => {
+  it('non-verbose: tool call on tool_call event, result on tool_result event', () => {
     const f = createStreamFormatter({ verbose: false });
-    f.format({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: { path: '/a' } });
-    const out = f.format({ type: 'tool_result', toolCallId: 'tc1', result: 'ok' });
-    const plain = stripAnsi(out);
-    const idxTool = plain.indexOf('\n🔧 Read');
-    const idxResult = plain.indexOf('\n✓ ');
-    expect(idxTool).toBeGreaterThanOrEqual(0);
-    expect(idxResult).toBeGreaterThan(idxTool);
-    expect(plain.slice(idxResult)).toContain('ok');
+    const callOut = f.format({
+      type: 'tool_call',
+      id: 'tc1',
+      name: 'Read',
+      arguments: { path: '/a' }
+    });
+    const callPlain = stripAnsi(callOut);
+    expect(callPlain).toContain('🔧 Read');
+    expect(callPlain).toContain('[tc1]');
+    expect(callPlain).not.toContain('✓');
+
+    const resultOut = f.format({ type: 'tool_result', toolCallId: 'tc1', result: 'ok' });
+    const resultPlain = stripAnsi(resultOut);
+    expect(resultPlain).toContain('✓');
+    expect(resultPlain).toContain('[tc1]');
+    expect(resultPlain).toContain('ok');
+    expect(resultPlain).not.toContain('🔧');
   });
 
-  it('non-verbose: tool call line and error on separate lines', () => {
+  it('non-verbose: tool call on tool_call event, error on tool_error event', () => {
     const f = createStreamFormatter({ verbose: false });
-    f.format({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
-    const out = f.format({
+    const callOut = f.format({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
+    expect(stripAnsi(callOut)).toContain('🔧 Read');
+    expect(stripAnsi(callOut)).not.toContain('✗');
+
+    const errOut = f.format({
       type: 'tool_error',
       toolCallId: 'tc1',
       error: new Error('failed')
     });
-    const plain = stripAnsi(out);
-    const idxTool = plain.indexOf('\n🔧 Read');
-    const idxErr = plain.indexOf('\n✗ ');
-    expect(idxTool).toBeGreaterThanOrEqual(0);
-    expect(idxErr).toBeGreaterThan(idxTool);
-    expect(plain).toContain('failed');
+    const errPlain = stripAnsi(errOut);
+    expect(errPlain).toContain('✗');
+    expect(errPlain).toContain('[tc1]');
+    expect(errPlain).toContain('failed');
+    expect(errPlain).not.toContain('🔧');
+  });
+
+  it('verbose: invocation on tool_call, result body on tool_result', () => {
+    const f = createStreamFormatter({ verbose: true });
+    const callOut = f.format({
+      type: 'tool_call',
+      id: 'tc1',
+      name: 'Read',
+      arguments: { path: '/x' }
+    });
+    const callPlain = stripAnsi(callOut);
+    expect(callPlain).toContain('🔧 Read');
+    expect(callPlain).toContain('[tc1]');
+    expect(callPlain).toContain('"path"');
+    expect(callPlain).not.toContain('Result:');
+
+    const resultOut = f.format({ type: 'tool_result', toolCallId: 'tc1', result: 'ok' });
+    const resultPlain = stripAnsi(resultOut);
+    expect(resultPlain).toContain('[tc1]');
+    expect(resultPlain).toContain('Result:');
+    expect(resultPlain).toContain('ok');
+    expect(resultPlain).not.toContain('🔧');
+  });
+
+  it('non-verbose: parallel calls show full toolCallId in tag', () => {
+    const f = createStreamFormatter({ verbose: false });
+    const longIdA = 'toolu_01ABCDEFGHIJ';
+    const longIdB = 'toolu_02KLMNOPQRSTU';
+    f.format({
+      type: 'tool_call',
+      id: longIdA,
+      name: 'Read',
+      arguments: { path: '/a' }
+    });
+    f.format({
+      type: 'tool_call',
+      id: longIdB,
+      name: 'Read',
+      arguments: { path: '/b' }
+    });
+    const outA = stripAnsi(
+      f.format({ type: 'tool_result', toolCallId: longIdA, result: 'content-a' })
+    );
+    const outB = stripAnsi(
+      f.format({ type: 'tool_result', toolCallId: longIdB, result: 'content-b' })
+    );
+    expect(outA).toContain(`[${longIdA}]`);
+    expect(outA).toContain('content-a');
+    expect(outB).toContain(`[${longIdB}]`);
+    expect(outB).toContain('content-b');
   });
 
   it('inserts newline before assistant text after tool result', () => {

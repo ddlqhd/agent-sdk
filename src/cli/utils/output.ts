@@ -101,11 +101,31 @@ function tokenUsageEqual(a: TokenUsage, b: TokenUsage): boolean {
   );
 }
 
+/** Full tool call id for CLI (call vs result lines use the same string). */
+function toolCallIdTag(id: string): string {
+  return `[${id}]`;
+}
+
+/** CLI stream: tool invocation line (printed on `tool_call`, before execution). */
+function formatStreamToolCallLine(
+  verbose: boolean,
+  toolCallId: string,
+  name: string,
+  args: unknown
+): string {
+  const idPart = chalk.gray(` ${toolCallIdTag(toolCallId)}`);
+  if (verbose) {
+    const argsStr = args != null ? ` ${JSON.stringify(args, null, 2)}` : '';
+    return chalk.yellow(`\n🔧 ${name}`) + idPart + chalk.gray(argsStr);
+  }
+  const argsStr = args != null ? `(${truncate(JSON.stringify(args), 80)})` : '()';
+  return chalk.yellow(`\n🔧 ${name}`) + idPart + chalk.gray(argsStr);
+}
+
 export function createStreamFormatter(config: OutputConfig = {}): StreamFormatter {
   const { verbose = false } = config;
   let lastEventType: string | null = null;
   let isFirstThinking = true;
-  const toolCalls = new Map<string, { name: string; arguments: unknown }>();
   let lastPrintedUsage: TokenUsage | null = null;
   /** 工具输出后若中间插入了 metadata 等事件，lastEventType 不再是 tool_result，需靠此标志在正文/thinking 前补换行 */
   let needsGapAfterToolBlock = false;
@@ -132,6 +152,7 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
       switch (event.type) {
         case 'text_start':
         case 'text_end':
+        case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end':
           break;
@@ -157,42 +178,36 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
           }
           break;
 
-        case 'tool_call_start':
-          toolCalls.set(event.id, { name: event.name, arguments: undefined });
-          break;
-
         case 'tool_call':
-          toolCalls.set(event.id, { name: event.name, arguments: event.arguments });
+          output += formatStreamToolCallLine(verbose, event.id, event.name, event.arguments);
           break;
 
         case 'tool_result': {
-          const tc = toolCalls.get(event.toolCallId);
-          const name = tc?.name ?? 'tool';
+          const idTag = toolCallIdTag(event.toolCallId);
           if (verbose) {
-            const argsStr = tc?.arguments ? ` ${JSON.stringify(tc.arguments, null, 2)}` : '';
-            output += chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr);
-            output += chalk.green(`\n✓ Result:\n${event.result}\n`);
+            output +=
+              chalk.green('\n✓ ') +
+              chalk.gray(`${idTag} `) +
+              chalk.green(`Result:\n${event.result}\n`);
           } else {
-            const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
             const resultStr = truncate(event.result, 120);
-            output += chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr);
-            output += chalk.green(`\n✓ ${resultStr}`);
+            output +=
+              chalk.green('\n✓ ') + chalk.gray(`${idTag} `) + chalk.green(resultStr);
           }
           needsGapAfterToolBlock = true;
           break;
         }
 
         case 'tool_error': {
-          const tc = toolCalls.get(event.toolCallId);
-          const name = tc?.name ?? 'tool';
+          const idTag = toolCallIdTag(event.toolCallId);
           if (verbose) {
-            const argsStr = tc?.arguments ? ` ${JSON.stringify(tc.arguments, null, 2)}` : '';
-            output += chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr);
-            output += chalk.red(`\n✗ Error:\n${event.error.message}\n`);
+            output +=
+              chalk.red('\n✗ ') +
+              chalk.gray(`${idTag} `) +
+              chalk.red(`Error:\n${event.error.message}\n`);
           } else {
-            const argsStr = tc?.arguments ? `(${truncate(JSON.stringify(tc.arguments), 80)})` : '()';
-            output += chalk.yellow(`\n🔧 ${name}`) + chalk.gray(argsStr);
-            output += chalk.red(`\n✗ ${event.error.message}`);
+            output +=
+              chalk.red('\n✗ ') + chalk.gray(`${idTag} `) + chalk.red(event.error.message);
           }
           needsGapAfterToolBlock = true;
           break;
