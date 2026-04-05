@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
+import { tavilyWebSearch } from './tavily-search.js';
 import { fetchUrlToReadableContent } from './web-fetch.js';
 
 /**
@@ -39,7 +40,7 @@ export const webSearchTool = createTool({
 - Provides up-to-date information for current events and recent data
 - Returns search result information with links as markdown hyperlinks
 - Use this tool for accessing information beyond the knowledge cutoff
-- Requires a search handler to be configured`,
+- When \`TAVILY_API_KEY\` is set, uses the Tavily Search API; otherwise returns a configuration message`,
   parameters: z.object({
     query: z.string().min(2).describe('The search query to use'),
     allowed_domains: z
@@ -51,11 +52,20 @@ export const webSearchTool = createTool({
       .optional()
       .describe('Never include search results from these domains')
   }),
-  handler: async ({ query }) => {
-    return {
-      content: `Web search is not configured. To enable WebSearch, register a custom tool with your preferred search provider (e.g., Exa, Brave, Google, DuckDuckGo). Query was: "${query}"`,
-      isError: true
-    };
+  handler: async ({ query, allowed_domains, blocked_domains }) => {
+    const apiKey = process.env.TAVILY_API_KEY?.trim();
+    if (!apiKey) {
+      return {
+        content: `Web search is not configured. Set the TAVILY_API_KEY environment variable to enable Tavily Search, or register a custom WebSearch tool with another provider. Query was: "${query}"`,
+        isError: true
+      };
+    }
+    return tavilyWebSearch({
+      query,
+      apiKey,
+      allowed_domains,
+      blocked_domains
+    });
   }
 });
 

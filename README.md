@@ -912,7 +912,7 @@ SDK 提供以下内置工具（名称与 `ToolDefinition.name` 一致，供 CLI 
 | Tool | Description | Dangerous |
 |------|-------------|-----------|
 | `WebFetch` | Fetch URL and return readable markdown | ❌ |
-| `WebSearch` | Web search (needs custom handler; default not configured) | ❌ |
+| `WebSearch` | Web search via Tavily when `TAVILY_API_KEY` is set; otherwise not configured | ❌ |
 
 ### 任务列表 (task)
 | Tool | Description | Dangerous |

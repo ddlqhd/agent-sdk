@@ -130,7 +130,7 @@ Tool **names** are PascalCase / multi-word identifiers (what the model sees), de
 - `filesystem.ts` — **Read**, **Write**, **Edit**, **Glob**
 - `shell.ts` — **Bash** (marked `isDangerous: true`)
 - `grep.ts` — **Grep**
-- `web.ts` — **WebFetch**, **WebSearch** (search requires a custom handler; default stub returns not configured)
+- `web.ts` — **WebFetch**, **WebSearch** (Tavily when `TAVILY_API_KEY` is set; otherwise stub — see `tavily-search.ts`)
 - `task.ts` — **TaskCreate**, **TaskUpdate**, **TaskList**
 - `interaction.ts` — **AskUserQuestion**
 - `skill-activation.ts` — **Skill** (invokes a registered skill by name)
