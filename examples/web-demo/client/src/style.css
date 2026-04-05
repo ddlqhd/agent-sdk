@@ -601,6 +601,7 @@ body {
   font-family: var(--font-mono);
   margin-bottom: 0.4rem;
   font-variant-ligatures: none;
+  overflow-wrap: anywhere;
 }
 
 .msg-tool-pre {
@@ -818,6 +819,7 @@ body {
   font-family: var(--font-mono);
   margin-bottom: 0.4rem;
   font-variant-ligatures: none;
+  overflow-wrap: anywhere;
 }
 
 .tool-card-pre {

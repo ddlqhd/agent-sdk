@@ -549,11 +549,6 @@ function formatToolArguments(args: unknown): string {
   }
 }
 
-function shortId(id: string): string {
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 8)}…`;
-}
-
 /** End assistant text before tool UI so deltas are not appended to the wrong bubble. */
 function beforeToolUiInChat(): void {
   finishStreamingAssistant();
@@ -580,7 +575,7 @@ function appendToolCallChatRow(event: Record<string, unknown>): void {
   if (id) {
     const idEl = document.createElement('div');
     idEl.className = 'msg-tool-id';
-    idEl.textContent = `id ${shortId(id)}`;
+    idEl.textContent = `id ${id}`;
     div.appendChild(idEl);
   }
 
@@ -604,7 +599,7 @@ function appendToolResultChatRow(toolCallId: string, body: string, variant: 'res
 
   const idEl = document.createElement('div');
   idEl.className = 'msg-tool-id';
-  idEl.textContent = `toolCallId ${shortId(toolCallId)}`;
+  idEl.textContent = `toolCallId ${toolCallId}`;
 
   const pre = document.createElement('pre');
   pre.className = 'msg-tool-pre';
@@ -680,7 +675,7 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
     appendToolActivityCard(
       'call',
       name,
-      id ? `id ${shortId(id)}` : undefined,
+      id ? `id ${id}` : undefined,
       truncateForChatSnippet(formatToolArguments(event.arguments)) || '{}'
     );
     focusToolInspector();
@@ -691,7 +686,7 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
     const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
     const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result ?? '');
     appendToolResultChatRow(id, result, 'result');
-    appendToolActivityCard('result', '返回', `toolCallId ${shortId(id)}`, truncateForChatSnippet(result));
+    appendToolActivityCard('result', '返回', `toolCallId ${id}`, truncateForChatSnippet(result));
     focusToolInspector();
     return;
   }
@@ -706,7 +701,7 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
           ? event.message
           : JSON.stringify(event);
     appendToolResultChatRow(id, msg, 'error');
-    appendToolActivityCard('error', '执行失败', `toolCallId ${shortId(id)}`, truncateForChatSnippet(msg));
+    appendToolActivityCard('error', '执行失败', `toolCallId ${id}`, truncateForChatSnippet(msg));
     focusToolInspector();
     return;
   }
