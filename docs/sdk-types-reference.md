@@ -40,6 +40,13 @@ interface AgentConfig {
 }
 ```
 
+与工具相关的常用字段（完整列表以源码 `AgentConfig` 为准）：
+
+- **`tools`**：在默认内置之后注册；**与内置 `name` 相同时会替换内置定义**（见 [`sdk-api-reference.md`](./sdk-api-reference.md)「替换内置工具」）。
+- **`disallowedTools`**：按注册名禁止；被禁止的名不会注册内置，且 `tools` 中同名项也会被跳过。
+- **`allowedTools`** / **`canUseTool`**：自动批准与人工审批策略。
+- **`exclusiveTools`**：仅使用此处列出的工具，不合并默认内置。
+
 ## `AgentResult`
 
 ```ts

@@ -600,6 +600,8 @@ getAllBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[]
 getSafeBuiltinTools(skillRegistry: SkillRegistry): ToolDefinition[] // 不含危险操作
 ```
 
+创建 `Agent` 时可在 **`AgentConfig.tools`** 中传入与内置**同名**（如 `Read`）的 `ToolDefinition`，用于**替换**该内置工具的默认实现。若工具名出现在 **`disallowedTools`** 中，则内置与你的自定义都不会注册，因此不要用 `disallowedTools` 来“关掉”内置再替换。仅需完全自建工具表时，使用 **`exclusiveTools`**。更完整的字段说明见 [`docs/sdk-api-reference.md`](docs/sdk-api-reference.md)；示例见 [`docs/sdk-integration-recipes.md`](docs/sdk-integration-recipes.md) 第 3 节。
+
 ### Storage
 
 ```typescript

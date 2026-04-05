@@ -32,7 +32,7 @@
 
 - **Agent 执行引擎**：消息循环、工具调用、上下文压缩、会话持久化
 - **多模型适配**：统一 `ModelAdapter` 接口
-- **工具系统**：内置工具 + 自定义工具（Zod 参数校验）
+- **工具系统**：内置工具 + 自定义工具（Zod 参数校验）；`AgentConfig.tools` 中与内置同名则**替换**该内置实现（详见 `sdk-api-reference.md`「替换内置工具」与 `sdk-integration-recipes.md` 第 3 节）
 - **Streaming**：`AsyncIterable<StreamEvent>` 实时消费
 - **MCP**：stdio/http server 接入并自动映射为工具
 - **Skills**：`SKILL.md` 指导能力加载与调用

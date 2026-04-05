@@ -27,6 +27,7 @@
 - Ollama 适配：`src/models/ollama.ts`
 - 工具注册与执行：`src/tools/registry.ts`
 - 内置工具聚合：`src/tools/builtin/index.ts`
+- 同名覆盖内置工具（配置层）：`docs/sdk-integration-recipes.md`（第 3 节）、`src/core/agent.ts`（`registerInitialTools`）
 - 会话管理：`src/storage/session.ts`
 - MCP 配置加载：`src/config/mcp-config.ts`
 - Memory 管理：`src/memory/manager.ts`

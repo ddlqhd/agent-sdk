@@ -48,7 +48,36 @@ agent.registerTool(
 - 参数校验失败时返回 `isError: true`
 - 工具内部异常转为可读错误信息，不要直接抛底层堆栈给模型
 
-## 3. 安全模式内置工具
+## 3. 替换内置工具（同名覆盖）
+
+默认会先注册 SDK 内置工具；在 **`Agent` 构造配置的 `tools` 数组**里放入与内置**相同 `name`** 的 `ToolDefinition`，会用你的实现**替换**同名内置工具（无需先 `disallowedTools` 掉内置名——那样会导致内置与你的自定义都不会注册）。
+
+```ts
+import { Agent, createOpenAI, createTool } from 'agent-sdk';
+import { z } from 'zod';
+
+const customRead = createTool({
+  name: 'Read',
+  description: 'Read a file (app-specific implementation)',
+  parameters: z.object({
+    file_path: z.string().describe('Path to the file')
+  }),
+  handler: async ({ file_path }) => ({
+    content: `[stub] would read: ${file_path}`
+  })
+});
+
+const agent = new Agent({
+  model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+  tools: [customRead]
+});
+```
+
+若需要**完全不使用**默认内置集合、只保留你列出的工具，使用 `exclusiveTools` 并提供完整列表（见 `AgentConfig` 说明）。
+
+创建 Agent **之后**若要再换实现：`getToolRegistry().unregister('Read')` 再 `registerTool(...)`；`registerTool` 在名已存在时会抛错。
+
+## 4. 安全模式内置工具
 
 ```ts
 import { ToolRegistry, getSafeBuiltinTools, createSkillRegistry } from 'agent-sdk';
@@ -60,7 +89,7 @@ registry.registerMany(getSafeBuiltinTools(skillRegistry));
 
 `getSafeBuiltinTools` 会过滤 `isDangerous=true` 的工具（当前主要是 `Bash`）。
 
-## 4. 会话持久化与恢复
+## 5. 会话持久化与恢复
 
 ```ts
 import { Agent, createOpenAI } from 'agent-sdk';
@@ -80,7 +109,7 @@ console.log(next.content);
 - 传入不存在的 `sessionId` 时，SDK 会在恢复失败后自动创建新会话
 - 若你需要严格控制，可在业务层先做 `sessionExists` 校验
 
-## 5. MCP 配置文件加载（Claude Desktop 风格）
+## 6. MCP 配置文件加载（Claude Desktop 风格）
 
 ```ts
 import { Agent, createOpenAI, loadMCPConfig } from 'agent-sdk';
@@ -112,7 +141,7 @@ const agent = new Agent({
 }
 ```
 
-## 6. Skill 自动加载与手动调用
+## 7. Skill 自动加载与手动调用
 
 - 默认扫描：
   - `{userBasePath}/.claude/skills`
@@ -130,7 +159,7 @@ description: Review code for risks and regressions
 Analyze changed files and report critical issues first.
 ```
 
-## 7. Memory 注入策略
+## 8. Memory 注入策略
 
 默认读取：
 
@@ -139,7 +168,7 @@ Analyze changed files and report critical issues first.
 
 并注入为额外 system message（包裹在 `<system-minder>` 标签内）。
 
-## 8. 流式消费模板（生产可复用）
+## 9. 流式消费模板（生产可复用）
 
 ```ts
 for await (const event of agent.stream(userInput, { includeRawStreamEvents: false })) {

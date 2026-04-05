@@ -40,6 +40,24 @@
 
 类型别名：`CanUseToolCallback`。
 
+### 替换内置工具
+
+集成应用若需**用自己的实现替换某个内置工具**（例如自定义 `Read` 的落盘策略）：
+
+1. **推荐：在 `AgentConfig.tools` 中提供同名工具**  
+   初始化顺序为先注册全部默认内置，再处理 `tools`：**注册名与内置一致时，会先 `unregister` 再注册你的定义**，模型看到的名称与 JSON Schema 以你的 `ToolDefinition` 为准（若与内置参数不同，需自行保证与系统提示/业务一致）。
+
+2. **与 `disallowedTools` 的关系**  
+   若某工具名出现在 `disallowedTools` 中，该名**不会**注册内置版本，且 **`tools` 里同名项也会被跳过**。要“替换”某内置工具时，**不要**把该名放进 `disallowedTools`。
+
+3. **与 `exclusiveTools` 的关系**  
+   设置 `exclusiveTools` 时**不会**加载默认内置集合，也不会再应用 `tools` 字段；需自行列出完整工具表（含你要保留或改写后的工具）。
+
+4. **创建 Agent 之后再替换**  
+   `Agent.registerTool` 在名已存在时会抛错。应先 `agent.getToolRegistry().unregister('Read')`（或对应名），再 `registerTool` 新定义。
+
+详见 `docs/sdk-integration-recipes.md` 中的示例。
+
 ## Models（从根入口再导出）
 
 - `createModel(config)`
