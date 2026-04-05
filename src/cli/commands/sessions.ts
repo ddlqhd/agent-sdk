@@ -2,6 +2,11 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { SessionManager } from '../../storage/session.js';
 import { formatTable } from '../utils/output.js';
+import { getSessionStoragePath } from '../../storage/session-path.js';
+
+function addUserBasePathOption(cmd: Command): Command {
+  return cmd.option('--user-base-path <path>', 'User base path (default: ~), must match chat/run');
+}
 
 /**
  * 会话管理命令
@@ -11,13 +16,18 @@ export function createSessionsCommand(): Command {
     .description('Manage chat sessions');
 
   // 列出会话
-  command
+  addUserBasePathOption(
+    command
     .command('list')
     .description('List all sessions')
     .option('-l, --limit <n>', 'Limit number of sessions', parseInt, 20)
     .option('-f, --format <format>', 'Output format (table/json)', 'table')
+  )
     .action(async (options) => {
-      const manager = new SessionManager({ type: 'jsonl' });
+      const manager = new SessionManager({
+        type: 'jsonl',
+        basePath: getSessionStoragePath(options.userBasePath)
+      });
       const sessions = await manager.listSessions();
 
       const limited = sessions.slice(0, options.limit);
@@ -39,7 +49,7 @@ export function createSessionsCommand(): Command {
             updated: new Date(s.updatedAt).toLocaleString()
           })),
           [
-            { key: 'id', header: 'ID', width: 25 },
+            { key: 'id', header: 'ID', width: 36 },
             { key: 'messages', header: 'Messages', width: 10 },
             { key: 'created', header: 'Created', width: 20 },
             { key: 'updated', header: 'Updated', width: 20 }
@@ -50,12 +60,17 @@ export function createSessionsCommand(): Command {
     });
 
   // 查看会话详情
-  command
-    .command('show <id>')
-    .description('Show session messages')
-    .option('-l, --limit <n>', 'Limit number of messages', parseInt, 50)
+  addUserBasePathOption(
+    command
+      .command('show <id>')
+      .description('Show session messages')
+      .option('-l, --limit <n>', 'Limit number of messages', parseInt, 50)
+  )
     .action(async (id, options) => {
-      const manager = new SessionManager({ type: 'jsonl' });
+      const manager = new SessionManager({
+        type: 'jsonl',
+        basePath: getSessionStoragePath(options.userBasePath)
+      });
 
       const exists = await manager.sessionExists(id);
       if (!exists) {
@@ -81,12 +96,17 @@ export function createSessionsCommand(): Command {
     });
 
   // 删除会话
-  command
-    .command('delete <id>')
-    .description('Delete a session')
-    .option('-f, --force', 'Skip confirmation')
+  addUserBasePathOption(
+    command
+      .command('delete <id>')
+      .description('Delete a session')
+      .option('-f, --force', 'Skip confirmation')
+  )
     .action(async (id, options) => {
-      const manager = new SessionManager({ type: 'jsonl' });
+      const manager = new SessionManager({
+        type: 'jsonl',
+        basePath: getSessionStoragePath(options.userBasePath)
+      });
 
       const exists = await manager.sessionExists(id);
       if (!exists) {
@@ -117,12 +137,17 @@ export function createSessionsCommand(): Command {
     });
 
   // 清空所有会话
-  command
-    .command('clear')
-    .description('Delete all sessions')
-    .option('-f, --force', 'Skip confirmation')
+  addUserBasePathOption(
+    command
+      .command('clear')
+      .description('Delete all sessions')
+      .option('-f, --force', 'Skip confirmation')
+  )
     .action(async (options) => {
-      const manager = new SessionManager({ type: 'jsonl' });
+      const manager = new SessionManager({
+        type: 'jsonl',
+        basePath: getSessionStoragePath(options.userBasePath)
+      });
       const sessions = await manager.listSessions();
 
       if (sessions.length === 0) {

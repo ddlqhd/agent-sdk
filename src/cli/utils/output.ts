@@ -260,6 +260,8 @@ export function formatSessionUsage(usage: SessionTokenUsage, config: OutputConfi
 
 /**
  * 格式化表格
+ *
+ * `columns[].width` 为列的最小宽度；实际宽度还会按表头与单元格内容撑开，避免截断或错位。
  */
 export function formatTable(
   data: Record<string, unknown>[],
@@ -269,13 +271,15 @@ export function formatTable(
     return 'No data';
   }
 
-  // 计算列宽
+  // 计算列宽（width 视为下限，避免固定宽度短于 UUID 等长内容时排版错位）
   const widths = columns.map(col => {
     const headerLen = col.header.length;
     const maxDataLen = Math.max(
-      ...data.map(row => String(row[col.key] || '').length)
+      ...data.map(row => String(row[col.key] || '').length),
+      0
     );
-    return col.width || Math.max(headerLen, maxDataLen, 10);
+    const minW = col.width ?? 0;
+    return Math.max(minW, headerLen, maxDataLen, 10);
   });
 
   // 生成表头

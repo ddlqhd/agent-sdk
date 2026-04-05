@@ -11,11 +11,10 @@ import type {
   Message
 } from '../core/types.js';
 import { randomUUID } from 'crypto';
-import { homedir } from 'os';
-import { join } from 'path';
 import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
+import { getSessionStoragePath } from '../storage/session-path.js';
 import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
 import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
@@ -124,10 +123,9 @@ export class Agent {
     }
 
     // 初始化会话管理器（存储在用户目录下）
-    const storageBasePath = join(config.userBasePath || homedir(), '.claude', 'sessions');
     this.sessionManager = new SessionManager({
       type: config.storage?.type || 'jsonl',
-      basePath: storageBasePath
+      basePath: getSessionStoragePath(config.userBasePath)
     });
 
     // 初始化 ContextManager

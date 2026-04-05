@@ -47,6 +47,8 @@ export * from './tools/builtin/index.js';
 // Storage
 export {
   createStorage,
+  getLatestSessionId,
+  getSessionStoragePath,
   JsonlStorage,
   createJsonlStorage,
   MemoryStorage,

@@ -783,6 +783,9 @@ export interface CLIConfig {
   /** 会话 ID */
   session?: string;
 
+  /** 恢复最近一次会话（CLI chat/run） */
+  resume?: boolean;
+
   /** 详细输出 */
   verbose?: boolean;
 

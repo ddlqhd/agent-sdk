@@ -12,6 +12,7 @@ import {
 import type { CLIConfig } from '../../core/types.js';
 import { loadMCPConfig } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
+import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
 
 function parseOllamaThinkCli(value: string | undefined): boolean | 'low' | 'medium' | 'high' {
   if (value === undefined || value === '') return true;
@@ -37,6 +38,10 @@ function addModelOptions(cmd: Command): Command {
     .option('--mcp-config <path>', 'Path to MCP config file (mcp_config.json)')
     .option('--user-base-path <path>', 'User base path (default: ~)')
     .option('--cwd <path>', 'Working directory (default: current directory)')
+    .option(
+      '--resume',
+      'Resume the most recently updated session (uses same storage as --user-base-path; ignored if --session is set)'
+    )
     .option(
       '--ollama-think [value]',
       'Ollama only: `think` param (true|false|low|medium|high; bare flag => true)',
@@ -65,6 +70,14 @@ export function createChatCommand(): Command {
     new Command('chat').description('Start an interactive chat session')
   ).action(async (options) => {
     try {
+      let sessionId: string | undefined = options.session;
+      if (options.resume && !sessionId) {
+        sessionId = await getLatestSessionId(options.userBasePath);
+        if (!sessionId) {
+          console.warn(chalk.yellow('No saved sessions found; starting a new session.'));
+        }
+      }
+
       const model = createModelFromOptions(options);
 
       // 加载 MCP 配置
@@ -98,6 +111,7 @@ export function createChatCommand(): Command {
 
       console.log(chalk.cyan('🤖 Agent SDK Chat'));
       console.log(chalk.gray(`Model: ${model.name}`));
+      console.log(chalk.gray(`Sessions: ${getSessionStoragePath(options.userBasePath)}`));
       if (skills.length > 0) {
         console.log(chalk.gray(`Skills: ${skills.map(s => `/${s.name}`).join(', ')}`));
       }
@@ -147,12 +161,16 @@ export function createChatCommand(): Command {
             process.stdout.write(chalk.blue('\nAssistant: '));
 
             if (options.stream === false) {
-              const result = await agent.run(input, { sessionId: options.session });
+              const result = await agent.run(input, { sessionId });
               console.log(result.content);
               if (result.usage) {
                 console.log(`\n${formatUsage(result.usage)}`);
               }
               console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
+              const sid = agent.getSessionManager().sessionId;
+              if (sid) {
+                console.log(chalk.gray(`Session id: ${sid} (next time: add --resume or -s ${sid})`));
+              }
             } else {
               const abortController = new AbortController();
               let interrupted = false;
@@ -173,7 +191,7 @@ export function createChatCommand(): Command {
                 const formatter = createStreamFormatter({ verbose: options.verbose });
 
                 for await (const event of agent.stream(input, {
-                  sessionId: options.session,
+                  sessionId,
                   signal: abortController.signal
                 })) {
                   if (interrupted) break;
@@ -206,6 +224,10 @@ export function createChatCommand(): Command {
                   const tail = formatter.finalize();
                   if (tail) process.stdout.write(tail);
                   console.log(`\n${formatSessionUsage(agent.getSessionUsage())}`);
+                  const sid = agent.getSessionManager().sessionId;
+                  if (sid) {
+                    console.log(chalk.gray(`Session id: ${sid} (next time: add --resume or -s ${sid})`));
+                  }
                 }
               } finally {
                 if (resumeAskStdin) {
@@ -252,6 +274,14 @@ export function createRunCommand(): Command {
   ).option('-o, --output <format>', 'Output format (text/json)', 'text')
     .action(async (prompt, options) => {
       try {
+        let sessionId: string | undefined = options.session;
+        if (options.resume && !sessionId) {
+          sessionId = await getLatestSessionId(options.userBasePath);
+          if (!sessionId) {
+            console.warn(chalk.yellow('No saved sessions found; starting a new session.'));
+          }
+        }
+
         const model = createModelFromOptions(options);
 
         // 加载 MCP 配置
@@ -278,18 +308,18 @@ export function createRunCommand(): Command {
 
         try {
           if (options.output === 'json') {
-            const result = await agent.run(prompt, { sessionId: options.session });
+            const result = await agent.run(prompt, { sessionId });
             console.log(JSON.stringify(result, null, 2));
           } else if (options.stream !== false) {
             const formatter = createStreamFormatter({ verbose: options.verbose });
-            for await (const event of agent.stream(prompt, { sessionId: options.session })) {
+            for await (const event of agent.stream(prompt, { sessionId })) {
               const output = formatter.format(event);
               if (output) process.stdout.write(output);
             }
             const tail = formatter.finalize();
             if (tail) process.stdout.write(tail);
           } else {
-            const result = await agent.run(prompt, { sessionId: options.session });
+            const result = await agent.run(prompt, { sessionId });
             console.log(result.content);
             if (result.usage) {
               console.log(`\n${formatUsage(result.usage)}`);
