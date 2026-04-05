@@ -3,6 +3,7 @@ import { Agent } from '../../src/core/agent.js';
 import { createTool } from '../../src/tools/registry.js';
 import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
 import { z } from 'zod';
+import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -64,7 +65,8 @@ describe('Agent subagent tool integration', () => {
   it('delegates to subagent and writes tool result back', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
-      memory: false
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
     });
 
     const result = await agent.run('[parent-delegate]');
@@ -74,7 +76,8 @@ describe('Agent subagent tool integration', () => {
   it('blocks nested subagent calls by depth', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
-      memory: false
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
     });
 
     const result = await agent.getToolRegistry().execute(
@@ -91,6 +94,7 @@ describe('Agent subagent tool integration', () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       subagent: {
         timeoutMs: 20
       }
@@ -108,7 +112,8 @@ describe('Agent subagent tool integration', () => {
   it('excludes AskUserQuestion from subagent toolset', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
-      memory: false
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
     });
     expect(agent.getToolRegistry().getAll().some((t) => t.name === 'AskUserQuestion')).toBe(true);
 
@@ -140,6 +145,7 @@ describe('Agent subagent tool integration', () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [dangerousTool, safeTool]
     });
 

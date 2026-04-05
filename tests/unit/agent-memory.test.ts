@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createAgent, Agent } from '../../src/core/agent.js';
 import { MemoryManager } from '../../src/memory/manager.js';
+import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -77,6 +78,7 @@ describe('Agent Memory Integration', () => {
     const agent = createAgent({
       model: createMockModel(),
       memory: true,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       memoryConfig: {
         workspacePath: testMemoryPath
       }
@@ -88,7 +90,8 @@ describe('Agent Memory Integration', () => {
   it('should create agent with memory disabled', () => {
     const agent = createAgent({
       model: createMockModel(),
-      memory: false
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
     });
 
     expect(agent).toBeInstanceOf(Agent);
@@ -101,6 +104,7 @@ describe('Agent Memory Integration', () => {
     const agent = createAgent({
       model: createMockModel(),
       memory: true,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       memoryConfig: {
         workspacePath: testMemoryPath
       }
@@ -142,6 +146,7 @@ describe('Agent Memory Integration', () => {
     const agent = createAgent({
       model: createMockModel(),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       memoryConfig: {
         workspacePath: testMemoryPath
       }

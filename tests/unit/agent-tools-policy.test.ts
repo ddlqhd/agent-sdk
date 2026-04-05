@@ -3,6 +3,7 @@ import { Agent } from '../../src/core/agent.js';
 import { createTool } from '../../src/tools/registry.js';
 import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
 import { z } from 'zod';
+import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 function modelThatCallsTool(toolName: string, arg: Record<string, unknown> = {}): ModelAdapter {
   return {
@@ -35,6 +36,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Read'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       disallowedTools: ['Bash', 'Write']
     });
 
@@ -55,6 +57,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Read'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [t],
       disallowedTools: ['CustomX']
     });
@@ -73,6 +76,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Read'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [extra]
     });
 
@@ -91,6 +95,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Ping'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [ping],
       allowedTools: ['Ping']
     });
@@ -111,6 +116,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Ping'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [ping],
       allowedTools: ['OtherOnly']
     });
@@ -133,6 +139,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Ping'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       tools: [ping],
       allowedTools: ['OtherOnly'],
       canUseTool
@@ -148,6 +155,7 @@ describe('Agent allowedTools / disallowedTools', () => {
     const agent = new Agent({
       model: modelThatCallsTool('Read'),
       memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       disallowedTools: ['Bad']
     });
 
