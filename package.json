@@ -51,6 +51,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddlqhd/agent-sdk.git"
+  },
+  "homepage": "https://github.com/ddlqhd/agent-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/ddlqhd/agent-sdk/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
     "@mozilla/readability": "^0.6.0",
