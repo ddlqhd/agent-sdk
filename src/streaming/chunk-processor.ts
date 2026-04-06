@@ -7,7 +7,7 @@ export interface StreamChunkProcessorOptions {
 
 /**
  * Stateful conversion from model `StreamChunk` to normalized `StreamEvent`s.
- * Used by `Agent` and `StreamTransformer` so streaming tool JSON and text blocks behave consistently.
+ * Used by `Agent` so streaming tool JSON and text blocks behave consistently.
  */
 export class StreamChunkProcessor {
   private currentToolCall: { id: string; name: string; arguments: string } | null = null;

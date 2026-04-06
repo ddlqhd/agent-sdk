@@ -24,6 +24,8 @@ pnpm add agent-sdk
 
 ## Model Configuration
 
+**Integration policy:** Application code must drive execution through **`Agent`** (`run` / `stream`). Use `createOpenAI`, `createAnthropic`, `createOllama`, or `createModel` only to build the `model` passed into `Agent`. Do **not** call `ModelAdapter` methods such as `stream()` or `complete()` directly in product code (bypassing `Agent`). See `docs/sdk-overview.md` section 3.
+
 SDK 支持两种配置方式：**环境变量** 和 **代码配置**。
 
 ### 方式一：环境变量
@@ -761,7 +763,7 @@ interface MemoryConfig {
 
 ### Streaming
 
-Model adapters yield `StreamChunk` values. The library normalizes them to `StreamEvent` using `StreamChunkProcessor` (shared by `Agent.stream()` and `transformStream()`).
+Model adapters yield `StreamChunk` values. The library normalizes them to `StreamEvent` using `StreamChunkProcessor` within `Agent.stream()`.
 
 Optional fields on every event (when produced by `Agent.stream()`): `streamEventId`, `iteration`, `sessionId` (`StreamEventAnnotations`).
 
@@ -805,13 +807,6 @@ interface TokenUsage {
 
 // Stream utilities
 class AgentStream { /* AsyncIterable<StreamEvent>, push/end/collectText/… */ }
-
-class StreamTransformer {
-  transform(chunks: AsyncIterable<StreamChunk>): AsyncIterable<StreamEvent>;
-}
-
-transformStream(chunks: AsyncIterable<StreamChunk>): AsyncIterable<StreamEvent>;
-toAgentStream(chunks: AsyncIterable<StreamChunk>): AgentStream;
 
 class StreamChunkProcessor {
   processChunk(chunk: StreamChunk): StreamEvent[];
@@ -864,8 +859,7 @@ agent-sdk/
 │   │   └── memory.ts      # Memory storage
 │   ├── streaming/         # Streaming system
 │   │   ├── event-emitter.ts
-│   │   ├── chunk-processor.ts
-│   │   └── transform.ts
+│   │   └── chunk-processor.ts
 │   ├── mcp/               # MCP integration
 │   │   ├── client.ts      # MCP client
 │   │   └── adapter.ts     # MCP adapter for Agent
@@ -970,7 +964,7 @@ import { createTool, ToolRegistry } from 'agent-sdk/tools';
 - **Models**: `createModel`, `createOpenAI`, `createAnthropic`, `createOllama`, adapters
 - **Tools**: `ToolRegistry`, `createTool`, `getGlobalRegistry`, all built-in tools
 - **Storage**: `createStorage`, `JsonlStorage`, `MemoryStorage`, `SessionManager`
-- **Streaming**: `AgentStream`, `createStream`, `StreamChunkProcessor`, `StreamTransformer`, `transformStream`, `toAgentStream`
+- **Streaming**: `AgentStream`, `createStream`, `fromAsyncIterable`, `StreamChunkProcessor`
 - **MCP**: `MCPClient`, `MCPAdapter`, `createMCPClient`, `createMCPAdapter`
 - **Skills**: `SkillLoader`, `SkillRegistry`, `createSkillLoader`, `createSkillRegistry`, `parseSkillMd`
 - **Memory**: `MemoryManager`

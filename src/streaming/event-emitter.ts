@@ -79,9 +79,18 @@ export class AgentStream implements AsyncIterable<StreamEvent> {
 
     this.push({ type: 'end', timestamp: Date.now() });
 
+    this.finalize();
+  }
+
+  /**
+   * Marks the stream complete without pushing an event. Use when the producer already emitted a terminal `{ type: 'end' }` and iterators must unblock.
+   */
+  finalize(): void {
+    if (this.isEnded) {
+      return;
+    }
     this.isEnded = true;
 
-    // resolve 所有等待的 resolver
     while (this.resolvers.length > 0) {
       const resolver = this.resolvers.shift()!;
       resolver.resolve({ done: true, value: undefined });

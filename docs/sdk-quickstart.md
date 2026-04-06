@@ -26,6 +26,8 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## 3. 最小可用示例（建议从这里开始）
 
+> **约定**：须通过 `Agent` 执行对话；`createOpenAI` 等仅用于构造 `Agent` 的 `model`，不要在应用里直接调用适配器的 `stream` / `complete`。详见 `sdk-overview.md` 第 3 节。
+
 ```ts
 import { Agent, createOpenAI } from 'agent-sdk';
 

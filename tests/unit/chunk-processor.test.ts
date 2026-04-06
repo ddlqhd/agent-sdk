@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { StreamChunkProcessor } from '../../src/streaming/chunk-processor.js';
-import { transformStream } from '../../src/streaming/transform.js';
 
 describe('StreamChunkProcessor', () => {
   it('wraps text in text_start / text_end and emits tool_call_end before tool_call', () => {
@@ -103,10 +102,8 @@ describe('StreamChunkProcessor', () => {
     for (const e of p.flush()) types.push(e.type);
     expect(types).toEqual(['text_delta']);
   });
-});
 
-describe('transformStream', () => {
-  it('flushes pending streamed tool call at end of chunk iterable', async () => {
+  it('flushes pending streamed tool call at end of async chunk iterable', async () => {
     async function* chunks() {
       yield {
         type: 'tool_call_start' as const,
@@ -120,27 +117,22 @@ describe('transformStream', () => {
       };
     }
 
+    const p = new StreamChunkProcessor({ emitTextBoundaries: true });
     const types: string[] = [];
-    for await (const e of transformStream(chunks())) {
+    for await (const chunk of chunks()) {
+      for (const e of p.processChunk(chunk)) {
+        types.push(e.type);
+      }
+    }
+    for (const e of p.flush()) {
       types.push(e.type);
     }
+
     expect(types).toContain('tool_call_start');
     expect(types).toContain('tool_call_delta');
     expect(types).toContain('tool_call_end');
     expect(types).toContain('tool_call');
-    expect(types[0]).toBe('start');
-    expect(types[types.length - 1]).toBe('end');
-  });
-
-  it('stops after chunk error without a trailing complete end', async () => {
-    async function* chunks() {
-      yield { type: 'error' as const, error: new Error('stream fail') };
-    }
-
-    const types: string[] = [];
-    for await (const e of transformStream(chunks())) {
-      types.push(e.type);
-    }
-    expect(types).toEqual(['start', 'end']);
+    expect(types[0]).toBe('tool_call_start');
+    expect(types[types.length - 1]).toBe('tool_call');
   });
 });

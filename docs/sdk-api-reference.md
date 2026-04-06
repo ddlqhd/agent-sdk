@@ -17,7 +17,7 @@
 
 ### `Agent` 常用实例方法
 
-- `stream(input, options?)`：流式执行，返回 `AsyncIterable<StreamEvent>`
+- `stream(input, options?)`：流式执行，返回 `AsyncIterable<StreamEvent>`（各 `type` 的字段与产生时机见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
 - `run(input, options?)`：非流式执行，返回 `Promise<AgentResult>`
 - `waitForInit()`：等待异步初始化（skills/mcp/hook）
 - `destroy()`：销毁资源（含 MCP 断连）
@@ -59,6 +59,8 @@
 详见 `docs/sdk-integration-recipes.md` 中的示例。
 
 ## Models（从根入口再导出）
+
+**集成约定**：`createModel` / `createOpenAI` / `createAnthropic` / `createOllama` 仅用于构造传入 `Agent` 的 `model`。应用代码须通过 `Agent` 执行，**勿**直接调用适配器上的 `stream` / `complete` 等执行型 API（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。导出的适配器类主要用于类型或高级场景；第三方默认以 `Agent` 为准。
 
 - `createModel(config)`
 - `createOpenAI(config?)`
@@ -109,14 +111,15 @@
 
 ## Streaming
 
-- `AgentStream`
+第三方集成应以 **`Agent.stream`** 消费流式事件（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。
+
+- `AgentStream`（含 `push` / `end` / `finalize` / `abort` 等；`finalize` 在已推送终端 `end` 后用于结束迭代而不重复发 `end`）
 - `createStream()`
 - `fromAsyncIterable(iterable)`
-- `StreamTransformer`
-- `transformStream(chunks)`
-- `toAgentStream(chunks)`
 - `StreamChunkProcessor`
 - 类型：`StreamChunkProcessorOptions`
+
+各 `StreamEvent` 的字段与时机见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节。
 
 ## MCP
 
@@ -142,7 +145,7 @@
 - 模型：`ModelAdapter` `ModelParams` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
 - 工具：`ToolDefinition` `ToolHandler` `ToolResult` `ToolResultMetadata` `ToolSchema`
 - 存储：`StorageConfig` `StorageAdapter` `SessionInfo`
-- 流式：`StreamEventType` `StreamEvent` `StreamEventAnnotations`
+- 流式：`StreamEventType` `StreamEvent` `StreamEventAnnotations`（字段与语义详见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
 - MCP：`MCPServerConfig` `MCPResource` `MCPResourceContent` `MCPPrompt` `MCPPromptArgument`
 - Skills：`SkillMetadata` `SkillDefinition` `ParsedSkill`
 - Agent 配置：`SystemPromptConfig` `SystemPrompt` `ContextManagerConfig` `AgentConfig` `SkillConfig` `AgentCallbacks` `AgentResult`

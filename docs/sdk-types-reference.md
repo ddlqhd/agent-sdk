@@ -182,21 +182,28 @@ interface ToolExecutionContext {
 
 ## 5. Streaming 事件类型
 
-## `StreamEvent`
+### `StreamEvent`（联合类型概述）
 
-`StreamEvent` 是联合类型，常见事件：
+`StreamEvent` 是以 `type` 为判别字段的联合类型，并与 `StreamEventAnnotations` 相交（见下）。**第三方集成应通过 `Agent.stream` 消费**；以下各小节按 `type` **分别**说明字段与时机。
 
-- `start`
-- `text_start` / `text_delta` / `text_end`
-- `tool_call_start` / `tool_call_delta` / `tool_call` / `tool_call_end`
-- `tool_result` / `tool_error`
-- `thinking`
-- `model_usage`（模型流式返回的 token 统计；可选 `phase`：`input` / `output`，如 Anthropic）
-- `session_summary`（Agent 成功结束前：权威累计 `usage` 与 `iterations`；`sessionId` 与其它事件一样在注解字段 `StreamEventAnnotations` 上，由 Agent 注入；统计以本事件 `usage` 为准）
-- `context_compressed`
-- `end`（流结束；用 `reason` 区分成功 `complete`、用户中止 `aborted`、致命错误 `error`；成功完成时通常不带 `usage`（见 `session_summary`）；中止时可带 `usage` 与 `partialContent`，错误时带 `error`）
+### 共用：`TokenUsage`
 
-所有事件都可能带有注解字段（可观测性）：
+流式事件中与用量相关的字段使用与全局一致的 `TokenUsage`（亦见上文 `AgentResult` / 源码）：
+
+```ts
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+```
+
+- 用于 **`model_usage`** 的 `usage` 时：通常来自**当前一次模型流式响应**中适配器汇总的片段（同一轮内可出现多次；`phase` 区分输入/输出阶段时，便于对齐 Anthropic 等）。
+- 用于 **`session_summary`** 的 `usage` 时：在成功路径上为**本轮 `stream` 调用累计**的权威汇总（优先于随后 `end` 上可能存在的 `usage`）。
+
+### 共用：`StreamEventAnnotations`
+
+下列可观测性字段由 `Agent.stream` 在发出事件前注入（UUID、迭代号、会话 id 等）：
 
 ```ts
 interface StreamEventAnnotations {
@@ -204,6 +211,253 @@ interface StreamEventAnnotations {
   iteration?: number;
   sessionId?: string;
 }
+```
+
+- **`iteration`**：Agent 多轮「模型 → 工具 → 再模型」循环中的从 0 开始的序号。
+- **`sessionId`**：当前会话 id；**`session_summary` 变体本身不再重复 payload 中的会话 id**，请用注解上的 `sessionId` 做关联（与源码 JSDoc 一致）。
+
+### 事件来源（`Agent.stream`）
+
+在 **`Agent.stream`** 下，一次运行中可能出现的事件类别包括：模型侧归一化后的文本/工具/thinking/`model_usage`；在启用上下文管理且发生压缩时的 `context_compressed`；本地执行工具后的 `tool_result` / `tool_error`；成功结束前的 `session_summary`；以及标志本轮结束的 `end`（含 `reason: 'complete' | 'aborted' | 'error'` 等，详见下文 `end`）。**具体是否出现、顺序**取决于本轮对话是否触发工具、是否压缩上下文等。
+
+### `start`
+
+```ts
+{ type: 'start'; timestamp: number }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `timestamp` | `number` | 开始时间戳（毫秒） |
+
+**时机**：用户消息已写入会话后、进入 `maxIterations` 循环之前。
+
+### `text_start`
+
+```ts
+{ type: 'text_start'; content?: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | `string`（可选） | 可选的块前缀提示 |
+
+**时机**：`StreamChunkProcessor` 在默认开启 `emitTextBoundaries` 时，在一段助手文本的第一个 `text_delta` 之前发出，标记文本块开始。
+
+### `text_delta`
+
+```ts
+{ type: 'text_delta'; content: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | `string` | 助手可见文本的增量片段 |
+
+**时机**：模型文本流式输出过程中；同一文本块内可出现多次。
+
+### `text_end`
+
+```ts
+{ type: 'text_end'; content?: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | `string`（可选） | 可选的块收尾 |
+
+**时机**：`StreamChunkProcessor` 在默认开启 `emitTextBoundaries` 时，在离开当前文本块前发出（例如切换到工具块或该轮模型流结束）；若当前不在文本块内则可能不发出。
+
+### `tool_call_start`
+
+```ts
+{ type: 'tool_call_start'; id: string; name: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 本次工具调用 id，与后续 `tool_call_delta` / `tool_call_end` / `tool_call` 及 `tool_result` 的 `toolCallId` 对应 |
+| `name` | `string` | 工具名 |
+
+**时机**：模型开始以流式方式输出某次工具调用时（来自适配器 `StreamChunk`，经处理器归一化）。
+
+### `tool_call_delta`
+
+```ts
+{ type: 'tool_call_delta'; id: string; arguments: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 与 `tool_call_start` 相同的调用 id |
+| `arguments` | `string` | JSON 参数字符串的增量片段 |
+
+**时机**：工具参数仍流式拼接时；可与 `tool_call_start` 交错直至参数闭合。
+
+### `tool_call_end`
+
+```ts
+{ type: 'tool_call_end'; id: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 与本次流式工具调用对应的 id |
+
+**时机**：流式参数 JSON 在模型侧闭合时发出，发生在最终 `tool_call` 之前（或与原子 `tool_call` 路径下的归一化顺序一致）。
+
+### `tool_call`
+
+```ts
+{ type: 'tool_call'; id: string; name: string; arguments: unknown }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 工具调用 id |
+| `name` | `string` | 工具名 |
+| `arguments` | `unknown` | 解析后的参数对象 |
+
+**时机**：一次工具调用的**最终**形态（非流式或流式拼接完成后）。可与 `tool_call_start` / `tool_call_delta` / `tool_call_end` 组合出现，取决于适配器与处理器路径。
+
+### `tool_result`
+
+```ts
+{ type: 'tool_result'; toolCallId: string; result: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `toolCallId` | `string` | 对应模型侧一次调用的 id |
+| `result` | `string` | 写入消息历史的工具结果文本；失败时内容中常含 `Error: …`，且同一调用前通常已有 `tool_error` |
+
+**时机**：**仅 `Agent.stream`**。在本地 `executeTools` 之后**每个**调用都会发出一次（成功与失败均会）。经网络传输时需自行序列化相关负载。
+
+### `tool_error`
+
+```ts
+{ type: 'tool_error'; toolCallId: string; error: Error }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `toolCallId` | `string` | 对应失败的工具调用 id |
+| `error` | `Error` | 工具执行失败时的错误对象 |
+
+**时机**：**仅 `Agent.stream`**。当 `executeTools` 返回 `isError` 时，在**同一调用的** `tool_result` 之前发出。经网络传输时需自行将 `Error` 序列化（例如 `message` / `stack`）。
+
+### `thinking`
+
+```ts
+{ type: 'thinking'; content: string; signature?: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | `string` | 扩展思考文本增量 |
+| `signature` | `string`（可选） | 提供商要求的思考块签名（如 Anthropic） |
+
+**时机**：模型流中出现 thinking 块时。
+
+### `model_usage`
+
+```ts
+{
+  type: 'model_usage';
+  usage: TokenUsage;
+  phase?: 'input' | 'output';
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `usage` | `TokenUsage` | 当前片段汇总的 token 统计 |
+| `phase` | `'input' \| 'output'`（可选） | 部分提供商区分输入/输出阶段 |
+
+**时机**：模型适配器将 SSE chunk 中的用量转为事件；一轮模型调用内可出现多次。Agent 用其更新内部累计用量与会话用量。
+
+### `session_summary`
+
+```ts
+{
+  type: 'session_summary';
+  usage: TokenUsage;
+  iterations: number;
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `usage` | `TokenUsage` | **本轮流式运行的权威累计用量**（成功路径上应以此为准） |
+| `iterations` | `number` | 迭代相关信息，取值为 `Math.min(maxIterations, messages.length)`（与 Agent 实现一致） |
+
+**时机**：在持久化消息成功后、`reason: 'complete'` 的 `end` 之前发出。会话 id 见注解 `sessionId`，见上文 `StreamEventAnnotations`。
+
+### `end`
+
+```ts
+{
+  type: 'end';
+  timestamp: number;
+  usage?: TokenUsage;
+  reason?: 'complete' | 'aborted' | 'error';
+  error?: Error;
+  partialContent?: string;
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `timestamp` | `number` | 结束时间 |
+| `usage` | `TokenUsage`（可选） | 中止等路径上可能携带当前累计用量 |
+| `reason` | `'complete' \| 'aborted' \| 'error'`（可选） | 省略或与 `complete` 视为正常结束 |
+| `error` | `Error`（可选） | 未捕获异常或模型流致命错误 |
+| `partialContent` | `string`（可选） | 用户中断时已生成的助手文本 |
+
+**时机与注意**：
+
+- **正常完成（`reason: 'complete'`）**：累计用量以 **`session_summary`** 为准（若存在）；`end` 上通常不带 `usage`。
+- **中止（`reason: 'aborted'`）**：含迭代开头 `signal` 已中止、流式中途中止、`AbortError` 等；可带 `partialContent`。
+- **错误（`reason: 'error'`）**：含模型流处理出的致命错误（如 chunk 映射为 `end`+error）以及 `Agent.stream` 的 `catch`。若在进入 **`session_summary` 之前**因模型致命错误返回，则**不会**收到 `session_summary`（与成功路径不同）。
+
+### `context_compressed`
+
+```ts
+{
+  type: 'context_compressed';
+  stats: {
+    originalMessageCount: number;
+    compressedMessageCount: number;
+    durationMs: number;
+  };
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `stats` | `{ originalMessageCount; compressedMessageCount; durationMs }` | 压缩前后消息数与耗时 |
+
+**时机**：**仅 `Agent.stream`**，且配置了上下文管理；在**某次迭代开头**需要压缩并完成后发出，提示历史已被改写。
+
+### 典型顺序（`Agent.stream` 成功路径）
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant A as Agent
+  participant M as Model
+  U->>A: stream(input)
+  A->>A: start
+  loop iterations
+    A->>A: context_compressed optional
+    A->>M: model stream
+    M-->>A: text tool thinking model_usage
+    alt tool calls
+      A->>A: tool_result tool_error
+    end
+  end
+  A->>A: session_summary
+  A->>A: end complete
 ```
 
 ## 6. MCP 类型

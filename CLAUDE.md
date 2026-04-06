@@ -56,7 +56,7 @@ Agent (src/core/agent.ts)
 
 ### Public package exports
 
-The root `src/index.ts` re-exports core types, models, tools, storage, streaming (`AgentStream`, `transformStream`, etc.), MCP, skills, memory (`MemoryManager`), and MCP config helpers (`loadMCPConfig`, `validateMCPConfig`). Subpath exports: `agent-sdk/models`, `agent-sdk/tools` (see `package.json` `exports`).
+The root `src/index.ts` re-exports core types, models, tools, storage, streaming (`AgentStream`, `StreamChunkProcessor`, etc.), MCP, skills, memory (`MemoryManager`), and MCP config helpers (`loadMCPConfig`, `validateMCPConfig`). Subpath exports: `agent-sdk/models`, `agent-sdk/tools` (see `package.json` `exports`).
 
 ### Module Organization
 
@@ -169,5 +169,5 @@ Do not include `Co-Authored-By:` lines in commit messages.
 - `src/memory/manager.ts` — `MemoryManager` for CLAUDE.md memory
 - `src/mcp/adapter.ts`, `src/mcp/client.ts` — MCP integration
 - `src/config/mcp-config.ts` — loading/validating MCP JSON config
-- `src/streaming/transform.ts`, `src/streaming/event-emitter.ts` — stream helpers
+- `src/streaming/event-emitter.ts`, `src/streaming/chunk-processor.ts` — stream helpers
 - `tsup.config.ts` — build entries (library + CLI)

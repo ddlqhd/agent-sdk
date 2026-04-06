@@ -182,6 +182,10 @@ describe('FeatureName', () => {
 5. **Registry Pattern**: Central registries for tools and skills
 6. **Memory**: `MemoryManager` loads optional long-term instructions from CLAUDE.md paths; distinct from session `SessionManager` storage
 
+## Third-party documentation policy
+
+Public docs (`docs/sdk-*.md`, README) treat **`Agent`** as the only supported integration surface for application code. Model factories (`createOpenAI`, etc.) configure `AgentConfig.model`; do not document or encourage calling `ModelAdapter.stream` / `complete` directly in product code. Chunk→event helpers (`transformStream`, `toAgentStream`, etc.) are not part of the public API. Keep this aligned with `docs/sdk-overview.md` section 3.
+
 ## Module Exports
 
 Each module's `index.ts` should:

@@ -58,14 +58,13 @@ export {
 } from './storage/index.js';
 
 // Streaming
-export { AgentStream, createStream, fromAsyncIterable } from './streaming/index.js';
 export {
-  StreamTransformer,
-  transformStream,
-  toAgentStream,
+  AgentStream,
+  createStream,
+  fromAsyncIterable,
   StreamChunkProcessor
-} from './streaming/transform.js';
-export type { StreamChunkProcessorOptions } from './streaming/chunk-processor.js';
+} from './streaming/index.js';
+export type { StreamChunkProcessorOptions } from './streaming/index.js';
 
 // MCP
 export {

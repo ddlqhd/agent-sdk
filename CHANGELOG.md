@@ -4,6 +4,9 @@
 
 ### Breaking
 
+- **Exports**: `StreamTransformer`, `transformStream`, and `toAgentStream` are not part of the public API. The former `streaming/transform.ts` module has been removed; use `Agent.stream` for streaming.
+- **Streaming**: `AgentStream` adds `finalize()` so producers that already pushed a terminal `end` can close the async iterator without emitting a duplicate `end`.
+
 - **Stream events**: Removed `StreamEvent` variant `{ type: 'metadata'; data: ... }`.
   - **Model streaming usage** → `{ type: 'model_usage'; usage: TokenUsage; phase?: 'input' | 'output' }` (from `StreamChunk` adapters via `StreamChunkProcessor`).
   - **Agent session totals** → `{ type: 'session_summary'; usage: TokenUsage; iterations: number }` (emitted once before a successful final `end`). Session id is **not** on this variant; use `StreamEventAnnotations.sessionId` on the event (set by `Agent.stream`).

@@ -46,6 +46,24 @@ describe('AgentStream', () => {
     expect(events[0].type).toBe('end');
   });
 
+  it('finalize completes iteration after a manually pushed terminal end without emitting a second end', async () => {
+    const events: any[] = [];
+
+    const consumePromise = (async () => {
+      for await (const event of stream) {
+        events.push(event);
+      }
+    })();
+
+    stream.push({ type: 'start', timestamp: Date.now() });
+    stream.push({ type: 'end', timestamp: Date.now() });
+    stream.finalize();
+
+    await consumePromise;
+
+    expect(events.map(e => e.type)).toEqual(['start', 'end']);
+  });
+
   it('should collect text', async () => {
     const textPromise = stream.collectText();
 

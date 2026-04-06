@@ -19,7 +19,13 @@
 
 请勿直接依赖 `src/**` 深层路径（即使源码中存在 export），以避免后续升级破坏兼容性。
 
-## 3. 运行环境
+## 3. 集成约定（第三方必读）
+
+- 业务与产品代码**必须**通过 `Agent`（例如 `run`、`stream`）驱动对话与工具调用，以获得会话持久化、多轮工具循环、流式事件注解（`streamEventId` / `iteration` / `sessionId`）等与文档一致的语义。
+- `createOpenAI`、`createAnthropic`、`createOllama`、`createModel` 等仅用于**构造**传入 `Agent` 的 `model`（`ModelAdapter` 实例）。**禁止**在应用代码中跳过 `Agent`，直接调用适配器的 `stream`、`complete` 等执行型 API。
+- 公开文档中的流式事件（`StreamEvent`）说明均以 **`Agent.stream`** 为准。
+
+## 4. 运行环境
 
 - Node.js >= 18
 - 支持 ESM/CJS（由 `package.json` `exports` 映射到 `dist`）
@@ -28,7 +34,7 @@
   - Anthropic
   - Ollama（本地或自部署）
 
-## 4. 能力概览
+## 5. 能力概览
 
 - **Agent 执行引擎**：消息循环、工具调用、上下文压缩、会话持久化
 - **多模型适配**：统一 `ModelAdapter` 接口
@@ -38,7 +44,7 @@
 - **Skills**：`SKILL.md` 指导能力加载与调用
 - **Memory**：从 `CLAUDE.md` 注入长期上下文
 
-## 5. 推荐阅读顺序
+## 6. 推荐阅读顺序
 
 1. `sdk-quickstart.md`（先跑通）
 2. `sdk-api-reference.md`（查函数和类）
@@ -47,7 +53,7 @@
 5. `sdk-troubleshooting.md`（排障）
 6. `sdk-examples-index.md`（对照仓库示例）
 
-## 6. 核心调用流程
+## 7. 核心调用流程
 
 ```mermaid
 flowchart TD
@@ -61,7 +67,7 @@ flowchart TD
   ToolLoop -->|no| Output[Return AgentResult or StreamEvent]
 ```
 
-## 7. 兼容性与升级建议
+## 8. 兼容性与升级建议
 
 - 推荐固定大版本，并在升级时重点检查：
   - `package.json` `exports` 是否变化
