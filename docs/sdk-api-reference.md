@@ -99,7 +99,7 @@
 
 - 文件系统：`Read`/`Write`/`Edit`/`Glob` 对应的 tool 定义与 `getFileSystemTools()`
 - Shell：`Bash` 与 `getShellTools()`
-- 搜索：`Grep` 与 `getGrepTools()`（实现为工作区内正则逐行扫描，非调用外部 `rg`）
+- 搜索：`Grep` 与 `getGrepTools()`（工作区内正则逐行扫描，非调用外部 `rg`；目录搜索时尊重搜索根下的 `.gitignore`）
 - Web：`WebFetch` `WebSearch` 与 `getWebTools()`
 - 任务：`TaskCreate` `TaskUpdate` `TaskList` 与 `getTaskTools()`
 - 交互：`AskUserQuestion`、`AskUserQuestionResolver`、`createAskUserQuestionTool()` 与 `getInteractionTools(options?)`；交互需宿主传入 `AgentConfig.askUserQuestion` 或 `getAllBuiltinTools(..., { resolve })`

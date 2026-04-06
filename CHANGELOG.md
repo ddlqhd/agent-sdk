@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Grep**: Documented as Node/RegExp line scan (not ripgrep); default `head_limit` 250; directory listing uses `fast-glob`; respects root `.gitignore` via the `ignore` package; match lines truncate with a match-aware window; optional `glob` filters single-file paths.
+
 ### Documentation
 
 - **Single source of truth**: Moved factual content from the root `README.md` into `docs/`; added `sdk-cli.md`, `sdk-built-in-tools.md`, `sdk-agent-loop.md`, `repository-layout.md`, and expanded `sdk-integration-recipes.md` (system prompt, memory, AskUserQuestion, tool approval, subagent, Web Demo). Root `README.md` is now installation plus a documentation index.

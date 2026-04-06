@@ -26,7 +26,7 @@ When to use tools:
 - **Write** to create or overwrite files — not shell redirection or heredocs
 - **Edit** for targeted file changes — not \`sed\`, \`awk\`, or ad-hoc scripts to patch files
 - **Glob** to find paths by pattern — not \`find\` or \`ls\` for discovery
-- **Grep** to search file contents — not \`grep\` or \`rg\` in the shell (same ripgrep-backed search, correct integration)
+- **Grep** to search file contents — not \`grep\` or \`rg\` in the shell (built-in line-by-line regex search; correct integration)
 - **WebFetch** / **WebSearch** when the task needs HTTP or web search (when configured)
 
 Reserve **Bash** for real shell needs: \`git\`, package managers, build commands, compilers, and other operations that require a shell or are not covered above.

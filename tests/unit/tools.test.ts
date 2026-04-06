@@ -933,6 +933,151 @@ describe('Builtin Tools cwd inheritance', () => {
     }
   });
 
+  it('truncateMatchLineForDisplay keeps match when match is late in a long line', async () => {
+    const { truncateMatchLineForDisplay, MAX_LINE_LENGTH } = await import('../../src/tools/builtin/grep.js');
+    const line = `${'x'.repeat(3000)}FINDME${'y'.repeat(500)}`;
+    const out = truncateMatchLineForDisplay(line, /FINDME/);
+    expect(out).toContain('FINDME');
+    expect(out.length).toBeLessThanOrEqual(MAX_LINE_LENGTH + 6);
+  });
+
+  it('Grep should respect head_limit', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_head_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    const body = Array.from({ length: 10 }, (_, i) => `line_${i}`).join('\n');
+    await fs.writeFile(path.join(projectDir, 'many.txt'), body, 'utf-8');
+
+    try {
+      const result = await registry.execute(
+        'Grep',
+        { pattern: 'line_', path: projectDir, head_limit: 3 },
+        { projectDir }
+      );
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain('(Showing first 3 matches)');
+      expect(result.content?.split('\n').filter((l) => l.includes('line_')).length).toBeLessThanOrEqual(3);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Grep glob should support brace expansion', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_brace_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(path.join(projectDir, 'a.ts'), 'TOKEN', 'utf-8');
+    await fs.writeFile(path.join(projectDir, 'b.tsx'), 'TOKEN', 'utf-8');
+    await fs.writeFile(path.join(projectDir, 'c.txt'), 'TOKEN', 'utf-8');
+
+    try {
+      const result = await registry.execute(
+        'Grep',
+        { pattern: 'TOKEN', path: projectDir, glob: '*.{ts,tsx}' },
+        { projectDir }
+      );
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain('a.ts');
+      expect(result.content).toContain('b.tsx');
+      expect(result.content).not.toContain('c.txt');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Grep should skip paths ignored by root .gitignore', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_gitignore_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(path.join(projectDir, '.gitignore'), 'ignored.txt\n', 'utf-8');
+    await fs.writeFile(path.join(projectDir, 'tracked.txt'), 'TRACKED_ONLY', 'utf-8');
+    await fs.writeFile(path.join(projectDir, 'ignored.txt'), 'IGNORED_ONLY', 'utf-8');
+
+    try {
+      const result = await registry.execute('Grep', { pattern: 'ONLY', path: projectDir }, { projectDir });
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain('TRACKED_ONLY');
+      expect(result.content).not.toContain('IGNORED_ONLY');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Grep should reject single file when glob does not match', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_glob_file_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    const filePath = path.join(projectDir, 'readme.txt');
+    await fs.writeFile(filePath, 'secret', 'utf-8');
+
+    try {
+      const result = await registry.execute(
+        'Grep',
+        { pattern: 'secret', path: filePath, glob: '*.md' },
+        { projectDir }
+      );
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain('No matches found (path does not match glob filter)');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Grep should include far-right match in long line output', async () => {
+    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(grepTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+
+    const projectDir = path.join(os.tmpdir(), `test_grep_long_${Date.now()}`);
+    await fs.mkdir(projectDir, { recursive: true });
+    const longLine = `${'z'.repeat(3200)}HIT_END`;
+    await fs.writeFile(path.join(projectDir, 'wide.txt'), longLine, 'utf-8');
+
+    try {
+      const result = await registry.execute(
+        'Grep',
+        { pattern: 'HIT_END', path: projectDir },
+        { projectDir }
+      );
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toContain('HIT_END');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('Bash should default to projectDir and allow explicit cwd override', async () => {
     const { bashTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
