@@ -74,7 +74,7 @@ export class AgentStream implements AsyncIterable<StreamEvent> {
    */
   end(usage?: TokenUsage): void {
     if (usage) {
-      this.push({ type: 'metadata', data: { usage } });
+      this.push({ type: 'model_usage', usage });
     }
 
     this.push({ type: 'end', timestamp: Date.now() });

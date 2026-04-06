@@ -79,6 +79,23 @@ describe('StreamChunkProcessor', () => {
     }
   });
 
+  it('maps metadata chunk with usage to model_usage', () => {
+    const p = new StreamChunkProcessor();
+    const events = p.processChunk({
+      type: 'metadata',
+      usagePhase: 'input',
+      metadata: {
+        usage: { promptTokens: 5, completionTokens: 0, totalTokens: 5 }
+      }
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: 'model_usage',
+      phase: 'input',
+      usage: { promptTokens: 5, completionTokens: 0, totalTokens: 5 }
+    });
+  });
+
   it('does not emit text boundaries when emitTextBoundaries is false', () => {
     const p = new StreamChunkProcessor({ emitTextBoundaries: false });
     const types: string[] = [];

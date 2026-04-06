@@ -135,6 +135,8 @@ export interface StreamChunk {
   toolCallId?: string;
   error?: Error;
   metadata?: Record<string, unknown>;
+  /** When `type === 'metadata'`, distinguishes prompt vs completion usage timing (e.g. Anthropic). */
+  usagePhase?: 'input' | 'output';
   signature?: string;
   /** Raw provider streaming payload when {@link ModelParams.includeRawStreamEvents} is enabled */
   providerRaw?: unknown;
@@ -350,7 +352,8 @@ export type StreamEventType =
   | 'thinking'
   | 'start'
   | 'end'
-  | 'metadata'
+  | 'model_usage'
+  | 'session_summary'
   | 'context_compressed';
 
 /**
@@ -378,10 +381,26 @@ export type StreamEvent = (
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
   | { type: 'thinking'; content: string; signature?: string }
-  | { type: 'metadata'; data: Record<string, unknown> }
+  | {
+      type: 'model_usage';
+      usage: TokenUsage;
+      /** Present when the provider distinguishes prompt vs completion usage timing (e.g. Anthropic). */
+      phase?: 'input' | 'output';
+    }
+  | {
+      type: 'session_summary';
+      /** Session id when produced by Agent; omit or undefined for raw model streams (e.g. StreamTransformer). */
+      sessionId?: string;
+      /** Authoritative cumulative usage for the completed run (prefer over end.usage when both exist). */
+      usage: TokenUsage;
+      iterations: number;
+    }
   | {
       type: 'end';
       timestamp: number;
+      /**
+       * Optional usage (e.g. aborted mid-stream). When a session_summary event was emitted, use its usage for totals.
+       */
       usage?: TokenUsage;
       /** Omitted or `complete` = normal completion */
       reason?: 'complete' | 'aborted' | 'error';

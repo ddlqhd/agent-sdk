@@ -182,8 +182,11 @@ for await (const event of agent.stream(userInput, { includeRawStreamEvents: fals
     case 'tool_error':
       // 告警
       break;
-    case 'metadata':
-      // 记录 usage/sessionId
+    case 'model_usage':
+      // 流式 token 统计（可按需展示）
+      break;
+    case 'session_summary':
+      // 权威 usage / sessionId / iterations（成功完成前）
       break;
     case 'end':
       // 完成收尾

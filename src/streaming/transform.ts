@@ -29,9 +29,17 @@ export class StreamTransformer {
       yield event;
     }
 
+    const summaryUsage = processor.getUsage();
+    if (summaryUsage) {
+      yield {
+        type: 'session_summary',
+        usage: summaryUsage,
+        iterations: 1
+      };
+    }
+
     yield {
       type: 'end',
-      usage: processor.getUsage(),
       timestamp: Date.now(),
       reason: 'complete'
     };

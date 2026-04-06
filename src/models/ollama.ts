@@ -179,6 +179,7 @@ export class OllamaAdapter extends BaseModelAdapter {
               if (data.prompt_eval_count || data.eval_count) {
                 yield {
                   type: 'metadata',
+                  usagePhase: 'output',
                   metadata: {
                     usage: {
                       promptTokens: (data.prompt_eval_count as number) || 0,

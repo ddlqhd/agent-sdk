@@ -138,11 +138,14 @@ export class StreamChunkProcessor {
         break;
 
       case 'metadata':
-        if (chunk.metadata) {
-          if (chunk.metadata.usage) {
-            this.lastUsage = chunk.metadata.usage as TokenUsage;
-          }
-          events.push({ type: 'metadata', data: chunk.metadata });
+        if (chunk.metadata?.usage) {
+          const usage = chunk.metadata.usage as TokenUsage;
+          this.lastUsage = usage;
+          events.push({
+            type: 'model_usage',
+            usage,
+            ...(chunk.usagePhase !== undefined ? { phase: chunk.usagePhase } : {})
+          });
         }
         break;
 

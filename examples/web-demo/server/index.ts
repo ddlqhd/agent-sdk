@@ -348,7 +348,10 @@ wss.on('connection', (socket: WebSocket) => {
               if (event.type === 'text_delta') {
                 finalText += event.content;
               }
-              if (event.type === 'end' && event.usage) {
+              if (event.type === 'session_summary') {
+                lastUsage = event.usage;
+              }
+              if (event.type === 'end' && event.usage !== undefined) {
                 lastUsage = event.usage;
               }
               sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });

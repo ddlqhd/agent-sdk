@@ -165,6 +165,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
             if (data.usage) {
               yield {
                 type: 'metadata',
+                usagePhase: 'output',
                 metadata: {
                   usage: {
                     promptTokens: data.usage.prompt_tokens,

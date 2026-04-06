@@ -53,11 +53,26 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
         ? chalk.gray(`💭 ${event.content}`)
         : `💭 ${event.content}`;
 
-    case 'metadata':
-      if (verbose && event.data) {
-        return color
-          ? chalk.gray(`\n📊 ${JSON.stringify(event.data, null, 2)}`)
-          : `\n📊 ${JSON.stringify(event.data, null, 2)}`;
+    case 'model_usage':
+      if (verbose) {
+        const phase = event.phase ? ` (${event.phase})` : '';
+        const payload = JSON.stringify(event.usage, null, 2);
+        return color ? chalk.gray(`\n📊 usage${phase}\n${payload}`) : `\n📊 usage${phase}\n${payload}`;
+      }
+      return '';
+
+    case 'session_summary':
+      if (verbose) {
+        const payload = JSON.stringify(
+          {
+            ...(event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
+            iterations: event.iterations,
+            usage: event.usage
+          },
+          null,
+          2
+        );
+        return color ? chalk.gray(`\n📊 ${payload}`) : `\n📊 ${payload}`;
       }
       return '';
 
@@ -131,7 +146,7 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
   let lastEventType: string | null = null;
   let isFirstThinking = true;
   let lastPrintedUsage: TokenUsage | null = null;
-  /** 工具输出后若中间插入了 metadata 等事件，lastEventType 不再是 tool_result，需靠此标志在正文/thinking 前补换行 */
+  /** 工具输出后若中间插入了 model_usage 等事件，lastEventType 不再是 tool_result，需靠此标志在正文/thinking 前补换行 */
   let needsGapAfterToolBlock = false;
 
   return {
@@ -144,7 +159,7 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
         isFirstThinking = true;
       }
 
-      // 工具块结束后与助手正文或 thinking 分段（metadata 会插在 tool_result 与 text_delta 之间，不能仅靠 lastEventType）
+      // 工具块结束后与助手正文或 thinking 分段（model_usage 会插在 tool_result 与 text_delta 之间，不能仅靠 lastEventType）
       if (
         needsGapAfterToolBlock &&
         (event.type === 'text_delta' || event.type === 'thinking')
@@ -217,15 +232,23 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
           break;
         }
 
-        case 'metadata':
-          if (event.data?.usage) {
-            const usage = event.data.usage as TokenUsage;
-            if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
-              lastPrintedUsage = usage;
-              output += `\n${formatUsage(usage)}`;
-            }
+        case 'model_usage': {
+          const usage = event.usage;
+          if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
+            lastPrintedUsage = usage;
+            output += `\n${formatUsage(usage)}`;
           }
           break;
+        }
+
+        case 'session_summary': {
+          const usage = event.usage;
+          if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
+            lastPrintedUsage = usage;
+            output += `\n${formatUsage(usage)}`;
+          }
+          break;
+        }
 
         case 'end':
           if (event.reason === 'error' && event.error) {

@@ -56,8 +56,19 @@ export function serializeStreamEvent(event: StreamEvent): Record<string, unknown
           ? { error: errorToJson(event.error as Error) }
           : {})
       };
-    case 'metadata':
-      return { ...base, data: event.data };
+    case 'model_usage':
+      return {
+        ...base,
+        usage: event.usage,
+        ...('phase' in event && event.phase !== undefined ? { phase: event.phase } : {})
+      };
+    case 'session_summary':
+      return {
+        ...base,
+        ...('sessionId' in event && event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
+        usage: event.usage,
+        iterations: event.iterations
+      };
     case 'context_compressed':
       return { ...base, stats: event.stats };
     default:

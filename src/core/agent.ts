@@ -430,8 +430,8 @@ export class Agent {
               arguments: out.arguments
             });
           }
-          if (out.type === 'metadata' && out.data?.usage) {
-            const usage = out.data.usage as TokenUsage;
+          if (out.type === 'model_usage') {
+            const usage = out.usage;
             if (usage.promptTokens > 0) {
               totalUsage.promptTokens = usage.promptTokens;
               this.sessionUsage.contextTokens = usage.promptTokens;
@@ -572,17 +572,16 @@ export class Agent {
       await this.sessionManager.saveMessages(this.messages);
 
       yield this.annotateStreamEvent({
-        type: 'metadata',
-        data: {
-          sessionId: this.sessionManager.sessionId,
-          usage: totalUsage,
-          iterations: Math.min(maxIterations, this.messages.length)
-        }
+        type: 'session_summary',
+        ...(this.sessionManager.sessionId
+          ? { sessionId: this.sessionManager.sessionId }
+          : {}),
+        usage: totalUsage,
+        iterations: Math.min(maxIterations, this.messages.length)
       });
 
       yield this.annotateStreamEvent({
         type: 'end',
-        usage: totalUsage,
         timestamp: Date.now(),
         reason: 'complete'
       });
@@ -638,12 +637,19 @@ export class Agent {
         }
       }
 
-      if (event.type === 'metadata' && event.data?.usage) {
-        usage = event.data.usage as TokenUsage;
+      if (event.type === 'model_usage') {
+        usage = event.usage;
+      }
+
+      if (event.type === 'session_summary') {
+        usage = event.usage;
+        iterations = event.iterations;
       }
 
       if (event.type === 'end') {
-        usage = event.usage;
+        if (event.usage !== undefined) {
+          usage = event.usage;
+        }
         if (event.reason === 'error' && event.error) {
           streamError = event.error;
         }

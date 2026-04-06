@@ -103,15 +103,13 @@ describe('createStreamFormatter', () => {
     expect(stripAnsi(out)).toBe('\nHello');
   });
 
-  it('inserts newline before assistant text when metadata is between tool result and text', () => {
+  it('inserts newline before assistant text when model_usage is between tool result and text', () => {
     const f = createStreamFormatter({ verbose: false });
     f.format({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
     f.format({ type: 'tool_result', toolCallId: 'tc1', result: 'done' });
     f.format({
-      type: 'metadata',
-      data: {
-        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 }
-      }
+      type: 'model_usage',
+      usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 }
     });
     const out = f.format({ type: 'text_delta', content: 'Hello' });
     expect(stripAnsi(out)).toBe('\nHello');

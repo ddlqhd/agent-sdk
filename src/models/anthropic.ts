@@ -181,6 +181,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
                   yield {
                     type: 'metadata',
+                    usagePhase: 'input',
                     metadata: {
                       usage: {
                         promptTokens: actualInputTokens,
@@ -200,6 +201,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
                 if (data.usage) {
                   yield {
                     type: 'metadata',
+                    usagePhase: 'output',
                     metadata: {
                       usage: {
                         promptTokens: 0,
