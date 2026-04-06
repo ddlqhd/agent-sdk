@@ -1,0 +1,65 @@
+# Publishes @ddlqhd/agent-sdk to the npm registry.
+#
+# Setup (repository → Settings → Secrets and variables → Actions):
+#   NPM_TOKEN — npm "Automation" or Granular token with publish permission for this package/scope.
+#
+# Usage:
+#   • Create a GitHub Release from a tag whose version matches package.json (e.g. tag v0.2.0 ↔ "version": "0.2.0").
+#   • Or run this workflow manually via Actions → Publish to npm → Run workflow (after bumping version on the default branch).
+
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release tag matches package.json
+        if: github.event_name == 'release'
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match release tag ($TAG_NAME). Expected tag v$PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test:run
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
