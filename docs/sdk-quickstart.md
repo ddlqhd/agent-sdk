@@ -8,7 +8,11 @@ npm install agent-sdk
 pnpm add agent-sdk
 ```
 
-## 2. 环境变量
+## 2. 环境变量与代码配置
+
+**优先级**：**代码参数 > 环境变量 > SDK 默认值**。
+
+### 环境变量示例
 
 ```bash
 # OpenAI
@@ -23,6 +27,42 @@ ANTHROPIC_BASE_URL=https://api.anthropic.com
 # Ollama
 OLLAMA_BASE_URL=http://localhost:11434
 ```
+
+### 提供商与配置项对照
+
+| Provider | 环境变量 | 配置项（工厂函数） | 默认值（节选） |
+|----------|----------|-------------------|----------------|
+| OpenAI | `OPENAI_API_KEY` | `apiKey` | - |
+| OpenAI | `OPENAI_BASE_URL` | `baseUrl` | `https://api.openai.com/v1` |
+| OpenAI | `OPENAI_ORG_ID` | `organization` | - |
+| Anthropic | `ANTHROPIC_API_KEY` | `apiKey` | - |
+| Anthropic | `ANTHROPIC_BASE_URL` | `baseUrl` | `https://api.anthropic.com` |
+| Ollama | `OLLAMA_BASE_URL` | `baseUrl` | `http://localhost:11434` |
+
+### 代码中传入工厂函数
+
+```ts
+import { createOpenAI, createAnthropic, createOllama } from 'agent-sdk';
+
+const openai = createOpenAI({
+  apiKey: 'sk-xxx',
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o'
+});
+
+const anthropic = createAnthropic({
+  apiKey: 'sk-ant-xxx',
+  baseUrl: 'https://api.anthropic.com',
+  model: 'claude-sonnet-4-20250514'
+});
+
+const ollama = createOllama({
+  baseUrl: 'http://localhost:11434',
+  model: 'qwen3.5:0.8b'
+});
+```
+
+System prompt 的追加/替换与运行时修改见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节。
 
 ## 3. 最小可用示例（建议从这里开始）
 
@@ -86,11 +126,9 @@ const model = createModel({
 });
 ```
 
-## 6. 默认值与优先级
+## 6. 默认模型值
 
-配置优先级：**代码参数 > 环境变量 > SDK 默认值**。
-
-当前默认值（基于源码）：
+优先级见上文第 2 节。当前各提供商默认 `model`（基于源码）：
 
 - OpenAI: `model = gpt-4o`
 - Anthropic: `model = claude-sonnet-4-20250514`

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Documentation
+
+- **Single source of truth**: Moved factual content from the root `README.md` into `docs/`; added `sdk-cli.md`, `sdk-built-in-tools.md`, `sdk-agent-loop.md`, `repository-layout.md`, and expanded `sdk-integration-recipes.md` (system prompt, memory, AskUserQuestion, tool approval, subagent, Web Demo). Root `README.md` is now installation plus a documentation index.
+- Removed `docs/cc-request.json` (non-documentation artifact).
+
 ### Breaking
 
 - **Exports**: `StreamTransformer`, `transformStream`, and `toAgentStream` are not part of the public API. The former `streaming/transform.ts` module has been removed; use `Agent.stream` for streaming.

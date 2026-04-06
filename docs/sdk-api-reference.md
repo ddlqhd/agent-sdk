@@ -29,6 +29,9 @@
 - `getMessages()` / `clearMessages()`：消息历史
 - `setSystemPrompt(prompt)` / `appendSystemPrompt(content)` / `getSystemPrompt()`：系统提示词管理
 - `compressContext()` / `getContextStatus()` / `getSessionUsage()`：上下文与 token 状态
+- `getMCPAdapter()`：返回当前 `MCPAdapter` 或 `null`（未连接 MCP 时）
+- `processInput(input)`：解析 `/skill-name` 形式输入并可选调用 skill，返回是否已触发及替换后的 prompt（`Agent.stream`/`run` 内部已调用）
+- `invokeSkill(name, args?)`：按名称加载 skill 内容并做模板处理，返回可注入对话的 prompt 字符串
 
 ### `AgentConfig` 工具与权限相关字段
 
@@ -92,9 +95,11 @@
 
 ### 内置工具导出（根入口包含）
 
+用户向工具名称与能力表见 [`sdk-built-in-tools.md`](./sdk-built-in-tools.md)。
+
 - 文件系统：`Read`/`Write`/`Edit`/`Glob` 对应的 tool 定义与 `getFileSystemTools()`
 - Shell：`Bash` 与 `getShellTools()`
-- 搜索：`Grep` 与 `getGrepTools()`
+- 搜索：`Grep` 与 `getGrepTools()`（实现为工作区内正则逐行扫描，非调用外部 `rg`）
 - Web：`WebFetch` `WebSearch` 与 `getWebTools()`
 - 任务：`TaskCreate` `TaskUpdate` `TaskList` 与 `getTaskTools()`
 - 交互：`AskUserQuestion`、`AskUserQuestionResolver`、`createAskUserQuestionTool()` 与 `getInteractionTools(options?)`；交互需宿主传入 `AgentConfig.askUserQuestion` 或 `getAllBuiltinTools(..., { resolve })`
@@ -105,6 +110,7 @@
 ## Storage
 
 - `createStorage(config)`
+- `getSessionStoragePath(userBasePath?)` / `getLatestSessionId(userBasePath?)`：会话目录与「最近会话 id」解析（与 CLI `--user-base-path` / `--resume` 一致）
 - `JsonlStorage` / `createJsonlStorage(basePath?)`
 - `MemoryStorage` / `createMemoryStorage()`
 - `SessionManager` / `createSessionManager(config?)`
@@ -163,8 +169,8 @@
 
 - 工厂：`createModel` `createOpenAI` `createAnthropic` `createOllama`
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
-- 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage`
-- 类型：`OpenAIConfig` `AnthropicConfig` `OllamaConfig` `ModelProvider` `CreateModelConfig`
+- 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
+- 类型：`OpenAIConfig` `AnthropicConfig` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
 
 > 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。
 

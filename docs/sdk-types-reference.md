@@ -11,6 +11,11 @@ interface AgentConfig {
   model: ModelAdapter;
   systemPrompt?: SystemPrompt;
   tools?: ToolDefinition[];
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  canUseTool?: CanUseToolCallback;
+  exclusiveTools?: ToolDefinition[];
+  askUserQuestion?: AskUserQuestionResolver;
   skills?: string[];
   mcpServers?: MCPServerConfig[];
   userBasePath?: string;
@@ -39,6 +44,10 @@ interface AgentConfig {
   };
 }
 ```
+
+`CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
+
+构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 200`、`streaming: true`（再由传入的 `config` 覆盖）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **200**。
 
 与工具相关的常用字段（完整列表以源码 `AgentConfig` 为准）：
 
@@ -133,6 +142,8 @@ interface ModelParams {
 ```ts
 interface CompletionResult {
   content: string;
+  /** Ollama 等模型在「思考」能力下的扩展思考轨迹（若有） */
+  thinking?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
   metadata?: Record<string, unknown>;
@@ -141,6 +152,22 @@ interface CompletionResult {
 interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
+  totalTokens: number;
+}
+```
+
+## `SessionTokenUsage`
+
+`Agent.getSessionUsage()` 返回的会话级累计用量（与单次 API 返回的 `TokenUsage` 字段含义不同）：
+
+```ts
+interface SessionTokenUsage {
+  /** 当前上下文规模（最近一次 API 返回的 input 侧 tokens，用于压缩判断） */
+  contextTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
 }
 ```
@@ -242,7 +269,7 @@ interface StreamEventAnnotations {
 |------|------|------|
 | `content` | `string`（可选） | 可选的块前缀提示 |
 
-**时机**：`StreamChunkProcessor` 在默认开启 `emitTextBoundaries` 时，在一段助手文本的第一个 `text_delta` 之前发出，标记文本块开始。
+**时机**：在 `Agent.stream` 中，当开启文本边界事件时，在一段助手文本的第一个 `text_delta` 之前发出，标记文本块开始（实现上由内部的 chunk 归一化管线发出；见文末「实现备注」）。
 
 ### `text_delta`
 
@@ -266,7 +293,7 @@ interface StreamEventAnnotations {
 |------|------|------|
 | `content` | `string`（可选） | 可选的块收尾 |
 
-**时机**：`StreamChunkProcessor` 在默认开启 `emitTextBoundaries` 时，在离开当前文本块前发出（例如切换到工具块或该轮模型流结束）；若当前不在文本块内则可能不发出。
+**时机**：在 `Agent.stream` 中，当开启文本边界事件时，在离开当前文本块前发出（例如切换到工具块或该轮模型流结束）；若当前不在文本块内则可能不发出（实现备注见文末）。
 
 ### `tool_call_start`
 
@@ -279,7 +306,7 @@ interface StreamEventAnnotations {
 | `id` | `string` | 本次工具调用 id，与后续 `tool_call_delta` / `tool_call_end` / `tool_call` 及 `tool_result` 的 `toolCallId` 对应 |
 | `name` | `string` | 工具名 |
 
-**时机**：模型开始以流式方式输出某次工具调用时（来自适配器 `StreamChunk`，经处理器归一化）。
+**时机**：模型开始以流式方式输出某次工具调用时（`Agent.stream` 将模型输出归一化为事件；实现备注见文末）。
 
 ### `tool_call_delta`
 
@@ -459,6 +486,27 @@ sequenceDiagram
   A->>A: session_summary
   A->>A: end complete
 ```
+
+### 实现备注（进阶）
+
+库内将各模型适配器的原始流规范一化为 `StreamEvent`；若你在源码中调试，可能会看到 `StreamChunkProcessor` 等类型。**应用代码应以 `Agent.stream` 产出的事件为准**，不要依赖内部类名。
+
+### 与 Claude Messages API 流式形状的对照（可选）
+
+以下对照便于从 Anthropic 文档迁移；仍以本页各 `type` 的字段为准。
+
+| Claude API（节选） | agent-sdk `StreamEvent` |
+|--------------------|-------------------------|
+| `content_block_start`（text） | `text_start`（首个 `text_delta` 前） |
+| `content_block_delta` / `text` | `text_delta` |
+| `content_block_stop`（text） | `text_end` |
+| `content_block_start`（tool_use） | `tool_call_start` |
+| `content_block_delta` / `input_json_delta` | `tool_call_delta` |
+| `content_block_stop`（tool_use） | `tool_call_end` 再 `tool_call` |
+| 用户/工具结果轮次 | `tool_result`（及可能的 `tool_error`） |
+| 会话关联 | 事件上的 `sessionId`、`streamEventId`、`iteration` |
+| 历史压缩 | `context_compressed` |
+| 原始 SSE 记录 | 在 `includeRawStreamEvents` 时由适配器附带原始块（见适配器文档） |
 
 ## 6. MCP 类型
 

@@ -184,7 +184,7 @@ describe('FeatureName', () => {
 
 ## Third-party documentation policy
 
-Public docs (`docs/sdk-*.md`, README) treat **`Agent`** as the only supported integration surface for application code. Model factories (`createOpenAI`, etc.) configure `AgentConfig.model`; do not document or encourage calling `ModelAdapter.stream` / `complete` directly in product code. Chunk→event helpers (`transformStream`, `toAgentStream`, etc.) are not part of the public API. Keep this aligned with `docs/sdk-overview.md` section 3.
+Public docs (`docs/**/*.md`, including `docs/sdk-*.md` and topical guides such as `docs/tool-hook-mechanism.md`) treat **`Agent`** as the only supported integration surface for application code. The repository root `README.md` is for installation and navigation only; factual content lives under `docs/`. Model factories (`createOpenAI`, etc.) configure `AgentConfig.model`; do not document or encourage calling `ModelAdapter.stream` / `complete` directly in product code. Chunk→event helpers (`transformStream`, `toAgentStream`, etc.) are not part of the public API. Keep this aligned with `docs/sdk-overview.md` section 3.
 
 ## Module Exports
 

@@ -1,5 +1,12 @@
 # Agent SDK 工具调用 Hook 机制设计文档
 
+## 读者指引
+
+- **应用集成者**：若只需在项目里配置「工具执行前/后」要运行的命令（审计、格式化等），请优先阅读 **§2 配置文件**、**§2.7 环境变量**，以及 [`sdk-api-reference.md`](./sdk-api-reference.md) 中与 `HookManager`、`hookConfigDir` 相关的导出说明。不必阅读文内关于内部 loader 或磁盘类型双套映射的实现细节。
+- **SDK 贡献者或深度排障**：可通读全文；涉及 `HooksSettingsFile` 与运行时结构、源码路径等内容见各节及文末 **附录：实现位置（贡献者）**。
+
+---
+
 ## 1. 概述
 
 本设计文档描述了 Agent SDK 的工具调用 Hook 机制，参考 Claude Code 的实现，提供在工具执行前/后自定义控制行为的能力。
@@ -671,3 +678,11 @@ project/
 |------|------|------|
 | 1.0.0 | 2026-03-29 | 初始版本 |
 | 1.1.0 | 2026-03-29 | 完善 JSON 映射、HookContext（Post/Failure）、命令 stdin/退出码协议、与 outputHandler 集成顺序、`updatedInput` 合并、`disableAllHooks` 语义、可选 command `id`、安全与跨平台说明 |
+
+---
+
+## 附录：实现位置（贡献者）
+
+- Hook 类型与执行管线：`src/tools/hooks/`（如 `types.ts`、`manager.ts`、加载器等）。
+- 磁盘上的 `settings.json`（`HooksSettingsFile`）与运行时 `HooksSettings` 的键名转换见 **§2.3**。
+- 与 `ToolRegistry`、参数校验、`outputHandler` 的衔接顺序见正文相关小节。
