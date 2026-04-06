@@ -192,7 +192,7 @@ interface ToolExecutionContext {
 - `tool_result` / `tool_error`
 - `thinking`
 - `model_usage`（模型流式返回的 token 统计；可选 `phase`：`input` / `output`，如 Anthropic）
-- `session_summary`（Agent 成功结束前：权威累计 `usage`、`sessionId`、`iterations`；统计以本事件为准）
+- `session_summary`（Agent 成功结束前：权威累计 `usage` 与 `iterations`；`sessionId` 与其它事件一样在注解字段 `StreamEventAnnotations` 上，由 Agent 注入；统计以本事件 `usage` 为准）
 - `context_compressed`
 - `end`（流结束；用 `reason` 区分成功 `complete`、用户中止 `aborted`、致命错误 `error`；成功完成时通常不带 `usage`（见 `session_summary`）；中止时可带 `usage` 与 `partialContent`，错误时带 `error`）
 

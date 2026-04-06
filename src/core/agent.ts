@@ -573,9 +573,6 @@ export class Agent {
 
       yield this.annotateStreamEvent({
         type: 'session_summary',
-        ...(this.sessionManager.sessionId
-          ? { sessionId: this.sessionManager.sessionId }
-          : {}),
         usage: totalUsage,
         iterations: Math.min(maxIterations, this.messages.length)
       });

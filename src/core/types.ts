@@ -363,6 +363,10 @@ export interface StreamEventAnnotations {
   streamEventId?: string;
   /** Agent model-call iteration (0-based) when produced by {@link Agent.stream} */
   iteration?: number;
+  /**
+   * Current session id when {@link Agent.stream} annotates events (including `session_summary`).
+   * Not duplicated on the `session_summary` variant payload; use this field for correlation.
+   */
   sessionId?: string;
 }
 
@@ -389,8 +393,6 @@ export type StreamEvent = (
     }
   | {
       type: 'session_summary';
-      /** Session id when produced by Agent; omit or undefined for raw model streams (e.g. StreamTransformer). */
-      sessionId?: string;
       /** Authoritative cumulative usage for the completed run (prefer over end.usage when both exist). */
       usage: TokenUsage;
       iterations: number;

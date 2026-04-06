@@ -65,7 +65,6 @@ export function serializeStreamEvent(event: StreamEvent): Record<string, unknown
     case 'session_summary':
       return {
         ...base,
-        ...('sessionId' in event && event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
         usage: event.usage,
         iterations: event.iterations
       };
