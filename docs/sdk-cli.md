@@ -47,31 +47,31 @@ node dist/cli/index.js mcp connect "npx @modelcontextprotocol/server-filesystem 
 
 ## 通过 npm 安装后使用
 
-全局安装（`npm install -g agent-sdk`）后可直接使用 `agent-sdk`；项目内推荐 `npx`：
+全局安装（`npm install -g @ddlqhd/agent-sdk`）后可直接使用 `agent-sdk` 命令；项目内推荐 `npx`：
 
 ```bash
-npx agent-sdk --help
+npx @ddlqhd/agent-sdk --help
 
 # 聊天模式
-npx agent-sdk chat --model openai --api-key sk-xxx
+npx @ddlqhd/agent-sdk chat --model openai --api-key sk-xxx
 
 # 单次运行
-npx agent-sdk run "List files in current directory" --model openai
+npx @ddlqhd/agent-sdk run "List files in current directory" --model openai
 
 # 工具管理
-npx agent-sdk tools list
-npx agent-sdk tools show Read
-npx agent-sdk tools test Read -a "{}"
+npx @ddlqhd/agent-sdk tools list
+npx @ddlqhd/agent-sdk tools show Read
+npx @ddlqhd/agent-sdk tools test Read -a "{}"
 # 或长选项：--args（JSON 对象字符串）
 
 # 会话管理（与 chat/run 使用相同存储时须传相同 --user-base-path）
-npx agent-sdk sessions list
-npx agent-sdk sessions show <session-id>
-npx agent-sdk sessions delete <session-id>
-npx agent-sdk sessions clear
+npx @ddlqhd/agent-sdk sessions list
+npx @ddlqhd/agent-sdk sessions show <session-id>
+npx @ddlqhd/agent-sdk sessions delete <session-id>
+npx @ddlqhd/agent-sdk sessions clear
 
 # MCP（当前 CLI 仅提供 connect；运行时 MCP 多用 Agent 配置或 mcp_config.json）
-npx agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /path"
+npx @ddlqhd/agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /path"
 ```
 
 ## 命令参考

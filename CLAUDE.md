@@ -56,7 +56,7 @@ Agent (src/core/agent.ts)
 
 ### Public package exports
 
-The root `src/index.ts` re-exports core types, models, tools, storage, streaming (`AgentStream`, `StreamChunkProcessor`, etc.), MCP, skills, memory (`MemoryManager`), and MCP config helpers (`loadMCPConfig`, `validateMCPConfig`). Subpath exports: `agent-sdk/models`, `agent-sdk/tools` (see `package.json` `exports`).
+The root `src/index.ts` re-exports core types, models, tools, storage, streaming (`AgentStream`, `StreamChunkProcessor`, etc.), MCP, skills, memory (`MemoryManager`), and MCP config helpers (`loadMCPConfig`, `validateMCPConfig`). Subpath exports: `@ddlqhd/agent-sdk/models`, `@ddlqhd/agent-sdk/tools` (see `package.json` `exports`).
 
 ### Module Organization
 

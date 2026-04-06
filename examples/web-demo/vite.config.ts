@@ -17,10 +17,10 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     // Windows: 原生 fs 监听常漏事件，导致页面不热更新；轮询更稳。
-    // 链接依赖 agent-sdk（file:../..）在 node_modules 下，默认被忽略，需显式取消忽略以便 dist 变更触发刷新。
+    // 链接依赖 @ddlqhd/agent-sdk（file:../..）在 node_modules 下，默认被忽略，需显式取消忽略以便 dist 变更触发刷新。
     watch: {
       ...(isWin ? { usePolling: true, interval: 300 } : {}),
-      ignored: ['!**/node_modules/agent-sdk/**']
+      ignored: ['!**/node_modules/@ddlqhd/agent-sdk/**']
     },
     fs: {
       allow: [root, resolve(root, '..')]

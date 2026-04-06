@@ -1,4 +1,4 @@
-import type { StreamEvent } from 'agent-sdk';
+import type { StreamEvent } from '@ddlqhd/agent-sdk';
 
 function errorToJson(err: Error): Record<string, unknown> {
   return {

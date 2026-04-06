@@ -1,4 +1,4 @@
-import { Agent, createOpenAI } from 'agent-sdk';
+import { Agent, createOpenAI } from '@ddlqhd/agent-sdk';
 
 async function main() {
   const agent = new Agent({

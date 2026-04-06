@@ -8,7 +8,7 @@ importers:
 
   .:
     dependencies:
-      agent-sdk:
+      '@ddlqhd/agent-sdk':
         specifier: file:../..
         version: file:../..
       ws:
@@ -41,6 +41,11 @@ importers:
         version: 8.0.5
 
 packages:
+
+  '@ddlqhd/agent-sdk@file:../..':
+    resolution: {directory: ../.., type: directory}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -545,11 +550,6 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
-  agent-sdk@file:../..:
-    resolution: {directory: ../.., type: directory}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
-
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
     peerDependencies:
@@ -880,6 +880,10 @@ packages:
   iconv-lite@0.7.2:
     resolution: {integrity: sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw==}
     engines: {node: '>=0.10.0'}
+
+  ignore@7.0.5:
+    resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
+    engines: {node: '>= 4'}
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -1286,6 +1290,26 @@ packages:
 
 snapshots:
 
+  '@ddlqhd/agent-sdk@file:../..':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.28.0(zod@3.25.76)
+      '@mozilla/readability': 0.6.0
+      chalk: 5.6.2
+      chardet: 2.1.1
+      commander: 12.1.0
+      fast-glob: 3.3.3
+      iconv-lite: 0.7.2
+      ignore: 7.0.5
+      ipaddr.js: 2.3.0
+      linkedom: 0.18.12
+      micromatch: 4.0.8
+      turndown: 7.2.4
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - canvas
+      - supports-color
+
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
 
@@ -1582,24 +1606,6 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
-
-  agent-sdk@file:../..:
-    dependencies:
-      '@modelcontextprotocol/sdk': 1.28.0(zod@3.25.76)
-      '@mozilla/readability': 0.6.0
-      chalk: 5.6.2
-      chardet: 2.1.1
-      commander: 12.1.0
-      fast-glob: 3.3.3
-      iconv-lite: 0.7.2
-      ipaddr.js: 2.3.0
-      linkedom: 0.18.12
-      turndown: 7.2.4
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - canvas
-      - supports-color
 
   ajv-formats@3.0.1(ajv@8.18.0):
     optionalDependencies:
@@ -2003,6 +2009,8 @@ snapshots:
   iconv-lite@0.7.2:
     dependencies:
       safer-buffer: 2.1.2
+
+  ignore@7.0.5: {}
 
   inherits@2.0.4: {}
 

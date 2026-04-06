@@ -2,7 +2,7 @@
 
 ## 1. 文档目标
 
-本文档集面向第三方开发者，提供 `agent-sdk` 的稳定公开能力说明，包括：
+本文档集面向第三方开发者，提供 `@ddlqhd/agent-sdk` 的稳定公开能力说明，包括：
 
 - 包入口与版本约束
 - 核心对象和调用流程
@@ -11,11 +11,11 @@
 
 ## 2. 稳定导出边界
 
-`agent-sdk` 目前只承诺以下 3 个包入口：
+`@ddlqhd/agent-sdk` 目前只承诺以下 3 个包入口：
 
-- `agent-sdk`
-- `agent-sdk/models`
-- `agent-sdk/tools`
+- `@ddlqhd/agent-sdk`
+- `@ddlqhd/agent-sdk/models`
+- `@ddlqhd/agent-sdk/tools`
 
 请勿直接依赖 `src/**` 深层路径（即使源码中存在 export），以避免后续升级破坏兼容性。
 

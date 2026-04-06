@@ -1,6 +1,6 @@
 # 仓库目录结构（贡献者参考）
 
-> **受众**：本仓库贡献者、或需要对照源码排查问题的开发者。若你仅通过 npm 使用 `agent-sdk`，请优先阅读 [`sdk-quickstart.md`](./sdk-quickstart.md) 与 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md)。
+> **受众**：本仓库贡献者、或需要对照源码排查问题的开发者。若你仅通过 npm 使用 `@ddlqhd/agent-sdk`，请优先阅读 [`sdk-quickstart.md`](./sdk-quickstart.md) 与 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md)。
 
 ```
 agent-sdk/

@@ -1,4 +1,4 @@
-import type { AskUserQuestionAnswer, AskUserQuestionItem } from 'agent-sdk';
+import type { AskUserQuestionAnswer, AskUserQuestionItem } from '@ddlqhd/agent-sdk';
 import { chatPreview } from '../../shared/log-utils.js';
 import type { ClientMessage, ModelProvider, ServerMessage, SessionListItem } from '../../shared/ws-protocol.js';
 

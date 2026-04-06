@@ -9,7 +9,7 @@ import {
   type AskUserQuestionResolver,
   type MCPConfigFile,
   type MCPServerConfig
-} from 'agent-sdk';
+} from '@ddlqhd/agent-sdk';
 import type { ModelProvider } from '../shared/ws-protocol.js';
 import { truncateForLog } from '../shared/log-utils.js';
 import { describeMissingKey, getOllamaBaseUrl, requireProviderEnv } from './env.js';
@@ -42,7 +42,7 @@ function ensureSdkBuilt(): void {
   const distJs = join(SDK_ROOT, 'dist', 'index.js');
   if (!existsSync(distJs)) {
     throw new Error(
-      `agent-sdk is not built. From the repository root run: pnpm build\nExpected: ${distJs}`
+      `@ddlqhd/agent-sdk is not built. From the repository root run: pnpm build\nExpected: ${distJs}`
     );
   }
 }

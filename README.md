@@ -22,11 +22,11 @@ A TypeScript library for building AI agents with multi-model support (OpenAI, An
 ## Installation
 
 ```bash
-npm install agent-sdk
+npm install @ddlqhd/agent-sdk
 ```
 
 ```bash
-pnpm add agent-sdk
+pnpm add @ddlqhd/agent-sdk
 ```
 
 ## Documentation

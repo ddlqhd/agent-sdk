@@ -14,7 +14,7 @@
     "start": "tsx server/index.ts"
   },
   "dependencies": {
-    "agent-sdk": "file:../..",
+    "@ddlqhd/agent-sdk": "file:../..",
     "ws": "^8.18.0",
     "zod": "^3.23.0"
   },

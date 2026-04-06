@@ -3,9 +3,9 @@
 ## 1. 安装
 
 ```bash
-npm install agent-sdk
+npm install @ddlqhd/agent-sdk
 # 或
-pnpm add agent-sdk
+pnpm add @ddlqhd/agent-sdk
 ```
 
 ## 2. 环境变量与代码配置
@@ -42,7 +42,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 ### 代码中传入工厂函数
 
 ```ts
-import { createOpenAI, createAnthropic, createOllama } from 'agent-sdk';
+import { createOpenAI, createAnthropic, createOllama } from '@ddlqhd/agent-sdk';
 
 const openai = createOpenAI({
   apiKey: 'sk-xxx',
@@ -69,7 +69,7 @@ System prompt 的追加/替换与运行时修改见 [`sdk-integration-recipes.md
 > **约定**：须通过 `Agent` 执行对话；`createOpenAI` 等仅用于构造 `Agent` 的 `model`，不要在应用里直接调用适配器的 `stream` / `complete`。详见 `sdk-overview.md` 第 3 节。
 
 ```ts
-import { Agent, createOpenAI } from 'agent-sdk';
+import { Agent, createOpenAI } from '@ddlqhd/agent-sdk';
 
 const agent = new Agent({
   model: createOpenAI({
@@ -87,7 +87,7 @@ await agent.destroy();
 ## 4. 流式输出示例
 
 ```ts
-import { Agent, createOpenAI } from 'agent-sdk';
+import { Agent, createOpenAI } from '@ddlqhd/agent-sdk';
 
 const agent = new Agent({
   model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -113,7 +113,7 @@ import {
   createOpenAI,
   createAnthropic,
   createOllama
-} from 'agent-sdk';
+} from '@ddlqhd/agent-sdk';
 
 const openaiModel = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropicModel = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });

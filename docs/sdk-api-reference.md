@@ -2,11 +2,11 @@
 
 本文档仅覆盖稳定导出入口：
 
-- `agent-sdk`
-- `agent-sdk/models`
-- `agent-sdk/tools`
+- `@ddlqhd/agent-sdk`
+- `@ddlqhd/agent-sdk/models`
+- `@ddlqhd/agent-sdk/tools`
 
-## 1. `agent-sdk`（根入口）
+## 1. `@ddlqhd/agent-sdk`（根入口）
 
 ## Agent 与核心入口
 
@@ -145,7 +145,7 @@
 
 ## Core Types（根入口 `export * from core/types`）
 
-可直接从 `agent-sdk` 导入的核心类型包括：
+可直接从 `@ddlqhd/agent-sdk` 导入的核心类型包括：
 
 - 消息与内容：`Message` `MessageRole` `TextContent` `ThinkingContent` `ImageContent` `ContentPart` `ToolCall`
 - 模型：`ModelAdapter` `ModelParams` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
@@ -161,7 +161,7 @@
 
 ---
 
-## 2. `agent-sdk/models`
+## 2. `@ddlqhd/agent-sdk/models`
 
 适用于只关心模型适配的场景。
 
@@ -176,7 +176,7 @@
 
 ---
 
-## 3. `agent-sdk/tools`
+## 3. `@ddlqhd/agent-sdk/tools`
 
 适用于“只接工具系统”的场景。
 

@@ -45,7 +45,7 @@ interface AgentConfig {
 }
 ```
 
-`CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
+`CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `@ddlqhd/agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
 
 构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 200`、`streaming: true`（再由传入的 `config` 覆盖）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **200**。
 
@@ -495,7 +495,7 @@ sequenceDiagram
 
 以下对照便于从 Anthropic 文档迁移；仍以本页各 `type` 的字段为准。
 
-| Claude API（节选） | agent-sdk `StreamEvent` |
+| Claude API（节选） | @ddlqhd/agent-sdk `StreamEvent` |
 |--------------------|-------------------------|
 | `content_block_start`（text） | `text_start`（首个 `text_delta` 前） |
 | `content_block_delta` / `text` | `text_delta` |

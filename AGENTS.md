@@ -199,7 +199,7 @@ export { createTool } from './registry.js';
 export type { ToolConfig, ToolResult } from './types.js';
 ```
 
-The root `src/index.ts` is the main public API; `package.json` also exposes `agent-sdk/models` and `agent-sdk/tools`.
+The root `src/index.ts` is the main public API; `package.json` also exposes `@ddlqhd/agent-sdk/models` and `@ddlqhd/agent-sdk/tools`.
 
 ## Commit Messages
 

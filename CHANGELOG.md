@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Package name**: The npm package is published as `@ddlqhd/agent-sdk`. Replace `npm install agent-sdk` / `import … from 'agent-sdk'` with the scoped name. The CLI binary remains `agent-sdk` after `npm install -g @ddlqhd/agent-sdk`.
+
 ### Fixed
 
 - **Grep**: Documented as Node/RegExp line scan (not ripgrep); default `head_limit` 250; directory listing uses `fast-glob`; respects root `.gitignore` via the `ignore` package; match lines truncate with a match-aware window; optional `glob` filters single-file paths.

@@ -447,7 +447,7 @@ export interface AgentConfig {
 ### 8.1 基础用法（自动加载配置）
 
 ```typescript
-import { createAgent } from 'agent-sdk';
+import { createAgent } from '@ddlqhd/agent-sdk';
 
 const agent = createAgent({
   model: openaiAdapter,
@@ -458,7 +458,7 @@ const agent = createAgent({
 ### 8.2 手动创建 HookManager
 
 ```typescript
-import { HookManager, createFunctionHook } from 'agent-sdk';
+import { HookManager, createFunctionHook } from '@ddlqhd/agent-sdk';
 
 const hookManager = HookManager.create();
 await hookManager.discoverAndLoad('/path/to/project');

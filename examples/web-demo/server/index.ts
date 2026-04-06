@@ -10,7 +10,7 @@ import type {
   SessionInfo,
   StreamEvent,
   TokenUsage
-} from 'agent-sdk';
+} from '@ddlqhd/agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
 import { chatPreview, truncateForLog } from '../shared/log-utils.js';

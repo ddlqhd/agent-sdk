@@ -6,7 +6,7 @@ import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
   TokenUsage
-} from 'agent-sdk';
+} from '@ddlqhd/agent-sdk';
 
 export type ModelProvider = 'openai' | 'anthropic' | 'ollama';
 
