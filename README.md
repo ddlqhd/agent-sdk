@@ -781,13 +781,19 @@ type StreamEvent =
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
   | { type: 'thinking'; content: string; signature?: string }
-  | { type: 'error'; error: Error }
   | { type: 'metadata'; data: Record<string, unknown> }
   | {
       type: 'context_compressed';
       stats: { originalMessageCount: number; compressedMessageCount: number; durationMs: number };
     }
-  | { type: 'end'; usage?: TokenUsage; timestamp: number };
+  | {
+      type: 'end';
+      timestamp: number;
+      usage?: TokenUsage;
+      reason?: 'complete' | 'aborted' | 'error';
+      error?: Error;
+      partialContent?: string;
+    };
 
 interface TokenUsage {
   promptTokens: number;

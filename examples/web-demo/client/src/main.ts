@@ -660,6 +660,12 @@ function appendToolActivityCard(
 
 function handleStreamEventInChatLog(event: Record<string, unknown>): void {
   const t = event.type;
+  if (t === 'end' && event.reason === 'error') {
+    const err = event.error as { message?: string } | undefined;
+    const msg = err && typeof err.message === 'string' ? err.message : 'Stream error';
+    appendChatMessage('assistant', `[Error] ${msg}`);
+    return;
+  }
   if (t === 'tool_call_start' || t === 'tool_call_delta' || t === 'tool_call_end') {
     if (t === 'tool_call_start') {
       beforeToolUiInChat();

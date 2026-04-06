@@ -22,8 +22,6 @@ export function serializeStreamEvent(event: StreamEvent): Record<string, unknown
   };
 
   switch (event.type) {
-    case 'error':
-      return { ...base, error: errorToJson(event.error) };
     case 'tool_error':
       return { ...base, toolCallId: event.toolCallId, error: errorToJson(event.error) };
     case 'text_delta':
@@ -46,12 +44,23 @@ export function serializeStreamEvent(event: StreamEvent): Record<string, unknown
     case 'start':
       return { ...base, timestamp: event.timestamp };
     case 'end':
-      return { ...base, timestamp: event.timestamp, usage: event.usage };
+      return {
+        ...base,
+        timestamp: event.timestamp,
+        usage: event.usage,
+        ...('reason' in event && event.reason !== undefined ? { reason: event.reason } : {}),
+        ...('partialContent' in event && event.partialContent !== undefined
+          ? { partialContent: event.partialContent }
+          : {}),
+        ...('error' in event && event.error
+          ? { error: errorToJson(event.error as Error) }
+          : {})
+      };
     case 'metadata':
       return { ...base, data: event.data };
     case 'context_compressed':
       return { ...base, stats: event.stats };
     default:
-      return { ...base, ...((event as Record<string, unknown>) as object) };
+      return { ...base, ...(event as unknown as Record<string, unknown>) };
   }
 }

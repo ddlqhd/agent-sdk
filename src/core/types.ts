@@ -348,7 +348,6 @@ export type StreamEventType =
   | 'tool_result'
   | 'tool_error'
   | 'thinking'
-  | 'error'
   | 'start'
   | 'end'
   | 'metadata'
@@ -379,9 +378,16 @@ export type StreamEvent = (
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
   | { type: 'thinking'; content: string; signature?: string }
-  | { type: 'error'; error: Error }
   | { type: 'metadata'; data: Record<string, unknown> }
-  | { type: 'end'; usage?: TokenUsage; timestamp: number }
+  | {
+      type: 'end';
+      timestamp: number;
+      usage?: TokenUsage;
+      /** Omitted or `complete` = normal completion */
+      reason?: 'complete' | 'aborted' | 'error';
+      error?: Error;
+      partialContent?: string;
+    }
   | {
       type: 'context_compressed';
       stats: {

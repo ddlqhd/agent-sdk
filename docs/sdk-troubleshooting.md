@@ -47,7 +47,7 @@
 
 排查：
 
-- 监听 `error` 事件与 `tool_error` 事件分别记录
+- 监听 `end`（`reason === 'error'`）与 `tool_error` 事件分别记录
 - 如果使用了 `AbortController`，确认不是业务层提前 `abort()`
 - 开启 `includeRawStreamEvents` 采集 provider 原始事件辅助定位
 

@@ -67,6 +67,18 @@ describe('StreamChunkProcessor', () => {
     expect(types).toEqual(['tool_call_end', 'tool_call']);
   });
 
+  it('maps chunk error to terminal end with reason error', () => {
+    const p = new StreamChunkProcessor();
+    const events = p.processChunk({ type: 'error', error: new Error('fail') });
+    expect(events).toHaveLength(1);
+    const e = events[0];
+    expect(e.type).toBe('end');
+    if (e.type === 'end') {
+      expect(e.reason).toBe('error');
+      expect(e.error?.message).toBe('fail');
+    }
+  });
+
   it('does not emit text boundaries when emitTextBoundaries is false', () => {
     const p = new StreamChunkProcessor({ emitTextBoundaries: false });
     const types: string[] = [];
@@ -101,5 +113,17 @@ describe('transformStream', () => {
     expect(types).toContain('tool_call');
     expect(types[0]).toBe('start');
     expect(types[types.length - 1]).toBe('end');
+  });
+
+  it('stops after chunk error without a trailing complete end', async () => {
+    async function* chunks() {
+      yield { type: 'error' as const, error: new Error('stream fail') };
+    }
+
+    const types: string[] = [];
+    for await (const e of transformStream(chunks())) {
+      types.push(e.type);
+    }
+    expect(types).toEqual(['start', 'end']);
   });
 });

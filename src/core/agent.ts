@@ -377,8 +377,15 @@ export class Agent {
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (signal?.aborted) {
-          yield this.annotateStreamEvent({ type: 'metadata', data: { event: 'aborted' } }, iteration);
-          yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() }, iteration);
+          yield this.annotateStreamEvent(
+            {
+              type: 'end',
+              usage: totalUsage,
+              timestamp: Date.now(),
+              reason: 'aborted'
+            },
+            iteration
+          );
           return;
         }
 
@@ -436,6 +443,7 @@ export class Agent {
           }
         };
 
+        let fatalModelError = false;
         for await (const chunk of stream) {
           if (signal?.aborted) {
             for (const event of chunkProcessor.flush()) {
@@ -466,15 +474,14 @@ export class Agent {
 
             yield this.annotateStreamEvent(
               {
-                type: 'metadata',
-                data: {
-                  event: 'aborted',
-                  partialContent: assistantContent
-                }
+                type: 'end',
+                usage: totalUsage,
+                timestamp: Date.now(),
+                reason: 'aborted',
+                partialContent: assistantContent
               },
               iteration
             );
-            yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() }, iteration);
             return;
           }
 
@@ -483,7 +490,18 @@ export class Agent {
             const out = this.annotateStreamEvent(event, iteration);
             yield out;
             applyStreamOut(out);
+            if (out.type === 'end' && out.reason === 'error') {
+              fatalModelError = true;
+              break;
+            }
           }
+          if (fatalModelError) {
+            break;
+          }
+        }
+
+        if (fatalModelError) {
+          return;
         }
 
         for (const event of chunkProcessor.flush()) {
@@ -562,14 +580,27 @@ export class Agent {
         }
       });
 
-      yield this.annotateStreamEvent({ type: 'end', usage: totalUsage, timestamp: Date.now() });
+      yield this.annotateStreamEvent({
+        type: 'end',
+        usage: totalUsage,
+        timestamp: Date.now(),
+        reason: 'complete'
+      });
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        yield this.annotateStreamEvent({ type: 'metadata', data: { event: 'aborted' } });
-        yield this.annotateStreamEvent({ type: 'end', timestamp: Date.now() });
+        yield this.annotateStreamEvent({
+          type: 'end',
+          timestamp: Date.now(),
+          reason: 'aborted'
+        });
         return;
       }
-      yield this.annotateStreamEvent({ type: 'error', error: error as Error });
+      yield this.annotateStreamEvent({
+        type: 'end',
+        timestamp: Date.now(),
+        reason: 'error',
+        error: error as Error
+      });
     }
   }
 
@@ -585,6 +616,7 @@ export class Agent {
     }> = [];
     let usage: TokenUsage | undefined;
     let iterations = 0;
+    let streamError: Error | undefined;
 
     for await (const event of this.stream(input, options)) {
       if (event.type === 'text_delta') {
@@ -612,7 +644,14 @@ export class Agent {
 
       if (event.type === 'end') {
         usage = event.usage;
+        if (event.reason === 'error' && event.error) {
+          streamError = event.error;
+        }
       }
+    }
+
+    if (streamError) {
+      throw streamError;
     }
 
     return {

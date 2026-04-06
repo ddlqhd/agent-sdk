@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createStreamFormatter } from '../../src/cli/utils/output.js';
+import { createStreamFormatter, formatEvent } from '../../src/cli/utils/output.js';
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, '');
@@ -127,5 +127,20 @@ describe('createStreamFormatter', () => {
     });
     const out = f.format({ type: 'text_delta', content: 'Next' });
     expect(stripAnsi(out)).toBe('\nNext');
+  });
+
+  it('prints fatal stream error and abort on end.reason', () => {
+    const f = createStreamFormatter({ verbose: false });
+    expect(stripAnsi(f.format({ type: 'end', timestamp: 0, reason: 'error', error: new Error('boom') }))).toContain(
+      'boom'
+    );
+    expect(stripAnsi(f.format({ type: 'end', timestamp: 0, reason: 'aborted' }))).toContain('[interrupted]');
+  });
+
+  it('formatEvent mirrors end.reason for error and aborted', () => {
+    expect(stripAnsi(formatEvent({ type: 'end', timestamp: 0, reason: 'error', error: new Error('e') }))).toContain(
+      'e'
+    );
+    expect(stripAnsi(formatEvent({ type: 'end', timestamp: 0, reason: 'aborted' }))).toContain('[interrupted]');
   });
 });

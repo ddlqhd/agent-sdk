@@ -193,8 +193,7 @@ interface ToolExecutionContext {
 - `thinking`
 - `metadata`
 - `context_compressed`
-- `end`
-- `error`
+- `end`（流结束；用 `reason` 区分成功 `complete`、用户中止 `aborted`、致命错误 `error`；中止时可带 `partialContent`，错误时带 `error`）
 
 所有事件都可能带有注解字段（可观测性）：
 

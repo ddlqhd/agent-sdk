@@ -8,6 +8,7 @@ import type {
   AskUserQuestionAnswer,
   AskUserQuestionResolver,
   SessionInfo,
+  StreamEvent,
   TokenUsage
 } from 'agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
@@ -373,9 +374,11 @@ wss.on('connection', (socket: WebSocket) => {
             sendJson(socket, {
               type: 'stream_event',
               event: serializeStreamEvent({
-                type: 'error',
+                type: 'end',
+                timestamp: Date.now(),
+                reason: 'error',
                 error: err
-              })
+              } as StreamEvent)
             });
             sendJson(socket, {
               type: 'chat_done',

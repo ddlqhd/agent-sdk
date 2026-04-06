@@ -53,11 +53,6 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
         ? chalk.gray(`💭 ${event.content}`)
         : `💭 ${event.content}`;
 
-    case 'error':
-      return color
-        ? chalk.red(`\n✗ Error: ${event.error.message}`)
-        : `\n✗ Error: ${event.error.message}`;
-
     case 'metadata':
       if (verbose && event.data) {
         return color
@@ -66,8 +61,17 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
       }
       return '';
 
-    case 'end':
+    case 'end': {
+      if (event.reason === 'error' && event.error) {
+        return color
+          ? chalk.red(`\n✗ Error: ${event.error.message}`)
+          : `\n✗ Error: ${event.error.message}`;
+      }
+      if (event.reason === 'aborted') {
+        return color ? chalk.yellow('\n[interrupted]') : '\n[interrupted]';
+      }
       return '';
+    }
 
     case 'tool_call_delta':
     case 'tool_call_end':
@@ -214,10 +218,6 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
         }
 
         case 'metadata':
-          if (event.data?.event === 'aborted') {
-            output += chalk.yellow('\n[interrupted]');
-            break;
-          }
           if (event.data?.usage) {
             const usage = event.data.usage as TokenUsage;
             if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
@@ -227,8 +227,12 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
           }
           break;
 
-        case 'error':
-          output += chalk.red(`\n✗ ${event.error.message}`);
+        case 'end':
+          if (event.reason === 'error' && event.error) {
+            output += chalk.red(`\n✗ ${event.error.message}`);
+          } else if (event.reason === 'aborted') {
+            output += chalk.yellow('\n[interrupted]');
+          }
           break;
       }
 

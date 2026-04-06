@@ -128,7 +128,12 @@ export class StreamChunkProcessor {
       case 'error':
         endTextBlockIfNeeded();
         if (chunk.error) {
-          events.push({ type: 'error', error: chunk.error });
+          events.push({
+            type: 'end',
+            timestamp: Date.now(),
+            reason: 'error',
+            error: chunk.error
+          });
         }
         break;
 

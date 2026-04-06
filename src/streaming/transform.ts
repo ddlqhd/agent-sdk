@@ -19,6 +19,9 @@ export class StreamTransformer {
       const events = processor.processChunk(chunk);
       for (const event of events) {
         yield event;
+        if (event.type === 'end' && event.reason === 'error') {
+          return;
+        }
       }
     }
 
@@ -26,7 +29,12 @@ export class StreamTransformer {
       yield event;
     }
 
-    yield { type: 'end', usage: processor.getUsage(), timestamp: Date.now() };
+    yield {
+      type: 'end',
+      usage: processor.getUsage(),
+      timestamp: Date.now(),
+      reason: 'complete'
+    };
   }
 }
 

@@ -69,5 +69,5 @@ flowchart TD
   - 模型默认值是否调整（例如默认模型名）
 - 若你在生产系统接入，建议：
   - 显式传入模型与关键配置，不依赖默认值
-  - 对 `tool_error` / `error` 事件做完整日志记录
+  - 对 `tool_error` 与 `end`（`reason === 'error'`）做完整日志记录
 
