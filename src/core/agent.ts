@@ -420,7 +420,8 @@ export class Agent {
           temperature: this.config.temperature,
           maxTokens: this.config.maxTokens,
           signal,
-          includeRawStreamEvents: options?.includeRawStreamEvents
+          includeRawStreamEvents: options?.includeRawStreamEvents,
+          sessionId: this.sessionManager.sessionId ?? undefined
         };
 
         const stream = this.config.model!.stream(modelParams);

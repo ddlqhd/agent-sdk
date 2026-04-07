@@ -96,6 +96,13 @@ export interface ToolMessage extends Message {
 // ==================== 模型类型 ====================
 
 /**
+ * Provider 请求元数据：静态字典，或根据整包 {@link ModelParams} 生成字典（由具体 {@link ModelAdapter} 解析）。
+ */
+export type ModelParamsMetadata =
+  | Record<string, unknown>
+  | ((params: ModelParams) => Record<string, unknown>);
+
+/**
  * 模型参数
  */
 export interface ModelParams {
@@ -109,6 +116,13 @@ export interface ModelParams {
    * When true, adapters may attach `providerRaw` on each {@link StreamChunk} (e.g. Anthropic SSE JSON object).
    */
   includeRawStreamEvents?: boolean;
+  /** 会话标识；Agent 会在每次模型请求中填入，各适配器自行决定是否映射到 HTTP 请求。 */
+  sessionId?: string;
+  /**
+   * 可选请求元数据；各适配器自行决定是否写入 Provider。
+   * Anthropic 会与 {@link sessionId} 合并进 Messages API 顶层 `metadata`。
+   */
+  metadata?: ModelParamsMetadata;
 }
 
 /**

@@ -109,6 +109,8 @@ console.log(next.content);
 - 传入不存在的 `sessionId` 时，SDK 会在恢复失败后自动创建新会话
 - 若你需要严格控制，可在业务层先做 `sessionExists` 校验
 
+**与模型 HTTP 请求**：`Agent` 在每轮调用模型时会把**当前**会话 id 放进 `ModelParams.sessionId`。Anthropic 适配器会将其与可选的 `ModelParams.metadata`（对象或函数）合并后写入 Messages API 顶层 `metadata`（默认 `sessionId` → `user_id`）。若需自定义元数据，可对 `ModelAdapter` 做包装并在 `stream`/`complete` 中设置 `metadata`，详见 [`sdk-types-reference.md`](./sdk-types-reference.md) 中的 `ModelParams`。
+
 ## 6. MCP 配置文件加载（Claude Desktop 风格）
 
 ```ts

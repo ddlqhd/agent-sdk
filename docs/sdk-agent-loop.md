@@ -19,6 +19,8 @@
 - **`iteration`**：从 **0** 开始的整数，表示当前处于第几轮「模型参与」的迭代（多轮工具循环时递增）。
 - **`sessionId`**：当前会话 id，用于关联持久化与审计。
 
+每一轮调用底层 `ModelAdapter` 时，SDK 还会在 **`ModelParams.sessionId`** 中传入同一会话 id（见 [`sdk-types-reference.md`](./sdk-types-reference.md) `ModelParams`）。具体是否在 HTTP 请求里使用由适配器决定（例如 Anthropic 会将其并入 Messages API 的 `metadata`）。
+
 集成 UI 或日志时，可用 `iteration` 区分同一轮用户输入下的多轮模型/工具往返。
 
 ## 与 `maxIterations` 的关系

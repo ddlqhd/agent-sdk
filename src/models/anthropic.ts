@@ -296,7 +296,55 @@ export class AnthropicAdapter extends BaseModelAdapter {
       }));
     }
 
+    const mergedMetadata = AnthropicAdapter.mergeAnthropicMetadata(params);
+    if (mergedMetadata && Object.keys(mergedMetadata).length > 0) {
+      body.metadata = mergedMetadata;
+    }
+
     return body;
+  }
+
+  /**
+   * Build Messages API `metadata`: `sessionId` → `user_id`, merged with resolved `params.metadata` (dict or fn).
+   * Caller `metadata` keys override `user_id` when duplicated.
+   */
+  private static mergeAnthropicMetadata(params: ModelParams): Record<string, unknown> | undefined {
+    const extra = AnthropicAdapter.resolveMetadataExtra(params);
+    const hasSession = params.sessionId !== undefined && params.sessionId !== '';
+    if (!hasSession && extra === undefined) {
+      return undefined;
+    }
+    const merged: Record<string, unknown> = {};
+    if (hasSession) {
+      merged.user_id = params.sessionId;
+    }
+    if (extra !== undefined) {
+      Object.assign(merged, extra);
+    }
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private static resolveMetadataExtra(params: ModelParams): Record<string, unknown> | undefined {
+    const raw = params.metadata;
+    if (raw == null) {
+      return undefined;
+    }
+    if (typeof raw === 'function') {
+      const v = raw(params);
+      if (
+        typeof v !== 'object' ||
+        v === null ||
+        Array.isArray(v) ||
+        Object.keys(v).length === 0
+      ) {
+        return undefined;
+      }
+      return { ...v };
+    }
+    if (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length > 0) {
+      return { ...raw };
+    }
+    return undefined;
   }
 
   private extractSystemMessage(messages: ModelParams['messages']): {

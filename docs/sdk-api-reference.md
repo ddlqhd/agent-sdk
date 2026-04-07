@@ -148,7 +148,7 @@
 可直接从 `@ddlqhd/agent-sdk` 导入的核心类型包括：
 
 - 消息与内容：`Message` `MessageRole` `TextContent` `ThinkingContent` `ImageContent` `ContentPart` `ToolCall`
-- 模型：`ModelAdapter` `ModelParams` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
+- 模型：`ModelAdapter` `ModelParams` `ModelParamsMetadata` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
 - 工具：`ToolDefinition` `ToolHandler` `ToolResult` `ToolResultMetadata` `ToolSchema`
 - 存储：`StorageConfig` `StorageAdapter` `SessionInfo`
 - 流式：`StreamEventType` `StreamEvent` `StreamEventAnnotations`（字段与语义详见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
