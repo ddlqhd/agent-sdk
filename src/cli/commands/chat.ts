@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { createModel, type ModelProvider } from '../../models/index.js';
+import type { ModelProvider } from '../../models/index.js';
 import { Agent } from '../../core/agent.js';
 import { formatUsage, formatSessionUsage, createStreamFormatter } from '../utils/output.js';
 import {
@@ -9,7 +9,7 @@ import {
   clearKeypressHandler,
   pauseKeypressListener
 } from '../utils/keypress.js';
-import type { CLIConfig } from '../../core/types.js';
+import type { AgentModelConfig, CLIConfig } from '../../core/types.js';
 import { loadMCPConfig } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
@@ -49,9 +49,9 @@ function addModelOptions(cmd: Command): Command {
     );
 }
 
-function createModelFromOptions(options: CLIConfig) {
+function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
   const provider = (options.model || 'openai') as ModelProvider;
-  return createModel({
+  return {
     provider,
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
@@ -59,7 +59,7 @@ function createModelFromOptions(options: CLIConfig) {
     ...(provider === 'ollama' && options.ollamaThink !== undefined
       ? { think: options.ollamaThink }
       : {})
-  });
+  };
 }
 
 /**
@@ -78,8 +78,6 @@ export function createChatCommand(): Command {
         }
       }
 
-      const model = createModelFromOptions(options);
-
       // 加载 MCP 配置
       const mcpResult = loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
       if (mcpResult.configPath) {
@@ -91,7 +89,7 @@ export function createChatCommand(): Command {
 
       const cwd = options.cwd || process.cwd();
       const agent = new Agent({
-        model,
+        modelConfig: modelConfigFromOptions(options),
         cwd,
         hookConfigDir: cwd,
         systemPrompt: options.system,
@@ -104,6 +102,7 @@ export function createChatCommand(): Command {
 
       // 等待 Agent 初始化完成（skill 加载、MCP 连接等）
       await agent.waitForInit();
+      const model = agent.getModel();
 
       // 显示已加载的 skills
       const skillRegistry = agent.getSkillRegistry();
@@ -282,8 +281,6 @@ export function createRunCommand(): Command {
           }
         }
 
-        const model = createModelFromOptions(options);
-
         // 加载 MCP 配置
         const mcpResult = loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
         if (mcpResult.configPath) {
@@ -292,7 +289,7 @@ export function createRunCommand(): Command {
 
         const cwd = options.cwd || process.cwd();
         const agent = new Agent({
-          model,
+          modelConfig: modelConfigFromOptions(options),
           cwd,
           hookConfigDir: cwd,
           systemPrompt: options.system,

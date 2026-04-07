@@ -8,7 +8,8 @@ import type {
   SystemPrompt,
   MCPServerConfig,
   ContextManagerConfig,
-  Message
+  Message,
+  ModelAdapter
 } from '../core/types.js';
 import { randomUUID } from 'crypto';
 import { ToolRegistry } from '../tools/registry.js';
@@ -27,8 +28,10 @@ import { ContextManager } from './context-manager.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
+import { mergeMcpStdioEnv } from './process-env-merge.js';
+import { createModel } from '../models/index.js';
 
-function toMCPClientConfig(config: MCPServerConfig): MCPClientConfig {
+function toMCPClientConfig(config: MCPServerConfig, agentEnv?: Record<string, string>): MCPClientConfig {
   if (config.transport === 'http') {
     return {
       name: config.name,
@@ -40,7 +43,7 @@ function toMCPClientConfig(config: MCPServerConfig): MCPClientConfig {
     name: config.name,
     command: config.command!,
     args: config.args,
-    env: config.env
+    env: mergeMcpStdioEnv(agentEnv, config.env)
   };
 }
 
@@ -78,17 +81,33 @@ export class Agent {
   // totalTokens: 累计总消耗 (inputTokens + outputTokens)
   private sessionUsage: SessionTokenUsage = Agent.createEmptySessionUsage();
 
+  private static resolveModel(config: AgentConfig): ModelAdapter {
+    if (config.model) {
+      if (config.modelConfig) {
+        throw new Error('AgentConfig: pass only one of `model` or `modelConfig`');
+      }
+      return config.model;
+    }
+    if (config.modelConfig) {
+      return createModel(config.modelConfig, config.env);
+    }
+    throw new Error('AgentConfig: `model` or `modelConfig` is required');
+  }
+
   constructor(config: AgentConfig) {
+    const resolvedModel = Agent.resolveModel(config);
     this.config = {
       maxIterations: 200,
       streaming: true,
-      ...config
+      ...config,
+      model: resolvedModel,
+      modelConfig: undefined
     };
 
     // 初始化 Skill 注册中心
     this.skillRegistry = createSkillRegistry({
-      cwd: config.cwd,
-      userBasePath: config.userBasePath
+      cwd: this.config.cwd,
+      userBasePath: this.config.userBasePath
     });
 
     // 初始化工具注册中心（执行策略与 AgentConfig 对齐，便于在 ToolRegistry.execute 中统一校验）
@@ -114,27 +133,27 @@ export class Agent {
       this.toolRegistry.unregister('Agent');
     }
 
-    if (config.hookManager) {
-      this.toolRegistry.setHookManager(config.hookManager);
-    } else if (config.hookConfigDir !== undefined) {
+    if (this.config.hookManager) {
+      this.toolRegistry.setHookManager(this.config.hookManager);
+    } else if (this.config.hookConfigDir !== undefined) {
       const hm = HookManager.create();
       this.toolRegistry.setHookManager(hm);
-      this.hookDiscoverPromise = hm.discoverAndLoad(config.hookConfigDir);
+      this.hookDiscoverPromise = hm.discoverAndLoad(this.config.hookConfigDir);
     }
 
     // 初始化会话管理器（存储在用户目录下）
     this.sessionManager = new SessionManager({
-      type: config.storage?.type || 'jsonl',
-      basePath: getSessionStoragePath(config.userBasePath)
+      type: this.config.storage?.type || 'jsonl',
+      basePath: getSessionStoragePath(this.config.userBasePath)
     });
 
     // 初始化 ContextManager
-    if (config.contextManagement !== false) {
-      const cmConfig: ContextManagerConfig = config.contextManagement === true
+    if (this.config.contextManagement !== false) {
+      const cmConfig: ContextManagerConfig = this.config.contextManagement === true
         ? {}
-        : config.contextManagement ?? {};
+        : this.config.contextManagement ?? {};
 
-      this.contextManager = new ContextManager(config.model, cmConfig);
+      this.contextManager = new ContextManager(this.config.model!, cmConfig);
     }
 
     // 启动异步初始化，保存 Promise 供外部等待
@@ -404,7 +423,7 @@ export class Agent {
           includeRawStreamEvents: options?.includeRawStreamEvents
         };
 
-        const stream = this.config.model.stream(modelParams);
+        const stream = this.config.model!.stream(modelParams);
         let hasToolCalls = false;
         const toolCalls: ToolCall[] = [];
         let assistantContent = '';
@@ -711,6 +730,13 @@ export class Agent {
   }
 
   /**
+   * 解析后的模型适配器（`modelConfig` 已在构造时合并 `env` 并实例化）。
+   */
+  getModel(): ModelAdapter {
+    return this.config.model!;
+  }
+
+  /**
    * 处理用户输入，检测并处理 skill 调用
    * @param input 用户输入
    * @returns 处理结果
@@ -823,7 +849,7 @@ export class Agent {
       this.mcpAdapter = new MCPAdapter();
     }
 
-    await this.mcpAdapter.addServer(toMCPClientConfig(config));
+    await this.mcpAdapter.addServer(toMCPClientConfig(config, this.config.env));
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     for (const tool of mcpTools) {

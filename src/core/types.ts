@@ -599,11 +599,31 @@ export interface ToolExecutionPolicy {
 }
 
 /**
+ * 与 `createModel` 参数对齐，供 `AgentConfig.modelConfig` 使用（避免 `types` 依赖 `models`）。
+ */
+export interface AgentModelConfig {
+  provider: 'openai' | 'anthropic' | 'ollama';
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  /** Ollama：对应 `/api/chat` 的 `think` */
+  think?: boolean | 'low' | 'medium' | 'high';
+}
+
+/**
  * Agent 配置
  */
 export interface AgentConfig {
-  /** 模型适配器 */
-  model: ModelAdapter;
+  /**
+   * 模型适配器；与 {@link modelConfig} 二选一。
+   * 若需让 {@link env} 参与 API Key 等解析，请使用 `modelConfig`，由 Agent 内部调用 {@link mergeProcessEnv} 后构造适配器。
+   */
+  model?: ModelAdapter;
+
+  /**
+   * 由 Agent 在内部通过 `createModel(modelConfig, env)` 构造适配器；与 `model` 二选一。
+   */
+  modelConfig?: AgentModelConfig;
 
   /** 系统提示 (字符串或配置对象) */
   systemPrompt?: SystemPrompt;
@@ -648,6 +668,14 @@ export interface AgentConfig {
 
   /** MCP 服务器配置 */
   mcpServers?: MCPServerConfig[];
+
+  /**
+   * 对当前进程环境的补充与覆盖（合并到 stdio MCP 子进程；键与 `process.env` 冲突时以本字段为准）。
+   * 与 {@link includeEnvironment}（往 system prompt 注入工作区描述）无关。
+   * 使用 `modelConfig` 时，`env` 会一并用于构造模型适配器；若传入现成 `model`，请自行用 `mergeProcessEnv` 解析密钥等。
+   * 完整继承会将 `process.env` 中的敏感变量一并带入 MCP 子进程，由调用方控制。
+   */
+  env?: Record<string, string>;
 
   /** 用户级基础路径，默认 ~ (homedir)，用于定位 .claude/ 目录 */
   userBasePath?: string;

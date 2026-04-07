@@ -9,6 +9,7 @@ export type { OllamaConfig, OllamaThinkOption } from './ollama.js';
 export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString } from './ollama.js';
 
 import type { ModelAdapter } from '../core/types.js';
+import { mergeProcessEnv } from '../core/process-env-merge.js';
 import { OpenAIAdapter } from './openai.js';
 import { AnthropicAdapter } from './anthropic.js';
 import { OllamaAdapter } from './ollama.js';
@@ -26,29 +27,34 @@ export interface CreateModelConfig {
 }
 
 /**
- * 创建模型适配器工厂函数
+ * 创建模型适配器。
+ * 若传入 `agentEnv`，先与当前进程环境合并（`mergeProcessEnv`），再解析各提供商的默认密钥/URL；省略时等价于仅使用 `process.env` 快照。
  */
-export function createModel(config: CreateModelConfig): ModelAdapter {
-  switch (config.provider) {
+export function createModel(
+  modelConfig: CreateModelConfig,
+  agentEnv?: Record<string, string>
+): ModelAdapter {
+  const merged = mergeProcessEnv(agentEnv);
+  switch (modelConfig.provider) {
     case 'openai':
       return new OpenAIAdapter({
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.model
+        apiKey: modelConfig.apiKey || merged.OPENAI_API_KEY || '',
+        baseUrl: modelConfig.baseUrl || merged.OPENAI_BASE_URL,
+        model: modelConfig.model,
+        organization: merged.OPENAI_ORG_ID
       });
     case 'anthropic':
       return new AnthropicAdapter({
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.model
+        apiKey: modelConfig.apiKey || merged.ANTHROPIC_API_KEY || '',
+        baseUrl: modelConfig.baseUrl || merged.ANTHROPIC_BASE_URL,
+        model: modelConfig.model
       });
     case 'ollama':
       return new OllamaAdapter({
-        baseUrl: config.baseUrl,
-        model: config.model,
-        think: config.think
+        baseUrl: modelConfig.baseUrl || merged.OLLAMA_BASE_URL,
+        model: modelConfig.model,
+        think: modelConfig.think
       });
-    default:
-      throw new Error(`Unknown model provider: ${config.provider}`);
   }
+  throw new Error(`Unknown model provider: ${(modelConfig as { provider: string }).provider}`);
 }
