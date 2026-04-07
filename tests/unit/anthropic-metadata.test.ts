@@ -64,13 +64,11 @@ describe('AnthropicAdapter request metadata', () => {
         })
       })
     );
-    const adapter = new AnthropicAdapter({ apiKey: 'sk-test' });
-    await adapter.complete(
-      minimalUserParams({
-        sessionId: 'sess-1',
-        metadata: { user_id: 'custom', foo: 1 }
-      })
-    );
+    const adapter = new AnthropicAdapter({
+      apiKey: 'sk-test',
+      metadata: { user_id: 'custom', foo: 1 }
+    });
+    await adapter.complete(minimalUserParams({ sessionId: 'sess-1' }));
 
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -88,17 +86,15 @@ describe('AnthropicAdapter request metadata', () => {
         })
       })
     );
-    const adapter = new AnthropicAdapter({ apiKey: 'sk-test' });
     let received: ModelParams | undefined;
-    await adapter.complete(
-      minimalUserParams({
-        sessionId: 'sid-fn',
-        metadata: p => {
-          received = p;
-          return { fromFn: true };
-        }
-      })
-    );
+    const adapter = new AnthropicAdapter({
+      apiKey: 'sk-test',
+      metadata: p => {
+        received = p;
+        return { fromFn: true };
+      }
+    });
+    await adapter.complete(minimalUserParams({ sessionId: 'sid-fn' }));
 
     expect(received?.sessionId).toBe('sid-fn');
     expect(received?.messages).toHaveLength(1);
@@ -119,8 +115,8 @@ describe('AnthropicAdapter request metadata', () => {
         })
       })
     );
-    const adapter = new AnthropicAdapter({ apiKey: 'sk-test' });
-    await adapter.complete(minimalUserParams({ metadata: {} }));
+    const adapter = new AnthropicAdapter({ apiKey: 'sk-test', metadata: {} });
+    await adapter.complete(minimalUserParams());
 
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -138,13 +134,11 @@ describe('AnthropicAdapter request metadata', () => {
         })
       })
     );
-    const adapter = new AnthropicAdapter({ apiKey: 'sk-test' });
-    await adapter.complete(
-      minimalUserParams({
-        sessionId: 'only-session',
-        metadata: () => [] as unknown as Record<string, unknown>
-      })
-    );
+    const adapter = new AnthropicAdapter({
+      apiKey: 'sk-test',
+      metadata: () => [] as unknown as Record<string, unknown>
+    });
+    await adapter.complete(minimalUserParams({ sessionId: 'only-session' }));
 
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
