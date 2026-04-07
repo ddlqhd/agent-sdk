@@ -386,6 +386,27 @@ describe('Read Tool', () => {
 
     await fs.unlink(tmpFile).catch(() => {});
   });
+
+  it('should succeed for an empty file with zero lines (not an error)', async () => {
+    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(readFileTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_read_empty_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    await fs.writeFile(tmpFile, '', 'utf-8');
+
+    const result = await registry.execute('Read', { file_path: tmpFile });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('End of file - total 0 lines');
+    expect(result.content).not.toMatch(/^Error:/m);
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
 });
 
 describe('Write Tool', () => {
