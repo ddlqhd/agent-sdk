@@ -26,7 +26,9 @@ const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
 export const readFileTool = createTool({
   name: 'Read',
   category: 'filesystem',
-  description: `Reads a file from the local filesystem. You can access any file directly by using this tool.
+  description: `Reads human-readable text from the local filesystem: source code, configuration, logs, Markdown, and structured text (JSON, XML, YAML, etc.).
+
+Do NOT use Read for binary formats. This tool decodes the file as text; for binaries the result is garbage or misleading. Examples: images (png, jpg, gif, webp, ico), Office/OpenXML (xlsx, docx, pptx), PDF, audio/video, archives (zip, gz, etc.), and compiled binaries. Prefer format-specific tooling, a small script or library in the user's environment, or ask the user for an exported/plain-text view.
 
 Usage:
 - The file_path parameter must be an absolute path, not a relative path
@@ -35,10 +37,14 @@ Usage:
 - Results are returned using cat -n style, with line numbers starting at 1
 - Lines longer than 2000 characters are truncated
 - Use the offset and limit parameters to read specific line ranges of large files
-- If you read a file that exists but has empty contents you will receive an error message
+- An empty file (no lines) returns successfully with no numbered lines and a suffix noting zero total lines—it is not an error
 - Text encoding is detected automatically from the file (BOM, UTF-8 validity, charset analysis). You rarely need to set encoding; use it only to override detection (e.g. gbk, gb18030, cp936 maps to gbk)`,
   parameters: z.object({
-    file_path: z.string().describe('The absolute path to the file to read'),
+    file_path: z
+      .string()
+      .describe(
+        'Absolute path to a text or text-decodable source file (not binary formats such as images, xlsx, or pdf).'
+      ),
     encoding: z
       .string()
       .optional()
