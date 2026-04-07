@@ -3,7 +3,7 @@ export { BaseModelAdapter, zodToJsonSchema, toolsToModelSchema, mergeTokenUsage 
 export { OpenAIAdapter, createOpenAI } from './openai.js';
 export type { OpenAIConfig } from './openai.js';
 export { AnthropicAdapter, createAnthropic } from './anthropic.js';
-export type { AnthropicConfig } from './anthropic.js';
+export type { AnthropicConfig, AnthropicRequestMetadata } from './anthropic.js';
 export { OllamaAdapter, createOllama } from './ollama.js';
 export type { OllamaConfig, OllamaThinkOption } from './ollama.js';
 export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString } from './ollama.js';

@@ -7,6 +7,13 @@ import type {
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
 
 /**
+ * Messages API 顶层 `metadata`：静态字典，或根据每次请求的 {@link ModelParams} 生成字典。
+ */
+export type AnthropicRequestMetadata =
+  | Record<string, unknown>
+  | ((params: ModelParams) => Record<string, unknown>);
+
+/**
  * Anthropic 模型能力映射
  */
 const ANTHROPIC_CAPABILITIES: Record<string, ModelCapabilities> = {
@@ -26,6 +33,11 @@ export interface AnthropicConfig {
   version?: string;
   /** 自定义模型能力 (覆盖默认值) */
   capabilities?: ModelCapabilities;
+  /**
+   * 与 {@link ModelParams.sessionId} 合并进 Messages API 顶层 `metadata`（`sessionId` → `user_id`）。
+   * 配置中的键可覆盖 `user_id`。
+   */
+  metadata?: AnthropicRequestMetadata;
 }
 
 /**
@@ -37,6 +49,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   private baseUrl: string;
   private model: string;
   private version: string;
+  private requestMetadata?: AnthropicRequestMetadata;
 
   constructor(config: AnthropicConfig = {}) {
     super();
@@ -44,6 +57,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
     this.baseUrl = config.baseUrl || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
     this.model = config.model || 'claude-sonnet-4-20250514';
     this.version = config.version || '2023-06-01';
+    this.requestMetadata = config.metadata;
 
     if (!this.apiKey) {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
@@ -296,7 +310,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
       }));
     }
 
-    const mergedMetadata = AnthropicAdapter.mergeAnthropicMetadata(params);
+    const mergedMetadata = this.mergeAnthropicMetadata(params);
     if (mergedMetadata && Object.keys(mergedMetadata).length > 0) {
       body.metadata = mergedMetadata;
     }
@@ -305,11 +319,11 @@ export class AnthropicAdapter extends BaseModelAdapter {
   }
 
   /**
-   * Build Messages API `metadata`: `sessionId` → `user_id`, merged with resolved `params.metadata` (dict or fn).
-   * Caller `metadata` keys override `user_id` when duplicated.
+   * Build Messages API `metadata`: `sessionId` → `user_id`, merged with resolved adapter `metadata` (dict or fn).
+   * Config `metadata` keys override `user_id` when duplicated.
    */
-  private static mergeAnthropicMetadata(params: ModelParams): Record<string, unknown> | undefined {
-    const extra = AnthropicAdapter.resolveMetadataExtra(params);
+  private mergeAnthropicMetadata(params: ModelParams): Record<string, unknown> | undefined {
+    const extra = this.resolveMetadataExtra(params);
     const hasSession = params.sessionId !== undefined && params.sessionId !== '';
     if (!hasSession && extra === undefined) {
       return undefined;
@@ -324,8 +338,8 @@ export class AnthropicAdapter extends BaseModelAdapter {
     return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
-  private static resolveMetadataExtra(params: ModelParams): Record<string, unknown> | undefined {
-    const raw = params.metadata;
+  private resolveMetadataExtra(params: ModelParams): Record<string, unknown> | undefined {
+    const raw = this.requestMetadata;
     if (raw == null) {
       return undefined;
     }

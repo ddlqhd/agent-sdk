@@ -148,7 +148,7 @@
 可直接从 `@ddlqhd/agent-sdk` 导入的核心类型包括：
 
 - 消息与内容：`Message` `MessageRole` `TextContent` `ThinkingContent` `ImageContent` `ContentPart` `ToolCall`
-- 模型：`ModelAdapter` `ModelParams` `ModelParamsMetadata` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
+- 模型：`ModelAdapter` `ModelParams` `StreamChunk` `CompletionResult` `ModelCapabilities` `TokenUsage` `SessionTokenUsage`
 - 工具：`ToolDefinition` `ToolHandler` `ToolResult` `ToolResultMetadata` `ToolSchema`
 - 存储：`StorageConfig` `StorageAdapter` `SessionInfo`
 - 流式：`StreamEventType` `StreamEvent` `StreamEventAnnotations`（字段与语义详见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
@@ -170,7 +170,7 @@
 - 工厂：`createModel` `createOpenAI` `createAnthropic` `createOllama`
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
 - 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
-- 类型：`OpenAIConfig` `AnthropicConfig` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
 
 > 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。
 
