@@ -123,9 +123,13 @@ interface ModelAdapter {
 }
 ```
 
-## `ModelParams`
+## `ModelParams` / `ModelParamsMetadata`
 
 ```ts
+type ModelParamsMetadata =
+  | Record<string, unknown>
+  | ((params: ModelParams) => Record<string, unknown>);
+
 interface ModelParams {
   messages: Message[];
   tools?: ToolDefinition[];
@@ -134,8 +138,20 @@ interface ModelParams {
   stopSequences?: string[];
   signal?: AbortSignal;
   includeRawStreamEvents?: boolean;
+  /** 会话 id：`Agent` 在每次 `stream`/`complete` 调用中会自动填入当前 `SessionManager` 的会话 */
+  sessionId?: string;
+  /**
+   * 可选请求元数据：静态对象，或接收**完整** `ModelParams` 并返回普通对象的函数（由适配器在发请求前解析一次）。
+   * 各 `ModelAdapter` 自行决定是否写入 HTTP 请求及字段映射。
+   */
+  metadata?: ModelParamsMetadata;
 }
 ```
+
+- **`sessionId`**：`Agent` 在每轮模型请求中都会传入，便于适配器与上游 API 关联会话。OpenAI / Ollama 适配器当前不读取该字段。
+- **`metadata`**：字典与函数形态二选一。若为函数，避免在函数体内依赖「再次解析 `metadata`」以免歧义；通常只读取 `params.messages`、`params.sessionId`、`params.tools` 等字段即可。
+- **Anthropic**：将 `sessionId` 与解析后的 `metadata` **合并**为 Messages API 请求体顶层 `metadata`：默认以 `sessionId` 映射为 `user_id`，再浅合并 `metadata` 中的键（后者可覆盖 `user_id`）。详见 [Anthropic Messages `metadata`](https://docs.anthropic.com/en/api/messages)（`user_id` 须为不透明标识，勿传邮箱等 PII）。
+- 若你用**自定义** `ModelAdapter` 包装真实适配器，可在包装器的 `stream`/`complete` 里合并或改写 `metadata`，与 `Agent` 填入的 `sessionId` 一并传给内层。
 
 ## `CompletionResult` / `TokenUsage`
 
