@@ -1,5 +1,6 @@
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
+import { win32 as pathWin32 } from 'node:path';
 
 export interface EnvironmentInfo {
   cwd: string;
@@ -17,14 +18,69 @@ let cachedShellPath: string | null = null;
  */
 function findInPath(executable: string): string | null {
   try {
-    const result = execSync(`where ${executable}`, { 
-      encoding: 'utf-8', 
-      timeout: 1000 
+    const result = execSync(`where ${executable}`, {
+      encoding: 'utf-8',
+      timeout: 1000
     }).trim().split('\n')[0];
     return result && existsSync(result) ? result : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve Git Bash from a Git for Windows git.exe path (any drive or parent folder).
+ * Handles .../Git/cmd/git.exe, .../Git/bin/git.exe, and deeper mingw layouts.
+ */
+function findGitBashNextToGitExe(gitExe: string): string | null {
+  if (!existsSync(gitExe)) {
+    return null;
+  }
+  const dir = pathWin32.dirname(gitExe);
+  const siblingBash = pathWin32.join(dir, 'bash.exe');
+  if (existsSync(siblingBash)) {
+    return siblingBash;
+  }
+  let walk = dir;
+  for (let i = 0; i < 4; i++) {
+    const bashPath = pathWin32.join(walk, 'bin', 'bash.exe');
+    if (existsSync(bashPath)) {
+      return bashPath;
+    }
+    const parent = pathWin32.dirname(walk);
+    if (parent === walk) {
+      break;
+    }
+    walk = parent;
+  }
+  return null;
+}
+
+function findBashViaGitInstall(): string | null {
+  const gitExe = findInPath('git');
+  if (!gitExe) {
+    return null;
+  }
+  return findGitBashNextToGitExe(gitExe);
+}
+
+/** Typical Git for Windows locations (C/D/E cover non–system-drive installs). */
+function findGitBashInDefaultInstallDirs(): string | null {
+  const drives = ['C', 'D', 'E'];
+  const relatives = [
+    ['Program Files', 'Git', 'bin', 'bash.exe'],
+    ['Program Files (x86)', 'Git', 'bin', 'bash.exe']
+  ] as const;
+  for (const drive of drives) {
+    const root = `${drive}:\\`;
+    for (const parts of relatives) {
+      const p = pathWin32.join(root, ...parts);
+      if (existsSync(p)) {
+        return p;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -37,34 +93,31 @@ export function getShellPath(): string {
   }
 
   if (process.platform === 'win32') {
-    // Priority: Git Bash > system bash > pwsh > powershell
-    // Use 'where' command first to find bash in PATH (covers scoop, chocolatey, custom installs)
+    // Priority: bash in PATH > Git for Windows (via git.exe) > default install dirs > pwsh > powershell
     const bashPath = findInPath('bash');
     if (bashPath) {
       cachedShellPath = bashPath;
       return bashPath;
     }
 
-    // Check Git Bash in common install locations
-    const gitBashPaths = [
-      'C:\\Program Files\\Git\\bin\\bash.exe',
-      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-    ];
-    for (const path of gitBashPaths) {
-      if (existsSync(path)) {
-        cachedShellPath = path;
-        return path;
-      }
+    const viaGit = findBashViaGitInstall();
+    if (viaGit) {
+      cachedShellPath = viaGit;
+      return viaGit;
     }
 
-    // Check for PowerShell Core (pwsh)
+    const fromDirs = findGitBashInDefaultInstallDirs();
+    if (fromDirs) {
+      cachedShellPath = fromDirs;
+      return fromDirs;
+    }
+
     const pwshPath = findInPath('pwsh');
     if (pwshPath) {
       cachedShellPath = 'pwsh';
       return 'pwsh';
     }
 
-    // Fallback to Windows PowerShell
     cachedShellPath = 'powershell.exe';
     return 'powershell.exe';
   }
@@ -77,10 +130,10 @@ export function getShellPath(): string {
 export function getEnvironmentInfo(cwd: string): EnvironmentInfo {
   let isGitRepo = false;
   try {
-    execSync('git rev-parse --is-inside-work-tree', { 
-      cwd, 
-      stdio: 'pipe', 
-      timeout: 2000 
+    execSync('git rev-parse --is-inside-work-tree', {
+      cwd,
+      stdio: 'pipe',
+      timeout: 2000
     });
     isGitRepo = true;
   } catch { /* not a git repo */ }
@@ -91,11 +144,11 @@ export function getEnvironmentInfo(cwd: string): EnvironmentInfo {
   return {
     cwd,
     platform: process.platform,
-    date: new Date().toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
+    date: new Date().toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
     }),
     isGitRepo,
     shell
