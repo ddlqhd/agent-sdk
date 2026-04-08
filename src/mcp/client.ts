@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 import type { ToolDefinition, ToolResult } from '../core/types.js';
+import { PACKAGE_VERSION } from '../version.js';
 
 export interface StdioMCPConfig {
   name: string;
@@ -68,7 +69,7 @@ export class MCPClient {
     this._name = config.name;
 
     this.client = new Client(
-      { name: 'agent-sdk-client', version: '0.1.0' },
+      { name: 'agent-sdk-client', version: PACKAGE_VERSION },
       { capabilities: {} }
     );
 

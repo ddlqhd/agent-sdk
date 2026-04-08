@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { PACKAGE_VERSION } from '../version.js';
 import { createChatCommand } from './commands/chat.js';
 import { createRunCommand } from './commands/chat.js';
 import { createToolsCommand } from './commands/tools.js';
@@ -16,7 +17,7 @@ if (isMainModule) {
   program
     .name('agent-sdk')
     .description('A TypeScript Agent SDK with multi-model support, MCP integration, and streaming')
-    .version('0.1.0');
+    .version(PACKAGE_VERSION);
 
   // 添加子命令
   program.addCommand(createChatCommand());

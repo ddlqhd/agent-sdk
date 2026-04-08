@@ -1,5 +1,7 @@
 // Agent SDK - Main Entry Point
 
+export { PACKAGE_VERSION } from './version.js';
+
 // Core
 export { Agent, createAgent } from './core/agent.js';
 export type { StreamOptions } from './core/agent.js';
