@@ -15,6 +15,129 @@ export type AnthropicRequestMetadata =
   | ((params: ModelParams) => Record<string, unknown>);
 
 /**
+ * 初次 Messages API `POST` 的重试选项（不含 SSE 已建立后 `read` 中途断线）。
+ * 未传 `fetchRetry` 时默认共 **2** 次尝试（即 **1** 次自动重试），退避基数 200ms、单次等待上限 2000ms。
+ */
+export interface AnthropicFetchRetryOptions {
+  /**
+   * 总尝试次数（含第一次）。省略 `fetchRetry` 时默认为 **2**（失败可再试 1 次）。
+   * 设为 `1` 可关闭重试。
+   * @example `4` → 首次失败后最多再试 3 次。
+   */
+  maxAttempts?: number;
+  /** 指数退避的基准间隔（毫秒），默认 200。 */
+  baseDelayMs?: number;
+  /** 单次等待上限（毫秒），默认 2000；亦为 `Retry-After` 解析结果的上限。 */
+  maxDelayMs?: number;
+}
+
+/** 未配置 `fetchRetry` 时的默认策略：最多 2 次 HTTP 尝试（网络抖动或 429/502/503/504 时可自动重试 1 次）。 */
+const DEFAULT_FETCH_RETRY: Required<AnthropicFetchRetryOptions> = {
+  maxAttempts: 2,
+  baseDelayMs: 200,
+  maxDelayMs: 2_000
+};
+
+function normalizeFetchRetry(options?: AnthropicFetchRetryOptions): Required<AnthropicFetchRetryOptions> {
+  if (options == null) {
+    return { ...DEFAULT_FETCH_RETRY };
+  }
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? DEFAULT_FETCH_RETRY.maxAttempts));
+  const baseDelayMs = Math.max(0, options.baseDelayMs ?? DEFAULT_FETCH_RETRY.baseDelayMs);
+  const maxDelayMs = Math.max(baseDelayMs, options.maxDelayMs ?? DEFAULT_FETCH_RETRY.maxDelayMs);
+  return { maxAttempts, baseDelayMs, maxDelayMs };
+}
+
+function isAbortError(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === 'AbortError') {
+    return true;
+  }
+  return typeof e === 'object' && e !== null && (e as { name?: string }).name === 'AbortError';
+}
+
+function isRetriableFetchError(e: unknown): boolean {
+  if (isAbortError(e)) {
+    return false;
+  }
+  if (e instanceof TypeError) {
+    return true;
+  }
+  const cause = typeof e === 'object' && e !== null && 'cause' in e
+    ? (e as { cause?: { code?: string } }).cause
+    : undefined;
+  const code = cause?.code;
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'EPIPE' ||
+    code === 'UND_ERR_SOCKET'
+  );
+}
+
+function isRetriableHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/** Parse Retry-After: delta-seconds or HTTP-date → wait ms (undefined if unparseable). */
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (header == null || header === '') {
+    return undefined;
+  }
+  const trimmed = header.trim();
+  const asNum = Number(trimmed);
+  if (Number.isFinite(asNum) && asNum >= 0) {
+    return asNum * 1000;
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) {
+    const delta = parsed - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+  return undefined;
+}
+
+function computeBackoffMs(
+  attemptIndex: number,
+  baseDelayMs: number,
+  maxDelayMs: number
+): number {
+  const exp = Math.min(maxDelayMs, baseDelayMs * 2 ** attemptIndex);
+  const jitter = 0.5 + Math.random() * 0.5;
+  return Math.min(maxDelayMs, Math.floor(exp * jitter));
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
+    const id = setTimeout(() => {
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(id);
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function drainResponseBody(response: Response): Promise<void> {
+  try {
+    await response.arrayBuffer();
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Anthropic 模型能力映射
  */
 const ANTHROPIC_CAPABILITIES: Record<string, ModelCapabilities> = {
@@ -39,6 +162,11 @@ export interface AnthropicConfig {
    * 配置中的键可覆盖 `user_id`。
    */
   metadata?: AnthropicRequestMetadata;
+  /**
+   * 仅针对**建立连接前**的初次 `POST` 的重试策略，见 {@link AnthropicFetchRetryOptions}。
+   * 省略时默认共 2 次尝试（**1** 次自动重试）；传入 `fetchRetry: { maxAttempts: 1 }` 可改为只请求 1 次、不重试。
+   */
+  fetchRetry?: AnthropicFetchRetryOptions;
 }
 
 /**
@@ -51,6 +179,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   private model: string;
   private version: string;
   private requestMetadata?: AnthropicRequestMetadata;
+  private fetchRetry: Required<AnthropicFetchRetryOptions>;
 
   constructor(config: AnthropicConfig = {}) {
     super();
@@ -59,6 +188,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
     this.model = config.model || 'claude-sonnet-4-20250514';
     this.version = config.version || '2023-06-01';
     this.requestMetadata = config.metadata;
+    this.fetchRetry = normalizeFetchRetry(config.fetchRetry);
 
     if (!this.apiKey) {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
@@ -435,9 +565,13 @@ export class AnthropicAdapter extends BaseModelAdapter {
     });
   }
 
+  /**
+   * 发起 POST；按 `fetchRetry` 对网络错误与 429/502/503/504 重试（不含响应体已开始消费后的 SSE 读失败）。
+   */
   private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     debugLogModelRequestBody('anthropic', path, body);
-    return globalThis.fetch(`${this.baseUrl}${path}`, {
+    const url = `${this.baseUrl}${path}`;
+    const init: RequestInit = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -446,7 +580,48 @@ export class AnthropicAdapter extends BaseModelAdapter {
       },
       body: JSON.stringify(body),
       signal
-    });
+    };
+
+    for (let attempt = 0; attempt < this.fetchRetry.maxAttempts; attempt++) {
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+
+      try {
+        const response = await globalThis.fetch(url, init);
+        if (response.ok) {
+          return response;
+        }
+
+        const canRetryHttp =
+          attempt < this.fetchRetry.maxAttempts - 1 && isRetriableHttpStatus(response.status);
+        if (canRetryHttp) {
+          await drainResponseBody(response);
+          const fromHeader = parseRetryAfterMs(response.headers.get('Retry-After'));
+          const backoff = computeBackoffMs(attempt, this.fetchRetry.baseDelayMs, this.fetchRetry.maxDelayMs);
+          const waitMs =
+            fromHeader != null
+              ? Math.min(fromHeader, this.fetchRetry.maxDelayMs)
+              : backoff;
+          await delay(waitMs, signal);
+          continue;
+        }
+
+        return response;
+      } catch (e) {
+        if (isAbortError(e) || signal?.aborted) {
+          throw e;
+        }
+        if (attempt < this.fetchRetry.maxAttempts - 1 && isRetriableFetchError(e)) {
+          const backoff = computeBackoffMs(attempt, this.fetchRetry.baseDelayMs, this.fetchRetry.maxDelayMs);
+          await delay(backoff, signal);
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    throw new Error('Anthropic fetch: unexpected retry loop exit');
   }
 
   private safeParseJSON(str: string): unknown {

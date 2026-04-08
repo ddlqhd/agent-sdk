@@ -22,7 +22,7 @@
 ## 3. 集成约定（第三方必读）
 
 - 业务与产品代码**必须**通过 `Agent`（例如 `run`、`stream`）驱动对话与工具调用，以获得会话持久化、多轮工具循环、流式事件注解（`streamEventId` / `iteration` / `sessionId`）等与文档一致的语义。
-- 每轮调用模型时，`Agent` 会把当前会话 id 填入底层 **`ModelParams.sessionId`**。Anthropic 请求体顶层的 `metadata`（含 `user_id` 等）在 **`createAnthropic` 的 `metadata` 选项** 与 `sessionId` 中配置，见 [`sdk-types-reference.md`](./sdk-types-reference.md) `ModelParams` 与 `AnthropicRequestMetadata`。
+- 每轮调用模型时，`Agent` 会把当前会话 id 填入底层 **`ModelParams.sessionId`**。Anthropic 请求体顶层的 `metadata`（含 `user_id` 等）在 **`createAnthropic` 的 `metadata` 选项** 与 `sessionId` 中配置，见 [`sdk-types-reference.md`](./sdk-types-reference.md) `ModelParams` 与 `AnthropicRequestMetadata`。同一适配器在未配置 `fetchRetry` 时，对**该轮**的初次 HTTP **POST** 默认最多 **2** 次尝试（**1** 次自动重试，应对短暂网络或 429/502/503/504）；关闭重试可设 `fetchRetry: { maxAttempts: 1 }`。
 - `createOpenAI`、`createAnthropic`、`createOllama`、`createModel` 等仅用于**构造**传入 `Agent` 的 `model`（`ModelAdapter` 实例）。**禁止**在应用代码中跳过 `Agent`，直接调用适配器的 `stream`、`complete` 等执行型 API。
 - 公开文档中的流式事件（`StreamEvent`）说明均以 **`Agent.stream`** 为准。
 

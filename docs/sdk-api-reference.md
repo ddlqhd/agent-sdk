@@ -72,7 +72,7 @@
 - `OpenAIAdapter`
 - `AnthropicAdapter`
 - `OllamaAdapter`
-- 类型：`OpenAIConfig` `AnthropicConfig` `OllamaConfig` `ModelProvider` `CreateModelConfig`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicFetchRetryOptions` `OllamaConfig` `ModelProvider` `CreateModelConfig`
 
 ## Tools（从根入口再导出）
 
@@ -170,9 +170,9 @@
 - 工厂：`createModel` `createOpenAI` `createAnthropic` `createOllama`
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
 - 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
-- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
 
-> 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。
+> 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。Anthropic 适配器在未配置 `fetchRetry` 时默认对初次 `POST` **最多尝试 2 次**（约等于 1 次自动重试）；若需关闭重试，传 `fetchRetry: { maxAttempts: 1 }`。
 
 ---
 

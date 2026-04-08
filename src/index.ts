@@ -17,7 +17,14 @@ export {
   AnthropicAdapter,
   OllamaAdapter
 } from './models/index.js';
-export type { OpenAIConfig, AnthropicConfig, OllamaConfig, ModelProvider, CreateModelConfig } from './models/index.js';
+export type {
+  OpenAIConfig,
+  AnthropicConfig,
+  AnthropicFetchRetryOptions,
+  OllamaConfig,
+  ModelProvider,
+  CreateModelConfig
+} from './models/index.js';
 
 // Tools
 export { ToolRegistry, createTool, getGlobalRegistry } from './tools/index.js';

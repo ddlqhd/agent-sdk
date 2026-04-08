@@ -119,6 +119,7 @@ import {
 
 const openaiModel = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropicModel = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Anthropic 默认对单次调用的初次 HTTP 请求失败会再试 1 次（共 2 次尝试）。若需关闭：fetchRetry: { maxAttempts: 1 }。
 const ollamaModel = createOllama({ baseUrl: process.env.OLLAMA_BASE_URL });
 
 const model = createModel({
