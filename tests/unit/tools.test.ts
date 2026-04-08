@@ -536,6 +536,101 @@ describe('Edit Tool', () => {
 
     await fs.unlink(tmpFile).catch(() => {});
   });
+
+  it('should reject empty old_string', async () => {
+    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(editTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_edit_empty_${Date.now()}.txt`);
+    await fs.writeFile(tmpFile, 'x', 'utf-8');
+
+    const result = await registry.execute('Edit', {
+      file_path: tmpFile,
+      old_string: '',
+      new_string: 'y'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Invalid arguments/i);
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should match LF old_string in CRLF file and keep CRLF', async () => {
+    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(editTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_edit_crlf_${Date.now()}.txt`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    await fs.writeFile(tmpFile, 'a\r\nb\r\n', 'utf-8');
+
+    const result = await registry.execute('Edit', {
+      file_path: tmpFile,
+      old_string: 'a\nb',
+      new_string: 'x\ny'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const content = await fs.readFile(tmpFile, 'utf-8');
+    expect(content).toBe('x\r\ny\r\n');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
+
+  it('should reject when path is not a regular file', async () => {
+    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(editTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpDir = path.join(os.tmpdir(), `test_edit_notfile_${Date.now()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+
+    const result = await registry.execute('Edit', {
+      file_path: tmpDir,
+      old_string: 'x',
+      new_string: 'y'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('is not a file');
+
+    await fs.rm(tmpDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should match CR-only line breaks in old_string when file uses LF', async () => {
+    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(editTool);
+
+    const fs = await import('fs/promises');
+    const os = await import('os');
+    const path = await import('path');
+    const tmpFile = path.join(os.tmpdir(), `test_edit_cr_${Date.now()}.txt`);
+    await fs.writeFile(tmpFile, 'a\nb\n', 'utf-8');
+
+    const result = await registry.execute('Edit', {
+      file_path: tmpFile,
+      old_string: 'a\rb',
+      new_string: 'ok'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const content = await fs.readFile(tmpFile, 'utf-8');
+    expect(content).toBe('ok\n');
+
+    await fs.unlink(tmpFile).catch(() => {});
+  });
 });
 
 describe('Task Tools', () => {

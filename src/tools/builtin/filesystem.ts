@@ -20,6 +20,100 @@ const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
 
+/** Edit loads the full file into memory; reject at or above this size (bytes). */
+const EDIT_MAX_FILE_BYTES = 1024 ** 3;
+
+function detectDominantEol(content: string): '\r\n' | '\n' {
+  let crlf = 0;
+  for (let i = 0; i < content.length - 1; i++) {
+    if (content[i] === '\r' && content[i + 1] === '\n') {
+      crlf++;
+    }
+  }
+  let nl = 0;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '\n') {
+      nl++;
+    }
+  }
+  const bareLf = nl - crlf;
+  if (crlf > bareLf) {
+    return '\r\n';
+  }
+  return '\n';
+}
+
+function normalizeNewStringEols(text: string, eol: '\r\n' | '\n'): string {
+  const unified = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (eol === '\n') {
+    return unified;
+  }
+  return unified.replace(/\n/g, '\r\n');
+}
+
+function buildNeedleCandidates(oldString: string, dominantEol: '\r\n' | '\n'): string[] {
+  const out: string[] = [oldString];
+  if (dominantEol === '\r\n') {
+    if (!oldString.includes('\r')) {
+      const v = oldString.replace(/\n/g, '\r\n');
+      if (v !== oldString) {
+        out.push(v);
+      }
+    }
+  } else {
+    if (oldString.includes('\r\n')) {
+      const v = oldString.replace(/\r\n/g, '\n');
+      if (v !== oldString) {
+        out.push(v);
+      }
+    } else if (oldString.includes('\r')) {
+      const v = oldString.replace(/\r/g, '\n');
+      if (v !== oldString) {
+        out.push(v);
+      }
+    }
+  }
+  return out;
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (needle.length === 0) {
+    return 0;
+  }
+  let n = 0;
+  let from = 0;
+  let i = 0;
+  while ((i = haystack.indexOf(needle, from)) !== -1) {
+    n++;
+    from = i + needle.length;
+  }
+  return n;
+}
+
+function replaceNonOverlapping(
+  content: string,
+  needle: string,
+  replacement: string,
+  replaceAll: boolean
+): string {
+  if (!replaceAll) {
+    const i = content.indexOf(needle);
+    if (i === -1) {
+      throw new Error('Edit: needle not found after resolution (internal inconsistency)');
+    }
+    return content.slice(0, i) + replacement + content.slice(i + needle.length);
+  }
+  let out = '';
+  let from = 0;
+  let i = 0;
+  while ((i = content.indexOf(needle, from)) !== -1) {
+    out += content.slice(from, i) + replacement;
+    from = i + needle.length;
+  }
+  out += content.slice(from);
+  return out;
+}
+
 /**
  * Read 工具 - 读取文件内容
  */
@@ -258,7 +352,9 @@ export const editTool = createTool({
 
 Usage:
 - You must use the Read tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file
+- Files at or above 1 GiB cannot be edited with this tool (use another workflow for huge files)
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string
+- old_string may use \\n line breaks; CRLF files are matched and new_string is rewritten to the file's dominant line ending style (\\r\\n vs \\n)
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked
 - The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string
@@ -266,7 +362,7 @@ Usage:
 - For non-UTF-8 files, set encoding to the same value you used with Read (default is utf8)`,
   parameters: z.object({
     file_path: z.string().describe('The absolute path to the file to modify'),
-    old_string: z.string().describe('The text to replace'),
+    old_string: z.string().min(1).describe('The text to replace (non-empty)'),
     new_string: z.string().describe('The text to replace it with (must be different from old_string)'),
     replace_all: z
       .boolean()
@@ -296,34 +392,54 @@ Usage:
         };
       }
 
+      const fs = await import('fs/promises');
+      const stat = await fs.stat(file_path);
+      if (!stat.isFile()) {
+        return {
+          content: `Error: ${file_path} is not a file`,
+          isError: true
+        };
+      }
+      if (stat.size >= EDIT_MAX_FILE_BYTES) {
+        return {
+          content: `Error: file is too large to edit (${stat.size} bytes). Maximum size is ${EDIT_MAX_FILE_BYTES} bytes (1 GiB). Use a different tool or split the work.`,
+          isError: true
+        };
+      }
+
       const content = await readFileAsUnicodeString(file_path, normalized);
 
-      if (!content.includes(old_string)) {
+      const dominantEol = detectDominantEol(content);
+      const candidates = buildNeedleCandidates(old_string, dominantEol);
+      let needle: string | null = null;
+      for (const c of candidates) {
+        if (countOccurrences(content, c) > 0) {
+          needle = c;
+          break;
+        }
+      }
+
+      if (needle === null) {
         return {
           content: `old_string not found in ${file_path}`,
           isError: true
         };
       }
 
-      if (!replace_all) {
-        const occurrences = content.split(old_string).length - 1;
-        if (occurrences > 1) {
-          return {
-            content: `Found ${occurrences} matches for old_string. Provide more context to make it unique, or set replace_all to true.`,
-            isError: true
-          };
-        }
+      const occurrences = countOccurrences(content, needle);
+
+      if (!replace_all && occurrences > 1) {
+        return {
+          content: `Found ${occurrences} matches for old_string. Provide more context to make it unique, or set replace_all to true.`,
+          isError: true
+        };
       }
 
-      const newContent = replace_all
-        ? content.replaceAll(old_string, new_string)
-        : content.replace(old_string, new_string);
+      const normalizedNew = normalizeNewStringEols(new_string, dominantEol);
+      const newContent = replaceNonOverlapping(content, needle, normalizedNew, replace_all);
 
       await writeFileFromUnicodeString(file_path, newContent, normalized);
 
-      const occurrences = replace_all
-        ? content.split(old_string).length - 1
-        : 1;
       return {
         content: `Successfully edited ${file_path} (${occurrences} replacement${occurrences > 1 ? 's' : ''})`
       };
