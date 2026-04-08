@@ -275,7 +275,7 @@ export interface ToolDefinition {
   description: string;
 
   /** 参数 Schema (Zod) */
-  parameters: z.ZodSchema;
+  parameters: z.ZodType;
 
   /** 处理函数 */
   handler: ToolHandler;

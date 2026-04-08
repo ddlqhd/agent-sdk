@@ -10,129 +10,17 @@ import type {
   TokenUsage
 } from '../core/types.js';
 
-/**
- * 将 Zod Schema 转换为 JSON Schema
- */
-export function zodToJsonSchema(schema: z.ZodSchema): unknown {
-  if (schema instanceof z.ZodObject) {
-    const shape = schema.shape;
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-
-    for (const [key, value] of Object.entries(shape)) {
-      properties[key] = zodFieldToJsonSchema(value as z.ZodSchema);
-      if (!(value as z.ZodSchema).isOptional()) {
-        required.push(key);
-      }
-    }
-
-    return {
-      type: 'object',
-      properties,
-      required: required.length > 0 ? required : undefined,
-      additionalProperties: false
-    };
-  }
-
-  return zodFieldToJsonSchema(schema);
-}
+/** Options passed through to Zod’s JSON Schema conversion (target, io, etc.). */
+export type ZodToJsonSchemaOptions = NonNullable<Parameters<typeof z.toJSONSchema>[1]>;
 
 /**
- * 将单个 Zod 字段转换为 JSON Schema
+ * 将 Zod Schema 转换为 JSON Schema（使用 Zod 4 内置转换，避免跨副本 instanceof 失效）
  */
-function zodFieldToJsonSchema(schema: z.ZodSchema): unknown {
-  // ZodDefault → unwrap inner type and extract default value
-  if ((schema as any)._def?.typeName === 'ZodDefault') {
-    const inner = zodFieldToJsonSchema((schema as any)._def.innerType);
-    const defaultValue = (schema as any)._def.defaultValue();
-    const desc = schema.description || (inner as Record<string, unknown>)?.description;
-    const result: Record<string, unknown> = { ...(inner as Record<string, unknown>) };
-    if (desc) result.description = desc;
-    result.default = defaultValue;
-    return result;
-  }
-
-  // ZodOptional → unwrap, preserve description from wrapper
-  if (schema instanceof z.ZodOptional) {
-    const inner = zodFieldToJsonSchema(schema.unwrap());
-    const desc = schema.description || (inner as Record<string, unknown>)?.description;
-    if (desc && (inner as Record<string, unknown>)?.description !== desc) {
-      return { ...(inner as Record<string, unknown>), description: desc };
-    }
-    return inner;
-  }
-
-  // ZodNullable → unwrap, preserve description
-  if (schema instanceof z.ZodNullable) {
-    const inner = zodFieldToJsonSchema(schema.unwrap());
-    const desc = schema.description || (inner as Record<string, unknown>)?.description;
-    if (desc && (inner as Record<string, unknown>)?.description !== desc) {
-      return { ...(inner as Record<string, unknown>), description: desc };
-    }
-    return inner;
-  }
-
-  // ZodString → add minLength/maxLength from checks
-  if (schema instanceof z.ZodString) {
-    const result: Record<string, unknown> = { type: 'string' };
-    if (schema.description) result.description = schema.description;
-    for (const check of (schema as any)._def.checks) {
-      if (check.kind === 'min') result.minLength = check.value;
-      if (check.kind === 'max') result.maxLength = check.value;
-    }
-    return result;
-  }
-
-  // ZodNumber → add int/minimum/maximum from checks
-  if (schema instanceof z.ZodNumber) {
-    const result: Record<string, unknown> = { type: 'number' };
-    if (schema.description) result.description = schema.description;
-    for (const check of (schema as any)._def.checks) {
-      if (check.kind === 'int') result.type = 'integer';
-      if (check.kind === 'min') {
-        if (check.inclusive === false) result.exclusiveMinimum = check.value;
-        else result.minimum = check.value;
-      }
-      if (check.kind === 'max') {
-        if (check.inclusive === false) result.exclusiveMaximum = check.value;
-        else result.maximum = check.value;
-      }
-    }
-    return result;
-  }
-
-  // ZodBoolean
-  if (schema instanceof z.ZodBoolean) {
-    return { type: 'boolean', description: schema.description };
-  }
-
-  // ZodArray → add minItems/maxItems
-  if (schema instanceof z.ZodArray) {
-    const result: Record<string, unknown> = {
-      type: 'array',
-      items: zodFieldToJsonSchema(schema.element)
-    };
-    if (schema.description) result.description = schema.description;
-    if ((schema as any)._def.minLength) result.minItems = (schema as any)._def.minLength.value;
-    if ((schema as any)._def.maxLength) result.maxItems = (schema as any)._def.maxLength.value;
-    return result;
-  }
-
-  // ZodEnum
-  if (schema instanceof z.ZodEnum) {
-    return {
-      type: 'string',
-      enum: schema.options,
-      description: schema.description
-    };
-  }
-
-  // Nested ZodObject
-  if (schema instanceof z.ZodObject) {
-    return zodToJsonSchema(schema);
-  }
-
-  return { type: 'string' };
+export function zodToJsonSchema(
+  schema: z.ZodType,
+  options?: ZodToJsonSchemaOptions
+): unknown {
+  return z.toJSONSchema(schema, options);
 }
 
 /**
@@ -191,8 +79,8 @@ export abstract class BaseModelAdapter implements ModelAdapter {
         type: 'function',
         function: {
           name: tc.name,
-          arguments: typeof tc.arguments === 'string' 
-            ? tc.arguments 
+          arguments: typeof tc.arguments === 'string'
+            ? tc.arguments
             : JSON.stringify(tc.arguments)
         }
       }))}),

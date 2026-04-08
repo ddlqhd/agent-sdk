@@ -5,6 +5,7 @@ import type {
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { debugLogModelRequestBody } from './request-debug.js';
 
 /**
  * OpenAI 模型能力映射
@@ -265,6 +266,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
   }
 
   private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    debugLogModelRequestBody('openai', path, body);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${this.apiKey}`

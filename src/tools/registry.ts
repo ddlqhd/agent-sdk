@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type {
   ToolDefinition,
   ToolExecutionContext,
@@ -226,7 +225,18 @@ export class ToolRegistry {
 
     let workingInput: Record<string, unknown> = rawArgsObj;
     try {
-      workingInput = tool.parameters.parse(args) as Record<string, unknown>;
+      const initial = tool.parameters.safeParse(args);
+      if (!initial.success) {
+        const msg = `Invalid arguments for tool "${name}": ${initial.error.issues.map(i => i.message).join(', ')}`;
+        await hookMgr?.executePostToolUseFailure(
+          this.buildHookContext('postToolUseFailure', name, rawArgsObj, options, {
+            errorMessage: msg,
+            failureKind: 'validation'
+          })
+        );
+        return { content: msg, isError: true };
+      }
+      workingInput = initial.data as Record<string, unknown>;
 
       if (hookMgr) {
         const pre = await hookMgr.executePreToolUse(
@@ -238,24 +248,18 @@ export class ToolRegistry {
             isError: true
           };
         }
-        try {
-          workingInput = tool.parameters.parse(pre.updatedInput ?? workingInput) as Record<
-            string,
-            unknown
-          >;
-        } catch (err) {
-          if (err instanceof z.ZodError) {
-            const msg = `Invalid arguments after hook merge for tool "${name}": ${err.errors.map(e => e.message).join(', ')}`;
-            await hookMgr.executePostToolUseFailure(
-              this.buildHookContext('postToolUseFailure', name, workingInput, options, {
-                errorMessage: msg,
-                failureKind: 'validation'
-              })
-            );
-            return { content: msg, isError: true };
-          }
-          throw err;
+        const merged = tool.parameters.safeParse(pre.updatedInput ?? workingInput);
+        if (!merged.success) {
+          const msg = `Invalid arguments after hook merge for tool "${name}": ${merged.error.issues.map(i => i.message).join(', ')}`;
+          await hookMgr.executePostToolUseFailure(
+            this.buildHookContext('postToolUseFailure', name, workingInput, options, {
+              errorMessage: msg,
+              failureKind: 'validation'
+            })
+          );
+          return { content: msg, isError: true };
         }
+        workingInput = merged.data as Record<string, unknown>;
       }
 
       const handlerArgs = workingInput as Parameters<ToolDefinition['handler']>[0];
@@ -296,19 +300,6 @@ export class ToolRegistry {
 
       return finalResult;
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        const msg = `Invalid arguments for tool "${name}": ${error.errors.map(e => e.message).join(', ')}`;
-        await hookMgr?.executePostToolUseFailure(
-          this.buildHookContext('postToolUseFailure', name, rawArgsObj, options, {
-            errorMessage: msg,
-            failureKind: 'validation'
-          })
-        );
-        return {
-          content: msg,
-          isError: true
-        };
-      }
       const msg = `Error executing tool "${name}": ${error instanceof Error ? error.message : String(error)}`;
       await hookMgr?.executePostToolUseFailure(
         this.buildHookContext('postToolUseFailure', name, workingInput, options, {
@@ -409,7 +400,7 @@ export class ToolRegistry {
 export function createTool(config: {
   name: string;
   description: string;
-  parameters: z.ZodSchema;
+  parameters: ToolDefinition['parameters'];
   handler: ToolDefinition['handler'];
   isDangerous?: boolean;
   category?: string;

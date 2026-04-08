@@ -71,8 +71,10 @@
     "ipaddr.js": "^2.3.0",
     "linkedom": "^0.18.12",
     "micromatch": "^4.0.8",
-    "turndown": "^7.2.3",
-    "zod": "^3.23.0"
+    "turndown": "^7.2.3"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/micromatch": "^4.0.10",
@@ -80,7 +82,8 @@
     "@types/turndown": "^5.0.6",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "zod": "^4.0.0"
   },
   "engines": {
     "node": ">=18.0.0"

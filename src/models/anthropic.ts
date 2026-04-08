@@ -5,6 +5,7 @@ import type {
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { debugLogModelRequestBody } from './request-debug.js';
 
 /**
  * Messages API 顶层 `metadata`：静态字典，或根据每次请求的 {@link ModelParams} 生成字典。
@@ -435,6 +436,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   }
 
   private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    debugLogModelRequestBody('anthropic', path, body);
     return globalThis.fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: {

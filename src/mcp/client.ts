@@ -214,16 +214,16 @@ export class MCPClient {
     }));
   }
 
-  private convertSchema(schema?: MCPTool['inputSchema']): z.ZodSchema {
+  private convertSchema(schema?: MCPTool['inputSchema']): z.ZodType {
     if (!schema || !schema.properties) {
-      return z.object({}).passthrough();
+      return z.looseObject({});
     }
 
-    const shape: Record<string, z.ZodSchema> = {};
+    const shape: Record<string, z.ZodType> = {};
 
     for (const [key, value] of Object.entries(schema.properties)) {
       const field = value as { type?: string; description?: string };
-      let zodField: z.ZodSchema;
+      let zodField: z.ZodType;
 
       switch (field.type) {
         case 'string':
@@ -240,7 +240,7 @@ export class MCPClient {
           zodField = z.array(z.any());
           break;
         case 'object':
-          zodField = z.object({}).passthrough();
+          zodField = z.looseObject({});
           break;
         default:
           zodField = z.any();

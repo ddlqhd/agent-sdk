@@ -2,10 +2,12 @@
 
 ## 1. 安装
 
+`zod` 为 **peer 依赖**（v4），需与 SDK 一并安装，以便共用单一份 `zod`，避免工具参数 schema 在多副本下出问题。
+
 ```bash
-npm install @ddlqhd/agent-sdk
+npm install @ddlqhd/agent-sdk zod
 # 或
-pnpm add @ddlqhd/agent-sdk
+pnpm add @ddlqhd/agent-sdk zod
 ```
 
 ## 2. 环境变量与代码配置

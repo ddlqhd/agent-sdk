@@ -6,6 +6,7 @@ import type {
   ContentPart
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { debugLogModelRequestBody } from './request-debug.js';
 
 /**
  * Ollama `/api/chat` `think` parameter (see https://docs.ollama.com/capabilities/thinking).
@@ -322,6 +323,7 @@ export class OllamaAdapter extends BaseModelAdapter {
   }
 
   private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    debugLogModelRequestBody('ollama', path, body);
     return globalThis.fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: {

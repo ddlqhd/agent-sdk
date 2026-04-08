@@ -1,5 +1,11 @@
 // Model adapters
-export { BaseModelAdapter, zodToJsonSchema, toolsToModelSchema, mergeTokenUsage } from './base.js';
+export {
+  BaseModelAdapter,
+  zodToJsonSchema,
+  toolsToModelSchema,
+  mergeTokenUsage
+} from './base.js';
+export type { ZodToJsonSchemaOptions } from './base.js';
 export { OpenAIAdapter, createOpenAI } from './openai.js';
 export type { OpenAIConfig } from './openai.js';
 export { AnthropicAdapter, createAnthropic } from './anthropic.js';

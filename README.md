@@ -21,12 +21,14 @@ A TypeScript library for building AI agents with multi-model support (OpenAI, An
 
 ## Installation
 
+The SDK declares **`zod` as a peer dependency** (v4). Install it alongside the package so your app and the SDK share one `zod` instance (avoids duplicate copies and schema tooling issues).
+
 ```bash
-npm install @ddlqhd/agent-sdk
+npm install @ddlqhd/agent-sdk zod
 ```
 
 ```bash
-pnpm add @ddlqhd/agent-sdk
+pnpm add @ddlqhd/agent-sdk zod
 ```
 
 ## Documentation
