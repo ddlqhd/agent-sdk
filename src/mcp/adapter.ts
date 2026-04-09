@@ -1,11 +1,11 @@
-import type { ToolDefinition, ToolResult } from '../core/types.js';
-import { MCPClient, type MCPClientConfig, type MCPTool } from './client.js';
+import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
+import { MCPClient, type MCPTool } from './client.js';
 
 export class MCPAdapter {
   private clients: Map<string, MCPClient> = new Map();
   private toolMap: Map<string, { client: MCPClient; toolName: string }> = new Map();
 
-  async addServer(config: MCPClientConfig): Promise<void> {
+  async addServer(config: MCPServerConfig): Promise<void> {
     if (this.clients.has(config.name)) {
       throw new Error(`MCP server "${config.name}" already exists`);
     }

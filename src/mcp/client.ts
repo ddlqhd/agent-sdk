@@ -3,23 +3,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
-import type { ToolDefinition, ToolResult } from '../core/types.js';
+import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
 import { PACKAGE_VERSION } from '../version.js';
-
-export interface StdioMCPConfig {
-  name: string;
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-export interface HttpMCPConfig {
-  name: string;
-  url: string;
-  headers?: Record<string, string>;
-}
-
-export type MCPClientConfig = StdioMCPConfig | HttpMCPConfig;
 
 export interface MCPTool {
   name: string;
@@ -53,10 +38,6 @@ export interface PromptMessage {
   content: string;
 }
 
-function isStdioConfig(config: MCPClientConfig): config is StdioMCPConfig {
-  return 'command' in config;
-}
-
 export class MCPClient {
   private client: Client;
   private transport: Transport;
@@ -65,7 +46,7 @@ export class MCPClient {
   private _tools: MCPTool[] = [];
   private _serverInfo?: { name: string; version: string };
 
-  constructor(config: MCPClientConfig) {
+  constructor(config: MCPServerConfig) {
     this._name = config.name;
 
     this.client = new Client(
@@ -73,13 +54,21 @@ export class MCPClient {
       { capabilities: {} }
     );
 
-    if (isStdioConfig(config)) {
+    if (config.transport === 'stdio') {
+      if (!config.command) {
+        throw new Error(`MCP server "${config.name}": stdio transport requires command`);
+      }
+      const cwd = (config.cwd ?? '').trim();
       this.transport = new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: config.env
+        env: config.env,
+        ...(cwd !== '' ? { cwd } : {})
       });
     } else {
+      if (!config.url) {
+        throw new Error(`MCP server "${config.name}": http transport requires url`);
+      }
       this.transport = new StreamableHTTPClientTransport(
         new URL(config.url),
         { requestInit: { headers: config.headers } }
@@ -278,6 +267,6 @@ export class MCPClient {
   }
 }
 
-export function createMCPClient(config: MCPClientConfig): MCPClient {
+export function createMCPClient(config: MCPServerConfig): MCPClient {
   return new MCPClient(config);
 }

@@ -15,6 +15,8 @@ export interface MCPConfigFile {
       args?: string[];
       /** 环境变量 */
       env?: Record<string, string>;
+      /** stdio 子进程工作目录 */
+      cwd?: string;
       /** URL (HTTP transport) */
       url?: string;
       /** HTTP headers */
@@ -92,7 +94,8 @@ function transformConfig(config: MCPConfigFile): MCPServerConfig[] {
         ? {
             command: serverConfig.command,
             args: serverConfig.args,
-            env: serverConfig.env as Record<string, string>
+            env: serverConfig.env as Record<string, string>,
+            cwd: serverConfig.cwd
           }
         : {
             url: serverConfig.url,

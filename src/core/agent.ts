@@ -20,7 +20,6 @@ import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
 import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
-import type { MCPClientConfig } from '../mcp/client.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
 import { createSkillTemplateProcessor } from '../skills/template.js';
 import type { SkillTemplateContext } from '../skills/template.js';
@@ -30,22 +29,6 @@ import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
-
-function toMCPClientConfig(config: MCPServerConfig, agentEnv?: Record<string, string>): MCPClientConfig {
-  if (config.transport === 'http') {
-    return {
-      name: config.name,
-      url: config.url!,
-      headers: config.headers
-    };
-  }
-  return {
-    name: config.name,
-    command: config.command!,
-    args: config.args,
-    env: mergeMcpStdioEnv(agentEnv, config.env)
-  };
-}
 
 /**
  * 流式执行选项
@@ -850,7 +833,16 @@ export class Agent {
       this.mcpAdapter = new MCPAdapter();
     }
 
-    await this.mcpAdapter.addServer(toMCPClientConfig(config, this.config.env));
+    const resolved: MCPServerConfig =
+      config.transport === 'stdio'
+        ? {
+            ...config,
+            env: mergeMcpStdioEnv(this.config.env, config.env),
+            cwd: (config.cwd ?? '').trim() || (this.config.cwd || process.cwd())
+          }
+        : config;
+
+    await this.mcpAdapter.addServer(resolved);
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     for (const tool of mcpTools) {

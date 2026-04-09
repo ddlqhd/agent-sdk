@@ -84,15 +84,7 @@ export {
   MCPAdapter,
   createMCPAdapter
 } from './mcp/index.js';
-export type {
-  MCPClientConfig,
-  StdioMCPConfig,
-  HttpMCPConfig,
-  MCPTool,
-  MCPResource,
-  MCPPrompt,
-  PromptMessage
-} from './mcp/index.js';
+export type { MCPTool, MCPResource, MCPPrompt, PromptMessage } from './mcp/index.js';
 
 // Skills
 export {

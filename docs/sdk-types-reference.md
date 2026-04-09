@@ -553,10 +553,13 @@ interface MCPServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
   url?: string;
   headers?: Record<string, string>;
 }
 ```
+
+stdio 的 `cwd` 若未设置或仅空白：`Agent.connectMCP` 会填入 `AgentConfig.cwd`（若也未配置则为 `process.cwd()`）；直接使用 `MCPClient` 且未设置时不向 spawn 传 `cwd`，子进程继承父进程工作目录。
 
 ## `MCPConfigFile`
 
@@ -567,6 +570,7 @@ interface MCPConfigFile {
       command?: string;
       args?: string[];
       env?: Record<string, string>;
+      cwd?: string;
       url?: string;
       headers?: Record<string, string>;
     };

@@ -130,11 +130,11 @@
 
 ## MCP
 
-- `MCPClient` / `createMCPClient(config)`
+- `MCPClient` / `createMCPClient(config)`（`config` 为 `MCPServerConfig`，见 core types）
 - `MCPAdapter` / `createMCPAdapter()`
 - `loadMCPConfig(configPath?, startDir?, userBasePath?)`
 - `validateMCPConfig(config)`
-- 类型：`MCPClientConfig` `StdioMCPConfig` `HttpMCPConfig` `MCPTool` `MCPResource` `MCPPrompt` `PromptMessage` `MCPConfigFile` `MCPConfigLoadResult`
+- 类型（MCP 连接请统一使用根包 `MCPServerConfig`）：`MCPTool` `MCPResource` `MCPPrompt` `PromptMessage` `MCPConfigFile` `MCPConfigLoadResult`
 
 ## Skills 与 Memory
 

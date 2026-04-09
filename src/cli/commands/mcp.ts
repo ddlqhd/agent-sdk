@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { MCPAdapter } from '../../mcp/adapter.js';
-import type { MCPClientConfig } from '../../mcp/client.js';
+import type { MCPServerConfig } from '../../core/types.js';
 
 export function createMCPCommand(): Command {
   const command = new Command('mcp')
@@ -30,8 +30,9 @@ export function createMCPCommand(): Command {
 
         console.log(chalk.cyan(`\n🔌 Connecting to MCP server: ${options.name}\n`));
 
-        const config: MCPClientConfig = {
+        const config: MCPServerConfig = {
           name: options.name,
+          transport: 'stdio',
           command: cmd,
           args,
           env: Object.keys(env).length > 0 ? env : undefined

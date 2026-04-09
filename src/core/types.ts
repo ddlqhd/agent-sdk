@@ -438,6 +438,12 @@ export interface MCPServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  /**
+   * stdio 子进程工作目录（仅 `transport === 'stdio'` 时生效）。
+   * 经 `Agent.connectMCP` 且未设置或仅空白时，使用 `AgentConfig.cwd`，再否则为当前进程的 `process.cwd()`。
+   * 直接使用 `MCPClient` 且未设置时，spawn 不传 `cwd`，子进程继承父进程工作目录（通常即当时的 `process.cwd()`）。
+   */
+  cwd?: string;
 
   /** HTTP 配置 */
   url?: string;
