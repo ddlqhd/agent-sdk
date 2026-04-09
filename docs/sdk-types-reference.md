@@ -47,7 +47,7 @@ interface AgentConfig {
 
 `CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `@ddlqhd/agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
 
-构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 200`、`streaming: true`（再由传入的 `config` 覆盖）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **200**。
+构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 400`、`streaming: true`（再由传入的 `config` 覆盖；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **400**。
 
 与工具相关的常用字段（完整列表以源码 `AgentConfig` 为准）：
 
@@ -279,7 +279,7 @@ interface StreamEventAnnotations {
 
 ### 事件来源（`Agent.stream`）
 
-在 **`Agent.stream`** 下，一次运行中可能出现的事件类别包括：模型侧归一化后的文本/工具/thinking/`model_usage`；在启用上下文管理且发生压缩时的 `context_compressed`；本地执行工具后的 `tool_result` / `tool_error`；成功结束前的 `session_summary`；以及标志本轮结束的 `end`（含 `reason: 'complete' | 'aborted' | 'error'` 等，详见下文 `end`）。**具体是否出现、顺序**取决于本轮对话是否触发工具、是否压缩上下文等。
+在 **`Agent.stream`** 下，一次运行中可能出现的事件类别包括：模型侧归一化后的文本/工具/thinking/`model_usage`；在启用上下文管理且发生压缩时的 `context_compressed`；本地执行工具后的 `tool_result` / `tool_error`；成功结束前的 `session_summary`；以及标志本轮结束的 `end`（含 `reason: 'complete' | 'aborted' | 'error' | 'max_iterations'` 等，详见下文 `end`）。**具体是否出现、顺序**取决于本轮对话是否触发工具、是否压缩上下文等。
 
 ### `start`
 
@@ -450,9 +450,9 @@ interface StreamEventAnnotations {
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `usage` | `TokenUsage` | **本轮流式运行的权威累计用量**（成功路径上应以此为准） |
-| `iterations` | `number` | 迭代相关信息，取值为 `Math.min(maxIterations, messages.length)`（与 Agent 实现一致） |
+| `iterations` | `number` | **本轮 `stream` 调用内已完成的模型回合数**（一次「把消息交给模型并得到回复」计为 1；触顶时为配置的上限 `maxIterations`） |
 
-**时机**：在持久化消息成功后、`reason: 'complete'` 的 `end` 之前发出。会话 id 见注解 `sessionId`，见上文 `StreamEventAnnotations`。
+**时机**：在持久化消息成功后、最终 `end`（`reason: 'complete'` 或 **`max_iterations`**）之前发出。会话 id 见注解 `sessionId`，见上文 `StreamEventAnnotations`。
 
 ### `end`
 
@@ -461,7 +461,7 @@ interface StreamEventAnnotations {
   type: 'end';
   timestamp: number;
   usage?: TokenUsage;
-  reason?: 'complete' | 'aborted' | 'error';
+  reason?: 'complete' | 'aborted' | 'error' | 'max_iterations';
   error?: Error;
   partialContent?: string;
 }
@@ -471,13 +471,13 @@ interface StreamEventAnnotations {
 |------|------|------|
 | `timestamp` | `number` | 结束时间 |
 | `usage` | `TokenUsage`（可选） | 中止等路径上可能携带当前累计用量 |
-| `reason` | `'complete' \| 'aborted' \| 'error'`（可选） | 省略或与 `complete` 视为正常结束 |
+| `reason` | `'complete' \| 'aborted' \| 'error' \| 'max_iterations'`（可选） | 省略或与 `complete` 视为正常结束；**`max_iterations`** 表示工具循环达到 `maxIterations` 上限 |
 | `error` | `Error`（可选） | 未捕获异常或模型流致命错误 |
 | `partialContent` | `string`（可选） | 用户中断时已生成的助手文本 |
 
 **时机与注意**：
 
-- **正常完成（`reason: 'complete'`）**：累计用量以 **`session_summary`** 为准（若存在）；`end` 上通常不带 `usage`。
+- **正常完成（`reason: 'complete'`）或触顶（`reason: 'max_iterations'`）**：累计用量以 **`session_summary`** 为准（若存在）；`end` 上通常不带 `usage`。
 - **中止（`reason: 'aborted'`）**：含迭代开头 `signal` 已中止、流式中途中止、`AbortError` 等；可带 `partialContent`。
 - **错误（`reason: 'error'`）**：含模型流处理出的致命错误（如 chunk 映射为 `end`+error）以及 `Agent.stream` 的 `catch`。若在进入 **`session_summary` 之前**因模型致命错误返回，则**不会**收到 `session_summary`（与成功路径不同）。
 
@@ -518,7 +518,7 @@ sequenceDiagram
     end
   end
   A->>A: session_summary
-  A->>A: end complete
+  A->>A: end complete or max_iterations
 ```
 
 ### 实现备注（进阶）

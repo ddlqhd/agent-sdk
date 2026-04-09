@@ -141,4 +141,10 @@ describe('createStreamFormatter', () => {
     );
     expect(stripAnsi(formatEvent({ type: 'end', timestamp: 0, reason: 'aborted' }))).toContain('[interrupted]');
   });
+
+  it('formatEvent prints max_iterations notice', () => {
+    expect(
+      stripAnsi(formatEvent({ type: 'end', timestamp: 0, reason: 'max_iterations' }))
+    ).toContain('maxIterations');
+  });
 });

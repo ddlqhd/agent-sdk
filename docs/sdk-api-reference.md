@@ -12,6 +12,7 @@
 
 - `Agent`：核心执行引擎
 - `createAgent(config)`：创建 `Agent` 实例
+- `DEFAULT_MAX_ITERATIONS`：未配置 `AgentConfig.maxIterations` 时的默认模型↔工具轮次上限（400）
 - `DEFAULT_SYSTEM_PROMPT`：默认系统提示模板
 - `StreamOptions`：`run/stream` 的调用选项
 

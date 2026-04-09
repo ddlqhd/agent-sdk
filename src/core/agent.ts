@@ -30,6 +30,9 @@ import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
 
+/** Default upper bound for model↔tool rounds per user turn when `AgentConfig.maxIterations` is omitted. */
+export const DEFAULT_MAX_ITERATIONS = 400;
+
 /**
  * 流式执行选项
  */
@@ -80,12 +83,14 @@ export class Agent {
   constructor(config: AgentConfig) {
     const resolvedModel = Agent.resolveModel(config);
     this.config = {
-      maxIterations: 200,
+      maxIterations: DEFAULT_MAX_ITERATIONS,
       streaming: true,
       ...config,
       model: resolvedModel,
       modelConfig: undefined
     };
+    this.config.maxIterations = this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+
 
     // 初始化 Skill 注册中心
     this.skillRegistry = createSkillRegistry({
@@ -370,14 +375,15 @@ export class Agent {
     yield this.annotateStreamEvent({ type: 'start', timestamp: Date.now() });
 
     try {
-      const maxIterations = this.config.maxIterations || 10;
+      const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
       let totalUsage: TokenUsage = {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0
       };
 
-      for (let iteration = 0; iteration < maxIterations; iteration++) {
+      let iteration = 0;
+      for (; iteration < maxIterations; iteration++) {
         if (signal?.aborted) {
           yield this.annotateStreamEvent(
             {
@@ -574,16 +580,19 @@ export class Agent {
 
       await this.sessionManager.saveMessages(this.messages);
 
+      const finishedByIterationCap = iteration >= maxIterations;
+      const sessionIterations = finishedByIterationCap ? maxIterations : iteration + 1;
+
       yield this.annotateStreamEvent({
         type: 'session_summary',
         usage: totalUsage,
-        iterations: Math.min(maxIterations, this.messages.length)
+        iterations: sessionIterations
       });
 
       yield this.annotateStreamEvent({
         type: 'end',
         timestamp: Date.now(),
-        reason: 'complete'
+        reason: finishedByIterationCap ? 'max_iterations' : 'complete'
       });
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
@@ -1125,7 +1134,10 @@ export class Agent {
     const normalizedType = request.subagent_type ?? 'general-purpose';
     const requestedTimeout = request.timeout_ms ?? subagentConfig.timeoutMs;
     const timeoutMs = Math.min(requestedTimeout, subagentConfig.timeoutMs);
-    const maxIterations = Math.max(1, request.max_iterations ?? this.config.maxIterations ?? 50);
+    const maxIterations = Math.max(
+      1,
+      request.max_iterations ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
+    );
 
     const resolved = this.resolveSubagentTools(request);
     if (!resolved.tools) {

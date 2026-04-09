@@ -4,7 +4,7 @@
 
 ## 循环里发生什么
 
-在单次 `run` / `stream` 调用内，SDK 会在 **最大迭代次数**（`AgentConfig.maxIterations`）范围内重复。构造 `Agent` 时若未传入 `maxIterations`，默认合并为 **200**（与 `src/core/agent.ts` 构造函数一致）：
+在单次 `run` / `stream` 调用内，SDK 会在 **最大迭代次数**（`AgentConfig.maxIterations`）范围内重复。构造 `Agent` 时若未传入 `maxIterations`，默认合并为 **400**（`DEFAULT_MAX_ITERATIONS`，与 `src/core/agent.ts` 一致）：
 
 1. 将当前消息历史交给模型，得到助手输出（可能包含工具调用）。
 2. 若有工具调用，则执行工具，将结果写回消息历史，再进入下一轮。
@@ -25,7 +25,7 @@
 
 ## 与 `maxIterations` 的关系
 
-若对话需要过多轮工具才能完成，可能触及 `maxIterations`。此时行为以实现为准：通常表现为结束当前流并带有 `end` 事件（可能含 `reason: 'error'` 或部分完成内容）。生产环境可结合 [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)「工具调用循环过多」一节调参。
+若对话需要过多轮工具才能完成，可能触及 `maxIterations`。此时会在 **`session_summary` 之后**收到 `end`，且 **`reason: 'max_iterations'`**（用量仍以 `session_summary.usage` 为准）。生产环境可结合 [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)「工具调用循环过多」一节调参。
 
 ## 另见
 

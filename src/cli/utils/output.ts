@@ -9,6 +9,10 @@ export interface OutputConfig {
   verbose?: boolean;
 }
 
+/** CLI line when a stream ends after hitting `AgentConfig.maxIterations`. */
+export const STREAM_END_MAX_ITERATIONS_MESSAGE =
+  '\n[stopped: reached maxIterations — increase AgentConfig.maxIterations if the task needs more tool rounds]';
+
 /**
  * 格式化流式事件输出
  */
@@ -84,6 +88,9 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
       }
       if (event.reason === 'aborted') {
         return color ? chalk.yellow('\n[interrupted]') : '\n[interrupted]';
+      }
+      if (event.reason === 'max_iterations') {
+        return color ? chalk.yellow(STREAM_END_MAX_ITERATIONS_MESSAGE) : STREAM_END_MAX_ITERATIONS_MESSAGE;
       }
       return '';
     }
@@ -255,6 +262,8 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
             output += chalk.red(`\n✗ ${event.error.message}`);
           } else if (event.reason === 'aborted') {
             output += chalk.yellow('\n[interrupted]');
+          } else if (event.reason === 'max_iterations') {
+            output += chalk.yellow(STREAM_END_MAX_ITERATIONS_MESSAGE);
           }
           break;
       }
