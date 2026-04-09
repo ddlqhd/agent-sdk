@@ -123,6 +123,8 @@ export type StreamChunkType =
   | 'tool_call_delta'
   | 'tool_call_end'
   | 'thinking'
+  /** Adapters emit when a discrete thinking block ends (e.g. Anthropic content_block_stop). */
+  | 'thinking_block_end'
   | 'error'
   | 'done'
   | 'metadata';
@@ -352,6 +354,8 @@ export type StreamEventType =
   | 'tool_result'
   | 'tool_error'
   | 'thinking'
+  | 'thinking_start'
+  | 'thinking_end'
   | 'start'
   | 'end'
   | 'model_usage'
@@ -386,7 +390,9 @@ export type StreamEvent = (
   | { type: 'tool_call_end'; id: string }
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
+  | { type: 'thinking_start'; signature?: string }
   | { type: 'thinking'; content: string; signature?: string }
+  | { type: 'thinking_end'; content?: string }
   | {
       type: 'model_usage';
       usage: TokenUsage;

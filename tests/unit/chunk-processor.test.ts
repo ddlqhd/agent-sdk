@@ -135,4 +135,48 @@ describe('StreamChunkProcessor', () => {
     expect(types[0]).toBe('tool_call_start');
     expect(types[types.length - 1]).toBe('tool_call');
   });
+
+  it('wraps thinking in thinking_start / thinking_end and closes before text', () => {
+    const p = new StreamChunkProcessor();
+    const types: string[] = [];
+    for (const e of p.processChunk({ type: 'thinking', content: 'a', signature: 'sig' })) types.push(e.type);
+    for (const e of p.processChunk({ type: 'text', content: 'hi' })) types.push(e.type);
+    for (const e of p.flush()) types.push(e.type);
+    expect(types).toEqual([
+      'thinking_start',
+      'thinking',
+      'thinking_end',
+      'text_start',
+      'text_delta',
+      'text_end'
+    ]);
+
+    const p2 = new StreamChunkProcessor();
+    const events = p2.processChunk({ type: 'thinking', content: 'a', signature: 'sig' });
+    expect(events[0]).toMatchObject({ type: 'thinking_start', signature: 'sig' });
+  });
+
+  it('does not emit thinking boundaries when emitThinkingBoundaries is false', () => {
+    const p = new StreamChunkProcessor({ emitThinkingBoundaries: false });
+    const types: string[] = [];
+    for (const e of p.processChunk({ type: 'thinking', content: 'reason' })) types.push(e.type);
+    for (const e of p.processChunk({ type: 'text', content: 'ok' })) types.push(e.type);
+    expect(types).toEqual(['thinking', 'text_start', 'text_delta']);
+  });
+
+  it('maps thinking_block_end chunk to thinking_end when in thinking block', () => {
+    const p = new StreamChunkProcessor();
+    const types: string[] = [];
+    for (const e of p.processChunk({ type: 'thinking', content: 'done' })) types.push(e.type);
+    for (const e of p.processChunk({ type: 'thinking_block_end' })) types.push(e.type);
+    expect(types).toEqual(['thinking_start', 'thinking', 'thinking_end']);
+  });
+
+  it('flush after thinking-only stream emits thinking_end', () => {
+    const p = new StreamChunkProcessor();
+    const types: string[] = [];
+    for (const e of p.processChunk({ type: 'thinking', content: 'only' })) types.push(e.type);
+    for (const e of p.flush()) types.push(e.type);
+    expect(types).toEqual(['thinking_start', 'thinking', 'thinking_end']);
+  });
 });

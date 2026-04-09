@@ -712,6 +712,16 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
     return;
   }
 
+  if (t === 'thinking_start') {
+    appendThinkingStreamDelta('');
+    return;
+  }
+
+  if (t === 'thinking_end') {
+    streamingAssistantThinkingEl = null;
+    return;
+  }
+
   if (t === 'thinking' && typeof event.content === 'string') {
     appendThinkingStreamDelta(event.content);
     return;

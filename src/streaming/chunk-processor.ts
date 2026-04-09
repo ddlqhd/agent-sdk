@@ -3,6 +3,8 @@ import type { StreamChunk, StreamEvent, TokenUsage } from '../core/types.js';
 export interface StreamChunkProcessorOptions {
   /** Emit `text_start` / `text_end` around assistant text deltas (Claude-style content blocks). Default true. */
   emitTextBoundaries?: boolean;
+  /** Emit `thinking_start` / `thinking_end` around assistant thinking deltas. Default true. */
+  emitThinkingBoundaries?: boolean;
 }
 
 /**
@@ -13,10 +15,13 @@ export class StreamChunkProcessor {
   private currentToolCall: { id: string; name: string; arguments: string } | null = null;
   private lastUsage: TokenUsage | undefined;
   private inTextBlock = false;
+  private inThinkingBlock = false;
   private readonly emitTextBoundaries: boolean;
+  private readonly emitThinkingBoundaries: boolean;
 
   constructor(options?: StreamChunkProcessorOptions) {
     this.emitTextBoundaries = options?.emitTextBoundaries ?? true;
+    this.emitThinkingBoundaries = options?.emitThinkingBoundaries ?? true;
   }
 
   processChunk(chunk: StreamChunk): StreamEvent[] {
@@ -29,8 +34,16 @@ export class StreamChunkProcessor {
       }
     };
 
+    const endThinkingBlockIfNeeded = (): void => {
+      if (this.emitThinkingBoundaries && this.inThinkingBlock) {
+        events.push({ type: 'thinking_end' });
+        this.inThinkingBlock = false;
+      }
+    };
+
     switch (chunk.type) {
       case 'text':
+        endThinkingBlockIfNeeded();
         if (chunk.content) {
           if (this.emitTextBoundaries && !this.inTextBlock) {
             events.push({ type: 'text_start' });
@@ -41,6 +54,7 @@ export class StreamChunkProcessor {
         break;
 
       case 'tool_call_start':
+        endThinkingBlockIfNeeded();
         endTextBlockIfNeeded();
         if (this.currentToolCall) {
           events.push(...this.finalizeStreamingToolCall());
@@ -89,6 +103,7 @@ export class StreamChunkProcessor {
         break;
 
       case 'tool_call': {
+        endThinkingBlockIfNeeded();
         endTextBlockIfNeeded();
         if (!chunk.toolCall) break;
         const tc = chunk.toolCall;
@@ -108,6 +123,7 @@ export class StreamChunkProcessor {
       }
 
       case 'tool_call_end':
+        endThinkingBlockIfNeeded();
         endTextBlockIfNeeded();
         if (this.currentToolCall) {
           events.push(...this.finalizeStreamingToolCall());
@@ -116,6 +132,18 @@ export class StreamChunkProcessor {
 
       case 'thinking':
         endTextBlockIfNeeded();
+        if (this.emitThinkingBoundaries) {
+          const opensBlock =
+            !this.inThinkingBlock &&
+            (chunk.content !== undefined || chunk.signature !== undefined);
+          if (opensBlock) {
+            events.push({
+              type: 'thinking_start',
+              ...(chunk.signature !== undefined ? { signature: chunk.signature } : {})
+            });
+            this.inThinkingBlock = true;
+          }
+        }
         if (chunk.content !== undefined) {
           events.push({
             type: 'thinking',
@@ -125,7 +153,13 @@ export class StreamChunkProcessor {
         }
         break;
 
+      case 'thinking_block_end':
+        endThinkingBlockIfNeeded();
+        endTextBlockIfNeeded();
+        break;
+
       case 'error':
+        endThinkingBlockIfNeeded();
         endTextBlockIfNeeded();
         if (chunk.error) {
           events.push({
@@ -159,6 +193,11 @@ export class StreamChunkProcessor {
   /** End open text block and finalize any in-progress streamed tool call. */
   flush(): StreamEvent[] {
     const events: StreamEvent[] = [];
+    // Close thinking before text so stream teardown matches “thinking block before text block”.
+    if (this.emitThinkingBoundaries && this.inThinkingBlock) {
+      events.push({ type: 'thinking_end' });
+      this.inThinkingBlock = false;
+    }
     if (this.emitTextBoundaries && this.inTextBlock) {
       events.push({ type: 'text_end' });
       this.inTextBlock = false;

@@ -29,8 +29,12 @@ export function serializeStreamEvent(event: StreamEvent): Record<string, unknown
     case 'text_start':
     case 'text_end':
       return { ...base, ...('content' in event && event.content !== undefined ? { content: event.content } : {}) };
+    case 'thinking_start':
+      return { ...base, ...('signature' in event && event.signature !== undefined ? { signature: event.signature } : {}) };
     case 'thinking':
       return { ...base, content: event.content, ...('signature' in event ? { signature: event.signature } : {}) };
+    case 'thinking_end':
+      return { ...base, ...('content' in event && event.content !== undefined ? { content: event.content } : {}) };
     case 'tool_call_start':
       return { ...base, id: event.id, name: event.name };
     case 'tool_call_delta':

@@ -302,6 +302,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   currentToolCall = null;
                 }
                 if (currentThinkingBlock) {
+                  yield { type: 'thinking_block_end', ...raw };
                   currentThinkingBlock = null;
                 }
                 break;

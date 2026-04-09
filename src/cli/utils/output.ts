@@ -57,6 +57,10 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
         ? chalk.gray(`💭 ${event.content}`)
         : `💭 ${event.content}`;
 
+    case 'thinking_start':
+    case 'thinking_end':
+      return '';
+
     case 'model_usage':
       if (verbose) {
         const phase = event.phase ? ` (${event.phase})` : '';
@@ -160,8 +164,12 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
     format(event: StreamEvent): string {
       let output = '';
 
-      // thinking 块结束时插入换行
-      if (lastEventType === 'thinking' && event.type !== 'thinking') {
+      // 无 thinking_end 时（emitThinkingBoundaries: false）从 thinking 过渡到其它事件仍要换行
+      if (
+        lastEventType === 'thinking' &&
+        event.type !== 'thinking' &&
+        event.type !== 'thinking_end'
+      ) {
         output += '\n';
         isFirstThinking = true;
       }
@@ -169,7 +177,7 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
       // 工具块结束后与助手正文或 thinking 分段（model_usage 会插在 tool_result 与 text_delta 之间，不能仅靠 lastEventType）
       if (
         needsGapAfterToolBlock &&
-        (event.type === 'text_delta' || event.type === 'thinking')
+        (event.type === 'text_delta' || event.type === 'thinking' || event.type === 'thinking_start')
       ) {
         output += '\n';
         needsGapAfterToolBlock = false;
@@ -178,9 +186,15 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
       switch (event.type) {
         case 'text_start':
         case 'text_end':
+        case 'thinking_start':
         case 'tool_call_start':
         case 'tool_call_delta':
         case 'tool_call_end':
+          break;
+
+        case 'thinking_end':
+          output += '\n';
+          isFirstThinking = true;
           break;
 
         case 'context_compressed':
@@ -273,6 +287,7 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
     },
 
     finalize(): string {
+      // Stream ended inside a thinking block without `thinking_end` (e.g. emitThinkingBoundaries: false)
       return lastEventType === 'thinking' ? '\n' : '';
     }
   };
