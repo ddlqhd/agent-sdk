@@ -91,7 +91,8 @@ flowchart TD
 - 推荐固定大版本，并在升级时重点检查：
   - `package.json` `exports` 是否变化
   - `StreamEvent` 联合类型是否新增事件
-  - 模型默认值是否调整（例如默认模型名）
+  - 模型默认值是否调整（例如默认 `model` 名字符串）
+  - **`DEFAULT_ADAPTER_CAPABILITIES`**（省略工厂 `capabilities` 时的 200K / 32K 默认）是否变化，见 [`sdk-types-reference.md`](./sdk-types-reference.md)
 - 若你在生产系统接入，建议：
   - 显式传入模型与关键配置，不依赖默认值
   - 对 `tool_error` 与 `end`（`reason === 'error'`）做完整日志记录

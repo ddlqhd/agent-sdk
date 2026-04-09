@@ -123,6 +123,34 @@ interface ModelAdapter {
 }
 ```
 
+## `ModelCapabilities`
+
+```ts
+interface ModelCapabilities {
+  contextLength: number;
+  maxOutputTokens?: number;
+}
+```
+
+- **`contextLength`**：供 SDK 内部（如上下文压缩预算）参考的上下文窗口规模（token），**不保证**与当前 `model` 字符串的真实上限一致。
+- **`maxOutputTokens`**：单次补全可生成的输出 token 上限的 SDK 侧缺省；各适配器会将其映射到具体 HTTP 字段（见下）。
+
+## 各提供商适配器的默认 `capabilities`
+
+`createOpenAI` / `createAnthropic` / `createOllama`（及 `createModel` 构造的对应适配器）在**未**传入工厂选项中的 `capabilities` 时，共用常量 **`DEFAULT_ADAPTER_CAPABILITIES`**（由 `@ddlqhd/agent-sdk` 与 `@ddlqhd/agent-sdk/models` 导出）：`contextLength` **200000**，`maxOutputTokens` **32000**。
+
+单次请求的最终输出上限为 `ModelParams.maxTokens ?? adapter.capabilities?.maxOutputTokens ?? DEFAULT_ADAPTER_CAPABILITIES.maxOutputTokens`（`??` 链，与源码一致）。`Agent` 在配置里设置 **`AgentConfig.maxTokens`** 时，会传入底层 `ModelParams.maxTokens`，从而**优先于**适配器默认。
+
+各提供商在 HTTP 中的对应关系：
+
+| 提供商 | 请求中的字段 |
+|--------|----------------|
+| Anthropic Messages API | `max_tokens` |
+| OpenAI Chat Completions | `max_tokens` |
+| Ollama `/api/chat` | `options.num_predict` |
+
+真实模型或 API 的上限可能**低于**上述 SDK 默认；若收到与 `max_tokens` / 上下文相关的 400，请通过工厂的 `capabilities`（或更小的 `AgentConfig.maxTokens`）收窄。
+
 ## `ModelParams`
 
 ```ts

@@ -5,6 +5,7 @@ import type {
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import { debugLogModelRequestBody } from './request-debug.js';
 
 /**
@@ -138,16 +139,6 @@ async function drainResponseBody(response: Response): Promise<void> {
 }
 
 /**
- * Anthropic 模型能力映射
- */
-const ANTHROPIC_CAPABILITIES: Record<string, ModelCapabilities> = {
-  'claude-sonnet-4-20250514': { contextLength: 200_000, maxOutputTokens: 16_384 },
-  'claude-haiku': { contextLength: 200_000, maxOutputTokens: 8_192 },
-  'claude-3-5-sonnet-20241022': { contextLength: 200_000, maxOutputTokens: 8_192 },
-  'claude-3-haiku-20240307': { contextLength: 200_000, maxOutputTokens: 4_096 },
-};
-
-/**
  * Anthropic 配置
  */
 export interface AnthropicConfig {
@@ -196,10 +187,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
     this.name = `anthropic/${this.model}`;
 
-    // 设置模型能力
-    this.capabilities = config.capabilities
-      ?? ANTHROPIC_CAPABILITIES[this.model]
-      ?? { contextLength: 200_000, maxOutputTokens: 4_096 };
+    this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
@@ -423,9 +411,11 @@ export class AnthropicAdapter extends BaseModelAdapter {
     const { system, messages } = this.extractSystemMessage(params.messages);
     const transformedMessages = this.transformAnthropicMessages(messages);
 
+    const defaultMaxTokens =
+      this.capabilities?.maxOutputTokens ?? DEFAULT_ADAPTER_CAPABILITIES.maxOutputTokens;
     const body: Record<string, unknown> = {
       model: this.model,
-      max_tokens: params.maxTokens || 4096,
+      max_tokens: params.maxTokens ?? defaultMaxTokens,
       messages: transformedMessages,
       stream,
       ...(system && { system }),

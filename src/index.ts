@@ -15,6 +15,7 @@ export {
   createOpenAI,
   createAnthropic,
   createOllama,
+  DEFAULT_ADAPTER_CAPABILITIES,
   OpenAIAdapter,
   AnthropicAdapter,
   OllamaAdapter

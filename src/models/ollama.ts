@@ -6,22 +6,13 @@ import type {
   ContentPart
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import { debugLogModelRequestBody } from './request-debug.js';
 
 /**
  * Ollama `/api/chat` `think` parameter (see https://docs.ollama.com/capabilities/thinking).
  */
 export type OllamaThinkOption = boolean | 'low' | 'medium' | 'high';
-
-/**
- * Ollama 常见模型能力映射
- */
-const OLLAMA_CAPABILITIES: Record<string, ModelCapabilities> = {
-  'qwen3.5:0.8b': { contextLength: 32_768, maxOutputTokens: 4_096 },
-  'minimax-m2.7:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
-  'nemotron-3-super:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
-  'glm-5:cloud': { contextLength: 128_000, maxOutputTokens: 16_384 },
-};
 
 /**
  * Ollama 配置
@@ -119,10 +110,7 @@ export class OllamaAdapter extends BaseModelAdapter {
 
     this.name = `ollama/${this.model}`;
 
-    // 设置模型能力 (Ollama 默认使用较小的上下文)
-    this.capabilities = config.capabilities
-      ?? OLLAMA_CAPABILITIES[this.model]
-      ?? { contextLength: 4_096, maxOutputTokens: 2_048 };
+    this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
@@ -299,11 +287,20 @@ export class OllamaAdapter extends BaseModelAdapter {
   }
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
+    const defaultMaxTokens =
+      this.capabilities?.maxOutputTokens ?? DEFAULT_ADAPTER_CAPABILITIES.maxOutputTokens;
+    const options: Record<string, unknown> = {
+      num_predict: params.maxTokens ?? defaultMaxTokens
+    };
+    if (params.temperature !== undefined) {
+      options.temperature = params.temperature;
+    }
+
     const body: Record<string, unknown> = {
       model: this.model,
       messages: this.transformMessages(params.messages),
       stream,
-      ...(params.temperature !== undefined && { options: { temperature: params.temperature } })
+      options
     };
 
     if (this.think !== undefined) {

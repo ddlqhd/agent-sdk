@@ -5,18 +5,8 @@ import type {
   CompletionResult
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import { debugLogModelRequestBody } from './request-debug.js';
-
-/**
- * OpenAI 模型能力映射
- */
-const OPENAI_CAPABILITIES: Record<string, ModelCapabilities> = {
-  'gpt-4o': { contextLength: 128_000, maxOutputTokens: 16_384 },
-  'gpt-4o-mini': { contextLength: 128_000, maxOutputTokens: 16_384 },
-  'gpt-4-turbo': { contextLength: 128_000, maxOutputTokens: 4_096 },
-  'gpt-4': { contextLength: 8_192, maxOutputTokens: 4_096 },
-  'gpt-3.5-turbo': { contextLength: 16_385, maxOutputTokens: 4_096 },
-};
 
 /**
  * OpenAI 配置
@@ -53,10 +43,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
     this.name = `openai/${this.model}`;
 
-    // 设置模型能力
-    this.capabilities = config.capabilities
-      ?? OPENAI_CAPABILITIES[this.model]
-      ?? { contextLength: 128_000, maxOutputTokens: 4_096 };
+    this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
@@ -244,13 +231,15 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
     const messages = this.transformMessages(params.messages);
+    const defaultMaxTokens =
+      this.capabilities?.maxOutputTokens ?? DEFAULT_ADAPTER_CAPABILITIES.maxOutputTokens;
     const body: Record<string, unknown> = {
       model: this.model,
       messages,
       stream,
       ...(stream && { stream_options: { include_usage: true } }),
       ...(params.temperature !== undefined && { temperature: params.temperature }),
-      ...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
+      max_tokens: params.maxTokens ?? defaultMaxTokens,
       ...(params.stopSequences && { stop: params.stopSequences })
     };
 

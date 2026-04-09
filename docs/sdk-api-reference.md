@@ -69,6 +69,7 @@
 - `createOpenAI(config?)`
 - `createAnthropic(config?)`
 - `createOllama(config?)`
+- `DEFAULT_ADAPTER_CAPABILITIES`：OpenAI / Anthropic / Ollama 在省略工厂 `capabilities` 时共用的默认 `ModelCapabilities`（200K 上下文、32K 输出上限）；见 [`sdk-types-reference.md`](./sdk-types-reference.md)。
 - `OpenAIAdapter`
 - `AnthropicAdapter`
 - `OllamaAdapter`
@@ -168,6 +169,7 @@
 ### 公开导出
 
 - 工厂：`createModel` `createOpenAI` `createAnthropic` `createOllama`
+- `DEFAULT_ADAPTER_CAPABILITIES`（三提供商省略 `capabilities` 时的默认能力，见 [`sdk-types-reference.md`](./sdk-types-reference.md)）
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
 - 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
 - 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`

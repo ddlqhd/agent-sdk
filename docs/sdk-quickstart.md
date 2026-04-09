@@ -129,13 +129,15 @@ const model = createModel({
 });
 ```
 
-## 6. 默认模型值
+## 6. 默认模型值与适配器能力
 
-优先级见上文第 2 节。当前各提供商默认 `model`（基于源码）：
+优先级见上文第 2 节。当前各提供商默认 **`model` 字符串**（基于源码）：
 
 - OpenAI: `model = gpt-4o`
 - Anthropic: `model = claude-sonnet-4-20250514`
 - Ollama: `model = qwen3.5:0.8b`
+
+当工厂函数**未**传入 `capabilities` 时，三者的 `ModelAdapter.capabilities` 与「未另指定时的输出上限」共用 **`DEFAULT_ADAPTER_CAPABILITIES`**（可从包根或 `@ddlqhd/agent-sdk/models` 导入）：**上下文 200000 token**、**最大输出 32000 token**。`AgentConfig.maxTokens` 会覆盖该输出上限。细节与各 API 字段映射见 [`sdk-types-reference.md`](./sdk-types-reference.md)「各提供商适配器的默认 `capabilities`」。
 
 ## 7. 会话与上下文
 

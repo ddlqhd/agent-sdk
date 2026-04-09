@@ -1,4 +1,5 @@
 // Model adapters
+export { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 export {
   BaseModelAdapter,
   zodToJsonSchema,
