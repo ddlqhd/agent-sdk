@@ -9,6 +9,7 @@ import { zodToJsonSchema } from '../models/base.js';
 import { OutputHandler, createOutputHandler } from './output-handler.js';
 import type { HookManager } from './hooks/manager.js';
 import type { HookContext } from './hooks/types.js';
+import type { ToolHookObserver } from '../core/callbacks.js';
 
 /**
  * Tool 注册中心配置
@@ -20,6 +21,11 @@ export interface ToolRegistryConfig {
   enableOutputHandler?: boolean;
   /** 执行前校验（disallowed / allowedTools / canUseTool）；未设置则不限制 */
   executionPolicy?: ToolExecutionPolicy;
+  /**
+   * 观察 {@link HookManager} 管道（不改变 Hook 行为）。
+   * 通常由 {@link Agent} 从 `callbacks.lifecycle.hooks` 注入。
+   */
+  hookObserver?: ToolHookObserver;
 }
 
 /** 工具执行选项（Hook 上下文等） */
@@ -38,6 +44,7 @@ export class ToolRegistry {
   private outputHandler: OutputHandler | null;
   private hookManager: HookManager | null = null;
   private readonly executionPolicy: ToolExecutionPolicy | undefined;
+  private readonly hookObserver: ToolHookObserver | undefined;
 
   constructor(config?: ToolRegistryConfig) {
     const enableOutputHandler = config?.enableOutputHandler !== false;
@@ -45,6 +52,7 @@ export class ToolRegistry {
       ? createOutputHandler(config?.userBasePath)
       : null;
     this.executionPolicy = config?.executionPolicy;
+    this.hookObserver = config?.hookObserver;
   }
 
   /**
@@ -131,6 +139,19 @@ export class ToolRegistry {
     };
   }
 
+  private hookObserverCtx(
+    eventType: HookContext['eventType'],
+    name: string,
+    options: ToolExecuteOptions | undefined
+  ) {
+    return {
+      eventType,
+      toolName: name,
+      toolCallId: options?.toolCallId,
+      projectDir: options?.projectDir
+    };
+  }
+
   /**
    * 注册工具
    */
@@ -212,6 +233,11 @@ export class ToolRegistry {
 
     const tool = this.tools.get(name);
     if (!tool) {
+      if (hookMgr) {
+        this.hookObserver?.onHookStart?.(
+          this.hookObserverCtx('postToolUseFailure', name, options)
+        );
+      }
       const ctx = this.buildHookContext('postToolUseFailure', name, rawArgsObj, options, {
         errorMessage: `Tool "${name}" not found`,
         failureKind: 'tool_error'
@@ -228,6 +254,11 @@ export class ToolRegistry {
       const initial = tool.parameters.safeParse(args);
       if (!initial.success) {
         const msg = `Invalid arguments for tool "${name}": ${initial.error.issues.map(i => i.message).join(', ')}`;
+        if (hookMgr) {
+          this.hookObserver?.onHookStart?.(
+            this.hookObserverCtx('postToolUseFailure', name, options)
+          );
+        }
         await hookMgr?.executePostToolUseFailure(
           this.buildHookContext('postToolUseFailure', name, rawArgsObj, options, {
             errorMessage: msg,
@@ -239,9 +270,17 @@ export class ToolRegistry {
       workingInput = initial.data as Record<string, unknown>;
 
       if (hookMgr) {
+        this.hookObserver?.onHookStart?.(
+          this.hookObserverCtx('preToolUse', name, options)
+        );
         const pre = await hookMgr.executePreToolUse(
           this.buildHookContext('preToolUse', name, workingInput, options)
         );
+        this.hookObserver?.onHookDecision?.({
+          ...this.hookObserverCtx('preToolUse', name, options),
+          allowed: pre.allowed,
+          reason: pre.reason
+        });
         if (!pre.allowed) {
           return {
             content: pre.reason ?? 'Blocked by hook',
@@ -251,6 +290,9 @@ export class ToolRegistry {
         const merged = tool.parameters.safeParse(pre.updatedInput ?? workingInput);
         if (!merged.success) {
           const msg = `Invalid arguments after hook merge for tool "${name}": ${merged.error.issues.map(i => i.message).join(', ')}`;
+          this.hookObserver?.onHookStart?.(
+            this.hookObserverCtx('postToolUseFailure', name, options)
+          );
           await hookMgr.executePostToolUseFailure(
             this.buildHookContext('postToolUseFailure', name, workingInput, options, {
               errorMessage: msg,
@@ -272,6 +314,11 @@ export class ToolRegistry {
       const toolResultRaw = result;
 
       if (result.isError) {
+        if (hookMgr) {
+          this.hookObserver?.onHookStart?.(
+            this.hookObserverCtx('postToolUseFailure', name, options)
+          );
+        }
         await hookMgr?.executePostToolUseFailure(
           this.buildHookContext('postToolUseFailure', name, workingInput, options, {
             errorMessage: result.content,
@@ -291,6 +338,11 @@ export class ToolRegistry {
         );
       }
 
+      if (hookMgr) {
+        this.hookObserver?.onHookStart?.(
+          this.hookObserverCtx('postToolUse', name, options)
+        );
+      }
       await hookMgr?.executePostToolUse(
         this.buildHookContext('postToolUse', name, workingInput, options, {
           toolResultRaw,
@@ -301,6 +353,11 @@ export class ToolRegistry {
       return finalResult;
     } catch (error) {
       const msg = `Error executing tool "${name}": ${error instanceof Error ? error.message : String(error)}`;
+      if (hookMgr) {
+        this.hookObserver?.onHookStart?.(
+          this.hookObserverCtx('postToolUseFailure', name, options)
+        );
+      }
       await hookMgr?.executePostToolUseFailure(
         this.buildHookContext('postToolUseFailure', name, workingInput, options, {
           errorMessage: msg,

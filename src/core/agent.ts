@@ -1,15 +1,19 @@
-import type {
-  ToolCall,
-  TokenUsage,
-  SessionTokenUsage,
-  AgentConfig,
-  AgentResult,
-  StreamEvent,
-  SystemPrompt,
-  MCPServerConfig,
-  ContextManagerConfig,
-  Message,
-  ModelAdapter
+import {
+  isModelStreamEventType,
+  type ToolCall,
+  type TokenUsage,
+  type SessionTokenUsage,
+  type AgentConfig,
+  type AgentResult,
+  type StreamEvent,
+  type SystemPrompt,
+  type MCPServerConfig,
+  type ContextManagerConfig,
+  type Message,
+  type ModelAdapter,
+  type ToolResult,
+  type AgentErrorContext,
+  type AgentRunEndReason
 } from '../core/types.js';
 import { randomUUID } from 'crypto';
 import { ToolRegistry } from '../tools/registry.js';
@@ -107,7 +111,8 @@ export class Agent {
         disallowedTools: this.config.disallowedTools,
         allowedTools: this.config.allowedTools,
         canUseTool: this.config.canUseTool
-      }
+      },
+      hookObserver: this.config.callbacks?.lifecycle?.hooks
     });
 
     this.registerInitialTools();
@@ -278,6 +283,86 @@ export class Agent {
     } as StreamEvent;
   }
 
+  private baseRunContext(): { sessionId?: string; cwd?: string } {
+    return {
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      cwd: this.config.cwd
+    };
+  }
+
+  /**
+   * 分发流式事件到 `callbacks.onEvent` 与 `lifecycle.onModelEvent` / `onModelUsage`。
+   */
+  private emitStreamEvent(event: StreamEvent): void {
+    try {
+      this.config.callbacks?.onEvent?.(event);
+      const lifecycle = this.config.callbacks?.lifecycle;
+      if (lifecycle?.onModelEvent && isModelStreamEventType(event.type)) {
+        lifecycle.onModelEvent(event);
+      }
+      if (event.type === 'model_usage' && lifecycle?.onModelUsage) {
+        lifecycle.onModelUsage({
+          ...this.baseRunContext(),
+          usage: event.usage,
+          iteration: event.iteration,
+          phase: event.phase
+        });
+      }
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      this.emitAgentError(e, { phase: 'lifecycle_callback' });
+    }
+  }
+
+  /** 标注、触发观察回调并返回供 `yield` 的事件 */
+  private streamOut(event: StreamEvent, iteration?: number): StreamEvent {
+    const out =
+      iteration !== undefined ? this.annotateStreamEvent(event, iteration) : this.annotateStreamEvent(event);
+    this.emitStreamEvent(out);
+    return out;
+  }
+
+  private emitAgentError(error: Error, ctx: AgentErrorContext): void {
+    try {
+      this.config.callbacks?.lifecycle?.onAgentError?.(error, ctx);
+      this.config.callbacks?.onError?.(error, ctx);
+    } catch (err) {
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.callback.error',
+        message: 'Agent error callback threw',
+        errorName: err instanceof Error ? err.name : 'Error',
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  private safeLifecycleVoid(fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      this.emitAgentError(e, { phase: 'lifecycle_callback' });
+    }
+  }
+
+  private emitRunEnd(args: {
+    reason: AgentRunEndReason;
+    iterations: number;
+    usage?: TokenUsage;
+    error?: Error;
+  }): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onRunEnd?.({
+        ...this.baseRunContext(),
+        reason: args.reason,
+        iterations: args.iterations,
+        usage: args.usage,
+        error: args.error
+      });
+    });
+  }
+
   private static createEmptySessionUsage(): SessionTokenUsage {
     return {
       contextTokens: 0,
@@ -357,24 +442,48 @@ export class Agent {
       }
       try {
         this.messages = await this.sessionManager.resumeSession(options.sessionId);
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onSessionResume?.({
+            sessionId: options.sessionId!,
+            messageCount: this.messages.length
+          });
+        });
       } catch {
         // 目标会话不存在时，创建新会话并保持已重置的空状态
         this.sessionManager.createSession(options.sessionId);
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onSessionCreate?.({
+            sessionId: this.sessionManager.sessionId ?? undefined
+          });
+        });
       }
     } else if (!this.sessionManager.sessionId) {
       this.resetSessionState();
       this.sessionManager.createSession();
+      this.safeLifecycleVoid(() => {
+        this.config.callbacks?.lifecycle?.onSessionCreate?.({
+          sessionId: this.sessionManager.sessionId ?? undefined
+        });
+      });
     }
 
     // 添加系统提示
     if (this.messages.length === 0) {
-      // 合并配置中的 systemPrompt 和运行时的 systemPrompt
+      const usedRuntimePrompt = options?.systemPrompt !== undefined;
       const systemPrompt = this.buildSystemPrompt(
         options?.systemPrompt || this.config.systemPrompt
       );
-      this.messages.push({
+      const sysMsg: Message = {
         role: 'system',
         content: systemPrompt
+      };
+      this.messages.push(sysMsg);
+      this.safeLifecycleVoid(() => {
+        this.config.callbacks?.lifecycle?.onSystemMessage?.(
+          sysMsg,
+          usedRuntimePrompt ? 'runtime_prompt' : 'default_prompt',
+          this.baseRunContext()
+        );
       });
     }
 
@@ -392,9 +501,13 @@ export class Agent {
         const memoryContent = memoryManager.loadMemory();
 
         if (memoryContent) {
-          this.messages.push({
+          const memMsg: Message = {
             role: 'system',
             content: memoryContent
+          };
+          this.messages.push(memMsg);
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onSystemMessage?.(memMsg, 'memory', this.baseRunContext());
           });
         }
       }
@@ -407,10 +520,17 @@ export class Agent {
       processedInput = processed.prompt;
     }
 
-    // 添加用户消息
-    this.messages.push({
+    const userMsg: Message = {
       role: 'user',
       content: processedInput
+    };
+    this.messages.push(userMsg);
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onUserMessage?.(
+        userMsg,
+        processed.invoked ? 'processed_input' : 'raw_input',
+        this.baseRunContext()
+      );
     });
 
     this.log('info', {
@@ -425,7 +545,16 @@ export class Agent {
       }
     });
 
-    yield this.annotateStreamEvent({ type: 'start', timestamp: Date.now() });
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onRunStart?.({
+        ...this.baseRunContext(),
+        inputLength: input.length,
+        processedInputLength: processedInput.length,
+        resumeSessionId: options?.sessionId
+      });
+    });
+
+    yield this.streamOut({ type: 'start', timestamp: Date.now() });
 
     try {
       const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
@@ -445,7 +574,11 @@ export class Agent {
             sessionId: this.sessionManager.sessionId ?? undefined,
             iteration
           });
-          yield this.annotateStreamEvent(
+          this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage: totalUsage });
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
+          });
+          yield this.streamOut(
             {
               type: 'end',
               usage: totalUsage,
@@ -469,11 +602,41 @@ export class Agent {
           }
         });
 
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onIterationStart?.({
+            ...this.baseRunContext(),
+            iteration,
+            messageCount: this.messages.length,
+            toolCount: this.toolRegistry.getAll().length
+          });
+        });
+
         // 上下文压缩检查
         const contextEvents = await this.checkContextCompression();
         for (const event of contextEvents) {
-          yield this.annotateStreamEvent(event, iteration);
+          if (event.type === 'context_compressed') {
+            this.safeLifecycleVoid(() => {
+              this.config.callbacks?.lifecycle?.onContextCompressed?.({
+                ...this.baseRunContext(),
+                iteration,
+                stats: event.stats
+              });
+            });
+          }
+          yield this.streamOut(event, iteration);
         }
+
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onModelRequestStart?.({
+            ...this.baseRunContext(),
+            iteration,
+            messageCount: this.messages.length,
+            toolCount: this.toolRegistry.getAll().length,
+            temperature: this.config.temperature,
+            maxTokens: this.config.maxTokens,
+            includeRawStreamEvents: options?.includeRawStreamEvents
+          });
+        });
 
         const modelParams = {
           messages: this.messages,
@@ -531,7 +694,7 @@ export class Agent {
         for await (const chunk of stream) {
           if (signal?.aborted) {
             for (const event of chunkProcessor.flush()) {
-              const out = this.annotateStreamEvent(event, iteration);
+              const out = this.streamOut(event, iteration);
               yield out;
               applyStreamOut(out);
             }
@@ -547,16 +710,41 @@ export class Agent {
                 ];
               }
               this.messages.push(assistantMessage);
+              this.safeLifecycleVoid(() => {
+                this.config.callbacks?.lifecycle?.onAssistantMessage?.(assistantMessage, {
+                  ...this.baseRunContext(),
+                  iteration
+                });
+              });
             }
 
-            this.messages.push({
+            const interruptMsg: Message = {
               role: 'user',
               content: '[User interrupted the response]'
+            };
+            this.messages.push(interruptMsg);
+            this.safeLifecycleVoid(() => {
+              this.config.callbacks?.lifecycle?.onUserMessage?.(
+                interruptMsg,
+                'interruption_marker',
+                this.baseRunContext()
+              );
             });
 
             await this.sessionManager.saveMessages(this.messages);
+            this.safeLifecycleVoid(() => {
+              this.config.callbacks?.lifecycle?.onMessagePersist?.({
+                ...this.baseRunContext(),
+                messageCount: this.messages.length
+              });
+            });
 
-            yield this.annotateStreamEvent(
+            this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: totalUsage });
+            this.safeLifecycleVoid(() => {
+              this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
+            });
+
+            yield this.streamOut(
               {
                 type: 'end',
                 usage: totalUsage,
@@ -571,9 +759,18 @@ export class Agent {
 
           const events = chunkProcessor.processChunk(chunk);
           for (const event of events) {
-            const out = this.annotateStreamEvent(event, iteration);
+            const out = this.streamOut(event, iteration);
             yield out;
             applyStreamOut(out);
+            if (out.type === 'end' && out.reason === 'error' && out.error) {
+              this.emitAgentError(out.error, { phase: 'model', iteration });
+              this.safeLifecycleVoid(() => {
+                this.config.callbacks?.lifecycle?.onModelRequestError?.(out.error!, {
+                  phase: 'model',
+                  iteration
+                });
+              });
+            }
             if (out.type === 'end' && out.reason === 'error') {
               fatalModelError = true;
               break;
@@ -589,10 +786,14 @@ export class Agent {
         }
 
         for (const event of chunkProcessor.flush()) {
-          const out = this.annotateStreamEvent(event, iteration);
+          const out = this.streamOut(event, iteration);
           yield out;
           applyStreamOut(out);
         }
+
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onModelRequestEnd?.({ ...this.baseRunContext(), iteration });
+        });
 
         const assistantMessage: Message = {
           role: 'assistant',
@@ -618,6 +819,12 @@ export class Agent {
         }
 
         this.messages.push(assistantMessage);
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onAssistantMessage?.(assistantMessage, {
+            ...this.baseRunContext(),
+            iteration
+          });
+        });
 
         if (!hasToolCalls) {
           this.log('debug', {
@@ -630,14 +837,21 @@ export class Agent {
               assistantContentLength: assistantContent.length
             }
           });
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onIterationEnd?.({
+              ...this.baseRunContext(),
+              iteration,
+              hadToolCalls: false
+            });
+          });
           break;
         }
 
-        const toolResults = await this.executeTools(toolCalls);
+        const toolResults = await this.executeTools(toolCalls, iteration);
 
         for (const result of toolResults) {
           if (result.isError && result.error) {
-            yield this.annotateStreamEvent(
+            yield this.streamOut(
               {
                 type: 'tool_error',
                 toolCallId: result.toolCallId,
@@ -646,7 +860,7 @@ export class Agent {
               iteration
             );
           }
-          yield this.annotateStreamEvent(
+          yield this.streamOut(
             {
               type: 'tool_result',
               toolCallId: result.toolCallId,
@@ -655,10 +869,18 @@ export class Agent {
             iteration
           );
 
-          this.messages.push({
+          const toolMsg: Message = {
             role: 'tool',
             toolCallId: result.toolCallId,
             content: result.content
+          };
+          this.messages.push(toolMsg);
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolMessage?.(toolMsg, {
+              ...this.baseRunContext(),
+              iteration,
+              toolCallId: result.toolCallId
+            });
           });
         }
 
@@ -673,20 +895,38 @@ export class Agent {
             toolResultCount: toolResults.length
           }
         });
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onIterationEnd?.({
+            ...this.baseRunContext(),
+            iteration,
+            hadToolCalls: true
+          });
+        });
       }
 
       await this.sessionManager.saveMessages(this.messages);
+      this.safeLifecycleVoid(() => {
+        this.config.callbacks?.lifecycle?.onMessagePersist?.({
+          ...this.baseRunContext(),
+          messageCount: this.messages.length
+        });
+      });
 
       const finishedByIterationCap = iteration >= maxIterations;
       const sessionIterations = finishedByIterationCap ? maxIterations : iteration + 1;
 
-      yield this.annotateStreamEvent({
+      yield this.streamOut({
         type: 'session_summary',
         usage: totalUsage,
         iterations: sessionIterations
       });
 
-      yield this.annotateStreamEvent({
+      this.emitRunEnd({
+        reason: finishedByIterationCap ? 'max_iterations' : 'complete',
+        iterations: sessionIterations,
+        usage: totalUsage
+      });
+      yield this.streamOut({
         type: 'end',
         timestamp: Date.now(),
         reason: finishedByIterationCap ? 'max_iterations' : 'complete'
@@ -711,7 +951,11 @@ export class Agent {
           message: 'Agent turn aborted',
           sessionId: this.sessionManager.sessionId ?? undefined
         });
-        yield this.annotateStreamEvent({
+        this.emitRunEnd({ reason: 'aborted', iterations: 0 });
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext() });
+        });
+        yield this.streamOut({
           type: 'end',
           timestamp: Date.now(),
           reason: 'aborted'
@@ -727,7 +971,9 @@ export class Agent {
         errorName: err.name,
         errorMessage: err.message
       });
-      yield this.annotateStreamEvent({
+      this.emitAgentError(err, { phase: 'run' });
+      this.emitRunEnd({ reason: 'error', iterations: 0, error: err });
+      yield this.streamOut({
         type: 'end',
         timestamp: Date.now(),
         reason: 'error',
@@ -1339,7 +1585,10 @@ export class Agent {
   /**
    * 执行工具调用
    */
-  private async executeTools(toolCalls: ToolCall[]): Promise<
+  private async executeTools(
+    toolCalls: ToolCall[],
+    iteration: number
+  ): Promise<
     Array<{
       toolCallId: string;
       content: string;
@@ -1349,7 +1598,27 @@ export class Agent {
   > {
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onToolCallPlanned?.(tc, {
+            ...this.baseRunContext(),
+            iteration
+          });
+        });
+
         const startedAt = Date.now();
+
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onToolExecutionStart?.({
+            ...this.baseRunContext(),
+            iteration,
+            toolCallId: tc.id,
+            toolName: tc.name,
+            arguments: tc.arguments,
+            projectDir: this.config.cwd || process.cwd(),
+            agentDepth: this.agentDepth
+          });
+        });
+
         this.log('info', {
           component: 'tooling',
           event: 'tool.call.start',
@@ -1365,8 +1634,39 @@ export class Agent {
             projectDir: this.config.cwd || process.cwd(),
             agentDepth: this.agentDepth
           });
+          const durationMs = Date.now() - startedAt;
           const isError = Boolean(result.isError);
           const error = isError ? new Error(result.content) : undefined;
+
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolExecutionEnd?.({
+              ...this.baseRunContext(),
+              iteration,
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+              projectDir: this.config.cwd || process.cwd(),
+              agentDepth: this.agentDepth,
+              durationMs,
+              isError,
+              executionError: undefined
+            });
+          });
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolResult?.({
+              ...this.baseRunContext(),
+              iteration,
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+              projectDir: this.config.cwd || process.cwd(),
+              agentDepth: this.agentDepth,
+              durationMs,
+              isError,
+              result
+            });
+          });
+
           this.log(isError ? 'warn' : 'info', {
             component: 'tooling',
             event: isError ? 'tool.call.error' : 'tool.call.end',
@@ -1374,7 +1674,7 @@ export class Agent {
             sessionId: this.sessionManager.sessionId ?? undefined,
             toolName: tc.name,
             toolCallId: tc.id,
-            durationMs: Date.now() - startedAt,
+            durationMs,
             ...(error
               ? {
                   errorName: error.name,
@@ -1394,6 +1694,53 @@ export class Agent {
           };
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
+          const durationMs = Date.now() - startedAt;
+          const synthetic: ToolResult = { content: err.message, isError: true };
+
+          this.emitAgentError(err, {
+            phase: 'tool',
+            toolName: tc.name,
+            toolCallId: tc.id,
+            iteration
+          });
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolExecutionError?.(err, {
+              phase: 'tool',
+              toolName: tc.name,
+              toolCallId: tc.id,
+              iteration
+            });
+          });
+
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolExecutionEnd?.({
+              ...this.baseRunContext(),
+              iteration,
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+              projectDir: this.config.cwd || process.cwd(),
+              agentDepth: this.agentDepth,
+              durationMs,
+              isError: true,
+              executionError: err
+            });
+          });
+          this.safeLifecycleVoid(() => {
+            this.config.callbacks?.lifecycle?.onToolResult?.({
+              ...this.baseRunContext(),
+              iteration,
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+              projectDir: this.config.cwd || process.cwd(),
+              agentDepth: this.agentDepth,
+              durationMs,
+              isError: true,
+              result: synthetic
+            });
+          });
+
           this.log('error', {
             component: 'tooling',
             event: 'tool.call.error',
@@ -1401,7 +1748,7 @@ export class Agent {
             sessionId: this.sessionManager.sessionId ?? undefined,
             toolName: tc.name,
             toolCallId: tc.id,
-            durationMs: Date.now() - startedAt,
+            durationMs,
             errorName: err.name,
             errorMessage: err.message
           });

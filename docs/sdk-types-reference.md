@@ -48,6 +48,16 @@ interface AgentConfig {
 }
 ```
 
+## `AgentCallbacks` / `AgentLifecycleCallbacks`
+
+- **`callbacks.onEvent`**：与 `Agent.stream()` 产出的每个 `StreamEvent` 同步（含 `start` / `text_delta` / `tool_result` / `end` 等）。
+- **`callbacks.lifecycle.onModelEvent`**：仅模型适配器侧子集（见源码 `MODEL_STREAM_EVENT_TYPES` / `isModelStreamEventType`）。**与 `onEvent` 的关系**：模型来源的事件会进入 `onEvent`，其中子集会再进入 `onModelEvent`，二者可能重复；通常只需订阅 **`onEvent`（全量）** 或 **`lifecycle`（结构化）** 之一，或自行按 `event.type` 去重。
+- **`callbacks.lifecycle`**：结构化观察点（会话、消息装配、模型请求、工具执行、落盘等），**仅通知、不改变执行结果**。拦截工具调用请使用 `hookManager` / `hookConfigDir`（见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）。
+- **`callbacks.lifecycle.hooks`**：由 `Agent` 注入到 `ToolRegistry`，用于观察 Hook 管道（`onHookStart` / `onHookDecision` 等），不替代 `HookManager`。
+- **`onError`**：可选第二参数 `AgentErrorContext`，用于区分 `run` / `model` / `tool` 等阶段。
+
+类型定义见源码 [`src/core/callbacks.ts`](../src/core/callbacks.ts)（并由包根 `export * from './core/types.js'` 再导出常用别名）。
+
 `CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `@ddlqhd/agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
 
 构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 400`、`streaming: true`（再由传入的 `config` 覆盖；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **400**。

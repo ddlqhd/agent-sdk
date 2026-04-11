@@ -1,4 +1,24 @@
 import { z } from 'zod';
+import type { AgentErrorContext, AgentLifecycleCallbacks } from './callbacks.js';
+
+export type {
+  AgentErrorContext,
+  AgentLifecycleCallbacks,
+  AgentRunContext,
+  AgentRunStartContext,
+  AgentRunEndContext,
+  AgentRunEndReason,
+  HookDecisionContext,
+  HookObservationContext,
+  MessageObservationContext,
+  ModelRequestStartContext,
+  SystemMessageSource,
+  ToolExecutionBaseContext,
+  ToolExecutionEndContext,
+  ToolHookObserver,
+  ToolResultObservationContext,
+  UserMessageSource
+} from './callbacks.js';
 
 // ==================== 消息类型 ====================
 
@@ -494,6 +514,34 @@ export type StreamEvent = (
 ) &
   StreamEventAnnotations;
 
+/**
+ * 模型适配器在一次请求中可能产出的流式事件类型（与 {@link isModelStreamEventType} 共用此列表，避免与 `switch` 双处维护）。
+ * 新增 `StreamEvent` 变体时：若属于模型流，请在此数组中追加对应 `type` 字符串。
+ */
+export const MODEL_STREAM_EVENT_TYPES = [
+  'text_start',
+  'text_delta',
+  'text_end',
+  'tool_call_start',
+  'tool_call_delta',
+  'tool_call',
+  'tool_call_end',
+  'thinking_start',
+  'thinking',
+  'thinking_end',
+  'model_usage'
+] as const satisfies readonly StreamEventType[];
+
+const MODEL_STREAM_EVENT_TYPE_SET = new Set<StreamEventType>(MODEL_STREAM_EVENT_TYPES);
+
+/**
+ * 是否为由模型适配器流式产生的事件类型（用于 `lifecycle.onModelEvent` 过滤）。
+ * 排除 `start` / `end` / `session_summary` / `context_compressed` / `tool_result` / `tool_error` 等。
+ */
+export function isModelStreamEventType(type: StreamEventType): boolean {
+  return MODEL_STREAM_EVENT_TYPE_SET.has(type);
+}
+
 // ==================== MCP 类型 ====================
 
 /**
@@ -854,20 +902,20 @@ export interface SkillConfig {
 }
 
 /**
- * Agent 回调
+ * Agent 回调：流式事件 + 可选的结构化生命周期观察。
+ *
+ * - **观察**：`onEvent`、`lifecycle` — 不改变执行结果。
+ * - **拦截**：工具策略与 Hook 见 {@link AgentConfig.hookManager} / `hookConfigDir` 与 {@link ToolRegistry}。
  */
 export interface AgentCallbacks {
-  /** 流式事件回调 */
+  /** 流式事件回调（与 {@link AgentLifecycleCallbacks.onModelEvent} 互补：后者仅模型侧子集） */
   onEvent?: (event: StreamEvent) => void;
 
-  /** 工具执行前回调 */
-  beforeToolCall?: (toolCall: ToolCall) => Promise<boolean | void>;
+  /** 结构化生命周期观察 */
+  lifecycle?: AgentLifecycleCallbacks;
 
-  /** 工具执行后回调 */
-  afterToolCall?: (toolCall: ToolCall, result: ToolResult) => void;
-
-  /** 错误回调 */
-  onError?: (error: Error) => void;
+  /** 错误回调；`context` 为可选扩展信息 */
+  onError?: (error: Error, context?: AgentErrorContext) => void;
 }
 
 /**

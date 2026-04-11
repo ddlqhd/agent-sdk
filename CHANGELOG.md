@@ -4,6 +4,8 @@
 
 ### Breaking
 
+- **AgentCallbacks**: Removed `beforeToolCall` and `afterToolCall`. Use `lifecycle.onToolCallPlanned`, `onToolExecutionEnd`, `onToolResult`, and/or `HookManager` / `hookConfigDir` for tool interception and observation.
+
 - **Package name**: The npm package is published as `@ddlqhd/agent-sdk`. Replace `npm install agent-sdk` / `import … from 'agent-sdk'` with the scoped name. The CLI binary remains `agent-sdk` after `npm install -g @ddlqhd/agent-sdk`.
 
 ### Fixed
