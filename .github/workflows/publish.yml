@@ -9,7 +9,6 @@
 # package.json "repository.url" must match this GitHub repository URL.
 #
 # Usage:
-#   • Create a GitHub Release from a tag whose version matches package.json (e.g. tag v0.2.0 ↔ "version": "0.2.0").
 #   • Or run this workflow manually via Actions → Publish to npm → Run workflow (after bumping version on the default branch).
 
 name: Publish to npm
