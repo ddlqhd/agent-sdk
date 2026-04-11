@@ -6,7 +6,12 @@ import type {
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
-import { debugLogModelRequestBody } from './request-debug.js';
+import {
+  logModelRequestEnd,
+  logModelRequestFailure,
+  logModelRequestStart,
+  logModelStreamParseError
+} from './model-request-log.js';
 
 /**
  * OpenAI 配置
@@ -48,7 +53,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
     const body = this.buildRequestBody(params, true);
-    const response = await this.fetch('/chat/completions', body, params.signal);
+    const response = await this.fetch('/chat/completions', body, 'stream', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -164,8 +169,18 @@ export class OpenAIAdapter extends BaseModelAdapter {
                 ...raw
               };
             }
-          } catch {
-            // 跳过解析错误
+          } catch (error) {
+            logModelStreamParseError(
+              {
+                provider: 'openai',
+                model: this.model,
+                path: '/chat/completions',
+                operation: 'stream',
+                params
+              },
+              trimmed,
+              error
+            );
           }
         }
       }
@@ -191,7 +206,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
   async complete(params: ModelParams): Promise<CompletionResult> {
     const body = this.buildRequestBody(params, false);
-    const response = await this.fetch('/chat/completions', body);
+    const response = await this.fetch('/chat/completions', body, 'complete', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -254,23 +269,61 @@ export class OpenAIAdapter extends BaseModelAdapter {
     return body;
   }
 
-  private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    debugLogModelRequestBody('openai', path, body);
+  private async fetch(
+    path: string,
+    body: unknown,
+    operation: 'stream' | 'complete',
+    params: ModelParams
+  ): Promise<Response> {
+    const requestLog = logModelRequestStart({
+      provider: 'openai',
+      model: this.model,
+      path,
+      operation,
+      params
+    }, body);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.apiKey}`
+      'Authorization': `Bearer ${this.apiKey}`,
+      'X-Client-Request-Id': requestLog.clientRequestId
     };
 
     if (this.organization) {
       headers['OpenAI-Organization'] = this.organization;
     }
-
-    return globalThis.fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal
-    });
+    try {
+      const response = await globalThis.fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: params.signal
+      });
+      logModelRequestEnd(
+        {
+          provider: 'openai',
+          model: this.model,
+          path,
+          operation,
+          params
+        },
+        requestLog,
+        response
+      );
+      return response;
+    } catch (error) {
+      logModelRequestFailure(
+        {
+          provider: 'openai',
+          model: this.model,
+          path,
+          operation,
+          params
+        },
+        requestLog,
+        error
+      );
+      throw error;
+    }
   }
 
   private safeParseJSON(str: string): unknown {

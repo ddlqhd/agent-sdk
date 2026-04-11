@@ -60,6 +60,65 @@ export interface Message {
 }
 
 /**
+ * SDK 日志级别
+ */
+export type SDKLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
+/**
+ * SDK 结构化日志事件
+ */
+export interface LogEvent {
+  /** 固定来源标识，便于宿主应用统一过滤 */
+  source: 'agent-sdk';
+  component: 'agent' | 'model' | 'streaming' | 'tooling' | 'memory';
+  event: string;
+  message?: string;
+
+  provider?: string;
+  model?: string;
+  operation?: 'stream' | 'complete' | 'compress' | 'tool_call';
+
+  sessionId?: string;
+  iteration?: number;
+  toolName?: string;
+  toolCallId?: string;
+
+  requestId?: string;
+  clientRequestId?: string;
+  statusCode?: number;
+  durationMs?: number;
+
+  errorName?: string;
+  errorMessage?: string;
+
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * SDK Logger 接口。宿主应用可将其桥接到 pino / winston / OTel 等实现。
+ */
+export interface SDKLogger {
+  debug?(event: LogEvent): void;
+  info?(event: LogEvent): void;
+  warn?(event: LogEvent): void;
+  error?(event: LogEvent): void;
+}
+
+/**
+ * 日志脱敏与输出控制
+ */
+export interface LogRedactionConfig {
+  /** 是否记录请求/响应 body，默认 false */
+  includeBodies?: boolean;
+  /** 是否记录工具调用参数，默认 false */
+  includeToolArguments?: boolean;
+  /** 单个字符串字段最大保留字符数，默认 4000 */
+  maxBodyChars?: number;
+  /** 额外需要脱敏的键名（大小写不敏感） */
+  redactKeys?: string[];
+}
+
+/**
  * 系统消息
  */
 export interface SystemMessage extends Message {
@@ -111,6 +170,12 @@ export interface ModelParams {
   includeRawStreamEvents?: boolean;
   /** 会话标识；Agent 会在每次模型请求中填入，各适配器自行决定是否映射到 HTTP 请求。 */
   sessionId?: string;
+  /** 当前请求使用的 SDK logger。 */
+  logger?: SDKLogger;
+  /** 当前请求使用的 SDK 日志级别。 */
+  logLevel?: SDKLogLevel;
+  /** 当前请求使用的日志脱敏策略。 */
+  redaction?: LogRedactionConfig;
 }
 
 /**
@@ -715,6 +780,15 @@ export interface AgentConfig {
 
   /** 回调函数 */
   callbacks?: AgentCallbacks;
+
+  /** SDK logger；由宿主应用决定最终输出位置。 */
+  logger?: SDKLogger;
+
+  /** SDK 日志级别；省略时可由环境变量控制。 */
+  logLevel?: SDKLogLevel;
+
+  /** 日志脱敏与 body 输出控制。 */
+  redaction?: LogRedactionConfig;
 
   /** 是否启用长期记忆 */
   memory?: boolean;

@@ -1,4 +1,5 @@
-import type { Message, ModelAdapter } from './types.js';
+import { emitSDKLog } from './logger.js';
+import type { LogRedactionConfig, Message, ModelAdapter, SDKLogLevel, SDKLogger } from './types.js';
 
 /**
  * 压缩器接口
@@ -48,6 +49,16 @@ export interface SummarizationCompressorOptions {
   summaryPrompt?: string;
   /** 摘要最大 token 数, 默认 4000 */
   maxSummaryTokens?: number;
+  /** SDK logger */
+  logger?: SDKLogger;
+  /** SDK 日志级别 */
+  logLevel?: SDKLogLevel;
+  /** 日志脱敏配置 */
+  redaction?: LogRedactionConfig;
+  /** 关联当前会话 ID */
+  sessionId?: string;
+  /** 动态读取当前会话 ID */
+  sessionIdProvider?: () => string | undefined;
 }
 
 /**
@@ -63,14 +74,57 @@ export class SummarizationCompressor implements Compressor {
     private options: SummarizationCompressorOptions = {}
   ) {}
 
+  private getSessionId(): string | undefined {
+    return this.options.sessionIdProvider?.() ?? this.options.sessionId;
+  }
+
   async compress(messages: Message[], targetTokens: number): Promise<Message[]> {
+    const startedAt = Date.now();
     const preserveRecent = this.options.preserveRecent ?? 6;
+    const sessionId = this.getSessionId();
+
+    emitSDKLog({
+      logger: this.options.logger,
+      logLevel: this.options.logLevel,
+      level: 'info',
+      event: {
+        component: 'memory',
+        event: 'context.compress.start',
+        message: 'Starting context compression',
+        operation: 'compress',
+        sessionId,
+        metadata: {
+          compressor: this.name,
+          messageCount: messages.length,
+          targetTokens,
+          preserveRecent
+        }
+      }
+    });
 
     // 1. 分离系统消息、待压缩消息、保留消息
     const systemMessages = messages.filter(m => m.role === 'system');
     const nonSystemMessages = messages.filter(m => m.role !== 'system');
 
     if (nonSystemMessages.length <= preserveRecent) {
+      emitSDKLog({
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        level: 'debug',
+        event: {
+          component: 'memory',
+          event: 'context.compress.skipped',
+          message: 'Skipped compression because there are not enough messages',
+          operation: 'compress',
+          sessionId,
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            compressor: this.name,
+            messageCount: messages.length,
+            preserveRecent
+          }
+        }
+      });
       return messages;
     }
 
@@ -86,23 +140,72 @@ export class SummarizationCompressor implements Compressor {
       Math.floor(targetTokens * 0.3)
     );
 
-    const summaryResponse = await this.model.complete({
-      messages: [
-        { role: 'system', content: summaryPrompt },
-        ...messagesToSummarize,
-      ],
-      maxTokens,
-    });
+    try {
+      const summaryResponse = await this.model.complete({
+        messages: [
+          { role: 'system', content: summaryPrompt },
+          ...messagesToSummarize,
+        ],
+        maxTokens,
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        redaction: this.options.redaction,
+        sessionId
+      });
 
-    // 4. 构建压缩后的消息列表
-    return [
-      ...systemMessages,
-      {
-        role: 'system' as const,
-        content: this.wrapSummary(summaryResponse.content),
-      },
-      ...recentMessages,
-    ];
+      const compressedMessages = [
+        ...systemMessages,
+        {
+          role: 'system' as const,
+          content: this.wrapSummary(summaryResponse.content),
+        },
+        ...recentMessages,
+      ];
+
+      emitSDKLog({
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        level: 'info',
+        event: {
+          component: 'memory',
+          event: 'context.compress.end',
+          message: 'Context compression completed',
+          operation: 'compress',
+          sessionId,
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            compressor: this.name,
+            originalMessageCount: messages.length,
+            compressedMessageCount: compressedMessages.length
+          }
+        }
+      });
+
+      // 4. 构建压缩后的消息列表
+      return compressedMessages;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      emitSDKLog({
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        level: 'error',
+        event: {
+          component: 'memory',
+          event: 'context.compress.error',
+          message: 'Context compression failed',
+          operation: 'compress',
+          sessionId,
+          durationMs: Date.now() - startedAt,
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: {
+            compressor: this.name,
+            messageCount: messages.length
+          }
+        }
+      });
+      throw err;
+    }
   }
 
   /**

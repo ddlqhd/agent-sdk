@@ -26,6 +26,9 @@ interface AgentConfig {
   streaming?: boolean;
   sessionId?: string;
   callbacks?: AgentCallbacks;
+  logger?: SDKLogger;
+  logLevel?: SDKLogLevel;
+  redaction?: LogRedactionConfig;
   memory?: boolean;
   memoryConfig?: MemoryConfig;
   skillConfig?: SkillConfig;
@@ -55,6 +58,7 @@ interface AgentConfig {
 - **`disallowedTools`**：按注册名禁止；被禁止的名不会注册内置，且 `tools` 中同名项也会被跳过。
 - **`allowedTools`** / **`canUseTool`**：自动批准与人工审批策略。
 - **`exclusiveTools`**：仅使用此处列出的工具，不合并默认内置。
+- **`logger` / `logLevel` / `redaction`**：用于将 SDK 生命周期日志接入宿主应用；日志事件固定带 `source: 'agent-sdk'`，文本前缀为 `"[agent-sdk][component][event]"`。
 
 ## `AgentResult`
 
@@ -151,6 +155,71 @@ interface ModelCapabilities {
 
 真实模型或 API 的上限可能**低于**上述 SDK 默认；若收到与 `max_tokens` / 上下文相关的 400，请通过工厂的 `capabilities`（或更小的 `AgentConfig.maxTokens`）收窄。
 
+## `SDKLogger` / `LogEvent`
+
+```ts
+type SDKLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
+interface SDKLogger {
+  debug?(event: LogEvent): void;
+  info?(event: LogEvent): void;
+  warn?(event: LogEvent): void;
+  error?(event: LogEvent): void;
+}
+
+interface LogEvent {
+  source: 'agent-sdk';
+  component: 'agent' | 'model' | 'streaming' | 'tooling' | 'memory';
+  event: string;
+  message?: string;
+  provider?: string;
+  model?: string;
+  operation?: 'stream' | 'complete' | 'compress' | 'tool_call';
+  sessionId?: string;
+  iteration?: number;
+  requestId?: string;
+  clientRequestId?: string;
+  statusCode?: number;
+  durationMs?: number;
+  toolName?: string;
+  toolCallId?: string;
+  errorName?: string;
+  errorMessage?: string;
+  metadata?: Record<string, unknown>;
+}
+```
+
+常见事件：
+
+- `agent.run.start` / `agent.run.end`
+- `model.request.start` / `model.request.end` / `model.request.error`
+- `tool.call.start` / `tool.call.end` / `tool.call.error`
+- `context.compress.start` / `context.compress.end`
+
+## `LogRedactionConfig`
+
+```ts
+interface LogRedactionConfig {
+  includeBodies?: boolean;
+  includeToolArguments?: boolean;
+  maxBodyChars?: number;
+  redactKeys?: string[];
+}
+```
+
+默认策略是**只记录元信息，不记录 prompt/body 全文**。下列环境变量在运行时由 SDK 读取，用于在未在 `AgentConfig.redaction` / `AgentConfig.logLevel` 中显式指定时提供默认值（**已设置的代码配置优先**）。
+
+| 环境变量 | 作用 | 默认 / 解析规则 |
+|----------|------|-------------------|
+| `AGENT_SDK_LOG_LEVEL` | 全局日志级别；与 `SDKLogLevel` 一致 | 未设置且未注入 `logger` 时等价静默；仅注入 `logger` 且未设置本变量与代码 `logLevel` 时默认为 `info`。取值：`debug` \| `info` \| `warn` \| `error` \| `silent`。 |
+| `AGENT_SDK_LOG_BODIES` | 是否在日志元数据中包含脱敏后的请求体相关字段 | 默认 `false`。`1` / `true` / `yes` 为真，`0` / `false` / `no` 为假。 |
+| `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` | 是否在脱敏结构中保留工具参数 | 默认 `false`。真值/假值规则同上。 |
+| `AGENT_SDK_LOG_MAX_BODY_CHARS` | 单条字符串在日志中的最大保留字符数 | 默认 **4000**；须为非负有限数字，否则按默认处理。 |
+
+另：`redactKeys` 仅能通过 `AgentConfig.redaction.redactKeys` 在代码中扩展；环境变量不提供该列表。
+
+未传入 `AgentConfig.logger`、且有效级别非 `silent` 时，SDK 可能将日志写入 **`console`**（见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节「关键约定」）。
+
 ## `ModelParams`
 
 ```ts
@@ -164,10 +233,14 @@ interface ModelParams {
   includeRawStreamEvents?: boolean;
   /** 会话 id：`Agent` 在每次 `stream`/`complete` 调用中会自动填入当前 `SessionManager` 的会话 */
   sessionId?: string;
+  logger?: SDKLogger;
+  logLevel?: SDKLogLevel;
+  redaction?: LogRedactionConfig;
 }
 ```
 
 - **`sessionId`**：`Agent` 在每轮模型请求中都会传入，便于适配器与上游 API 关联会话。OpenAI / Ollama 适配器当前不读取该字段。
+- **`logger` / `logLevel` / `redaction`**：`Agent` 会在内部模型调用时自动填入，用于让 provider 请求日志与宿主应用日志系统对接。
 - **Anthropic 请求 `metadata`**：在 `createAnthropic` / `AnthropicAdapter` 构造参数 `AnthropicConfig.metadata` 中设置（静态对象，或接收当次请求的 **`ModelParams`** 并返回普通对象的函数）。适配器将 `sessionId` 映射为 `user_id` 后，与解析后的 `metadata` **浅合并**（配置中的键可覆盖 `user_id`）。类型名为 `AnthropicRequestMetadata`（由 `@ddlqhd/agent-sdk/models` 导出）。详见 [Anthropic Messages `metadata`](https://docs.anthropic.com/en/api/messages)（`user_id` 须为不透明标识，勿传邮箱等 PII）。
 - **Anthropic 初次 HTTP 重试**：`AnthropicConfig.fetchRetry`（类型 `AnthropicFetchRetryOptions`）。**省略**时默认 **`maxAttempts: 2`**（即失败时**自动再试 1 次**），对典型网络错误及 HTTP **429 / 502 / 503 / 504** 生效，并尊重 `Retry-After`（受 `maxDelayMs` 封顶）；**不**涵盖 SSE 已开始后的流式中断。若需严格单次请求、不重试，可设 `fetchRetry: { maxAttempts: 1 }`。
 

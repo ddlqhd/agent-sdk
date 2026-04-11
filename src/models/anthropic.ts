@@ -6,7 +6,12 @@ import type {
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
-import { debugLogModelRequestBody } from './request-debug.js';
+import {
+  logModelRequestEnd,
+  logModelRequestFailure,
+  logModelRequestStart,
+  logModelStreamParseError
+} from './model-request-log.js';
 
 /**
  * Messages API 顶层 `metadata`：静态字典，或根据每次请求的 {@link ModelParams} 生成字典。
@@ -192,7 +197,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
     const body = this.buildRequestBody(params, true);
-    const response = await this.fetch('/v1/messages', body, params.signal);
+    const response = await this.fetch('/v1/messages', body, 'stream', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -348,8 +353,18 @@ export class AnthropicAdapter extends BaseModelAdapter {
                 }
                 break;
             }
-          } catch {
-            // 跳过解析错误
+          } catch (error) {
+            logModelStreamParseError(
+              {
+                provider: 'anthropic',
+                model: this.model,
+                path: '/v1/messages',
+                operation: 'stream',
+                params
+              },
+              jsonStr,
+              error
+            );
           }
         }
       }
@@ -362,7 +377,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   async complete(params: ModelParams): Promise<CompletionResult> {
     const body = this.buildRequestBody(params, false);
-    const response = await this.fetch('/v1/messages', body);
+    const response = await this.fetch('/v1/messages', body, 'complete', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -559,8 +574,23 @@ export class AnthropicAdapter extends BaseModelAdapter {
   /**
    * 发起 POST；按 `fetchRetry` 对网络错误与 429/502/503/504 重试（不含响应体已开始消费后的 SSE 读失败）。
    */
-  private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    debugLogModelRequestBody('anthropic', path, body);
+  private async fetch(
+    path: string,
+    body: unknown,
+    operation: 'stream' | 'complete',
+    params: ModelParams
+  ): Promise<Response> {
+    const requestLog = logModelRequestStart(
+      {
+        provider: 'anthropic',
+        model: this.model,
+        path,
+        operation,
+        params
+      },
+      body,
+      { httpMaxAttempts: this.fetchRetry.maxAttempts }
+    );
     const url = `${this.baseUrl}${path}`;
     const init: RequestInit = {
       method: 'POST',
@@ -570,17 +600,46 @@ export class AnthropicAdapter extends BaseModelAdapter {
         'anthropic-version': this.version
       },
       body: JSON.stringify(body),
-      signal
+      signal: params.signal
     };
 
     for (let attempt = 0; attempt < this.fetchRetry.maxAttempts; attempt++) {
-      if (signal?.aborted) {
+      const httpAttemptMeta = {
+        httpAttempt: attempt + 1,
+        httpMaxAttempts: this.fetchRetry.maxAttempts
+      };
+
+      if (params.signal?.aborted) {
+        logModelRequestFailure(
+          {
+            provider: 'anthropic',
+            model: this.model,
+            path,
+            operation,
+            params
+          },
+          requestLog,
+          new DOMException('The operation was aborted.', 'AbortError'),
+          { httpMaxAttempts: this.fetchRetry.maxAttempts }
+        );
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
 
       try {
         const response = await globalThis.fetch(url, init);
         if (response.ok) {
+          logModelRequestEnd(
+            {
+              provider: 'anthropic',
+              model: this.model,
+              path,
+              operation,
+              params
+            },
+            requestLog,
+            response,
+            httpAttemptMeta
+          );
           return response;
         }
 
@@ -594,20 +653,56 @@ export class AnthropicAdapter extends BaseModelAdapter {
             fromHeader != null
               ? Math.min(fromHeader, this.fetchRetry.maxDelayMs)
               : backoff;
-          await delay(waitMs, signal);
+          await delay(waitMs, params.signal);
           continue;
         }
 
+        logModelRequestEnd(
+          {
+            provider: 'anthropic',
+            model: this.model,
+            path,
+            operation,
+            params
+          },
+          requestLog,
+          response,
+          httpAttemptMeta
+        );
         return response;
       } catch (e) {
-        if (isAbortError(e) || signal?.aborted) {
+        if (isAbortError(e) || params.signal?.aborted) {
+          logModelRequestFailure(
+            {
+              provider: 'anthropic',
+              model: this.model,
+              path,
+              operation,
+              params
+            },
+            requestLog,
+            e,
+            httpAttemptMeta
+          );
           throw e;
         }
         if (attempt < this.fetchRetry.maxAttempts - 1 && isRetriableFetchError(e)) {
           const backoff = computeBackoffMs(attempt, this.fetchRetry.baseDelayMs, this.fetchRetry.maxDelayMs);
-          await delay(backoff, signal);
+          await delay(backoff, params.signal);
           continue;
         }
+        logModelRequestFailure(
+          {
+            provider: 'anthropic',
+            model: this.model,
+            path,
+            operation,
+            params
+          },
+          requestLog,
+          e,
+          httpAttemptMeta
+        );
         throw e;
       }
     }

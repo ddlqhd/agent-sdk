@@ -255,7 +255,95 @@ for await (const event of agent.stream(userInput, { includeRawStreamEvents: fals
 }
 ```
 
-## 10. System prompt 策略
+## 10. SDK 日志接入
+
+推荐通过 **`AgentConfig.logger`** 接入宿主应用自己的日志系统，而不是在应用代码里直接调用底层适配器。
+
+```ts
+import { Agent, createOpenAI, formatSDKLog } from '@ddlqhd/agent-sdk';
+import pino from 'pino';
+
+const appLogger = pino();
+
+const agent = new Agent({
+  model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+  logLevel: 'info',
+  logger: {
+    info(event) {
+      appLogger.info(event, formatSDKLog(event));
+    },
+    warn(event) {
+      appLogger.warn(event, formatSDKLog(event));
+    },
+    error(event) {
+      appLogger.error(event, formatSDKLog(event));
+    },
+    debug(event) {
+      appLogger.debug(event, formatSDKLog(event));
+    }
+  }
+});
+```
+
+关键约定：
+
+- 每条日志都带固定 `source: 'agent-sdk'`，便于在宿主日志平台过滤。
+- 文本前缀统一为 **`[agent-sdk][component][event]`**，便于控制台或文件直读。
+- 默认只记录元信息；不会默认输出 prompt/body 全文。
+- **未传入自定义 `logger`**、且当前有效日志级别**不是** `silent` 时，SDK 会使用内置实现把日志写到 **`console`**（`debug`→`console.debug`，`info`/`warn`/`error` 同理），并在有 `metadata` 时作为第二参数输出。若希望完全不在控制台出现 SDK 日志，请设置 `logLevel: 'silent'`（或环境变量 `AGENT_SDK_LOG_LEVEL=silent`），或始终传入自己的 `logger` 将输出只交给宿主系统。
+
+常用配置：
+
+```ts
+const agent = new Agent({
+  model,
+  logger,
+  logLevel: 'debug',
+  redaction: {
+    includeBodies: false,
+    includeToolArguments: false,
+    maxBodyChars: 2000
+  }
+});
+```
+
+### SDK 日志相关环境变量（详细说明）
+
+下列变量在进程启动时读取，用于在未在代码里显式传入 `AgentConfig.logLevel` / `redaction` 时提供默认值。**代码中的配置始终优先**：若已设置 `logLevel` 或 `redaction` 的对应字段，则不会用环境变量覆盖该字段。
+
+| 变量 | 作用 |
+|------|------|
+| `AGENT_SDK_LOG_LEVEL` | 控制 SDK 内部日志的**最低输出级别**。未设置且未传入 `logger` 时，默认不输出（等价于 `silent`）；若传入了 `logger` 但未设置本变量且代码里也未写 `logLevel`，则默认按 `info` 级别输出。设为 `debug`/`info`/… 且**仍未**传入 `logger` 时，日志会走内置 **`console`** 输出（见上条「关键约定」）。 |
+| `AGENT_SDK_LOG_BODIES` | 为 `true` 时，在模型请求的日志元数据里允许包含**经脱敏处理后的请求体摘要**（如 `messages` 等）；为 `false` 或未设置时，不在日志里附带完整请求体结构。 |
+| `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` | 为 `true` 时，在脱敏后的结构化数据里允许包含**工具调用的参数**；否则相关字段会显示为占位符（如 `REDACTED_TOOL_ARGUMENTS`）。 |
+| `AGENT_SDK_LOG_MAX_BODY_CHARS` | 非负整数，限制单条字符串字段在日志中保留的最大字符数；超出部分截断并标注。未设置时默认 **4000**。 |
+
+**`AGENT_SDK_LOG_LEVEL` 取值**（大小写不敏感，首尾空格会被忽略）：
+
+- `debug`：输出调试级事件（如每轮 `agent.iteration.start`）。
+- `info`：输出信息与更高级别。
+- `warn`：仅警告与错误。
+- `error`：仅错误。
+- `silent`：不输出任何 SDK 日志（不传 `logger` 时不写 `console`；传入自定义 `logger` 时仍按级别过滤，通常也为无输出）。
+
+**布尔类变量**（`AGENT_SDK_LOG_BODIES`、`AGENT_SDK_LOG_INCLUDE_TOOL_ARGS`）：
+
+- 视为 **true**：`1`、`true`、`yes`（不区分大小写）。
+- 视为 **false**：`0`、`false`、`no`（不区分大小写）。
+- 其他非空字符串：不生效，回退到默认（通常为 false）。
+
+**安全提示**：开启 `AGENT_SDK_LOG_BODIES` 或 `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` 可能使日志中出现对话或工具参数片段；生产环境请结合脱敏策略与日志留存策略使用。
+
+默认会覆盖这些高价值节点：
+
+- `agent.run.start` / `agent.run.end`
+- `model.request.start` / `model.request.end` / `model.request.error`
+- `tool.call.start` / `tool.call.end` / `tool.call.error`
+- `context.compress.start` / `context.compress.end`
+
+**Anthropic 与 HTTP 重试**：使用 `createAnthropic` 且未关闭 `fetchRetry` 时，`model.request.start` 的 `metadata` 含 `httpMaxAttempts`；成功或最终失败的 `model.request.end` / `model.request.error` 还含 **`httpAttempt`**（本次结果来自第几次 HTTP 尝试，从 1 起）与 **`httpMaxAttempts`**，便于区分重试前后的日志。
+
+## 11. System prompt 策略
 
 SDK 内置默认系统提示（描述 Tools、Skills、Sessions 等能力）。可通过 **`AgentConfig.systemPrompt`** 追加或替换，并在运行时修改。
 
@@ -307,7 +395,7 @@ const current = agent.getSystemPrompt();
 
 默认内置提示大致涵盖：工具使用说明、Skills、Sessions、任务原则、输出格式与安全提示等（以实际 `DEFAULT_SYSTEM_PROMPT` 为准）。
 
-## 11. `AskUserQuestion` 与工具审批
+## 12. `AskUserQuestion` 与工具审批
 
 ### `AskUserQuestion`
 
@@ -338,7 +426,7 @@ const agent = new Agent({
 
 完整语义与类型见 [`sdk-api-reference.md`](./sdk-api-reference.md) 中 `AgentConfig` 与 [`sdk-types-reference.md`](./sdk-types-reference.md)。
 
-## 12. Subagent
+## 13. Subagent
 
 启用内置 **`Agent`** 工具时，子代理在**隔离上下文**中运行。可通过 **`AgentConfig.subagent`** 配置：
 
@@ -348,7 +436,7 @@ const agent = new Agent({
 
 详见 [`sdk-api-reference.md`](./sdk-api-reference.md) 与示例 **`examples/subagent-demo.ts`**（[`sdk-examples-index.md`](./sdk-examples-index.md)）。
 
-## 13. 与 Web Demo 的对照
+## 14. 与 Web Demo 的对照
 
 仓库 **`examples/web-demo`** 演示如何将环境变量、MCP 配置、Skill 目录与 Agent 构造串起来；生产环境可复用同一模式（配置对象 + `userBasePath` / `cwd`）。索引与文件清单见 [`sdk-examples-index.md`](./sdk-examples-index.md) 第 1 节。
 

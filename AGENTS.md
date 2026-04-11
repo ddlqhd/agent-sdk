@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents working in this repository.
 
 Agent SDK is a TypeScript library for building AI agents with multi-model support (`createModel` / per-provider factories), MCP integration (`MCPClient`, `MCPAdapter`, optional `mcp_config.json`), skill system, long-term memory via `MemoryManager`, streaming helpers under `src/streaming/`, and JSONL or in-memory session storage.
 
-Optional environment: set `TAVILY_API_KEY` to enable built-in **WebSearch** via the Tavily API (`src/tools/builtin/tavily-search.ts`). Optional tuning: `TAVILY_SEARCH_DEPTH`, `TAVILY_MAX_RESULTS`. Set `AGENT_SDK_DEBUG_MODEL_REQUEST=1` (or `true` / `yes`) to log request bodies sent to model providers (`src/models/request-debug.ts`).
+Optional environment: set `TAVILY_API_KEY` to enable built-in **WebSearch** via the Tavily API (`src/tools/builtin/tavily-search.ts`). Optional tuning: `TAVILY_SEARCH_DEPTH`, `TAVILY_MAX_RESULTS`.
 
 **Zod:** `zod` is a **peerDependency** (^4). It remains in **devDependencies** for this repo’s tests and builds; consumers must install `zod` themselves (see root `README.md` Installation).
 

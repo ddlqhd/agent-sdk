@@ -41,8 +41,9 @@
 |------|------|
 | **Agent 循环** | [`sdk-agent-loop.md`](./sdk-agent-loop.md)（多轮模型↔工具、`iteration`） |
 | **内置工具目录** | [`sdk-built-in-tools.md`](./sdk-built-in-tools.md) |
-| **System prompt** | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节 |
-| **工具审批 / AskUserQuestion / Subagent** | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 11–12 节 |
+| **SDK 日志与环境变量** | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节（含 `AGENT_SDK_LOG_*` 说明） |
+| **System prompt** | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 11 节 |
+| **工具审批 / AskUserQuestion / Subagent** | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 12–13 节 |
 | **CLI（演示与调试）** | [`sdk-cli.md`](./sdk-cli.md) |
 
 其他能力简述：

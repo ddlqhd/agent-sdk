@@ -7,7 +7,12 @@ import type {
 } from '../core/types.js';
 import { BaseModelAdapter, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
-import { debugLogModelRequestBody } from './request-debug.js';
+import {
+  logModelRequestEnd,
+  logModelRequestFailure,
+  logModelRequestStart,
+  logModelStreamParseError
+} from './model-request-log.js';
 
 /**
  * Ollama `/api/chat` `think` parameter (see https://docs.ollama.com/capabilities/thinking).
@@ -115,7 +120,7 @@ export class OllamaAdapter extends BaseModelAdapter {
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
     const body = this.buildRequestBody(params, true);
-    const response = await this.fetch('/api/chat', body, params.signal);
+    const response = await this.fetch('/api/chat', body, 'stream', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -182,8 +187,18 @@ export class OllamaAdapter extends BaseModelAdapter {
               }
               yield { type: 'done', ...raw };
             }
-          } catch {
-            // 跳过解析错误
+          } catch (error) {
+            logModelStreamParseError(
+              {
+                provider: 'ollama',
+                model: this.model,
+                path: '/api/chat',
+                operation: 'stream',
+                params
+              },
+              trimmed,
+              error
+            );
           }
         }
       }
@@ -194,7 +209,7 @@ export class OllamaAdapter extends BaseModelAdapter {
 
   async complete(params: ModelParams): Promise<CompletionResult> {
     const body = this.buildRequestBody(params, false);
-    const response = await this.fetch('/api/chat', body);
+    const response = await this.fetch('/api/chat', body, 'complete', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -319,16 +334,54 @@ export class OllamaAdapter extends BaseModelAdapter {
     return body;
   }
 
-  private async fetch(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    debugLogModelRequestBody('ollama', path, body);
-    return globalThis.fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body),
-      signal
-    });
+  private async fetch(
+    path: string,
+    body: unknown,
+    operation: 'stream' | 'complete',
+    params: ModelParams
+  ): Promise<Response> {
+    const requestLog = logModelRequestStart({
+      provider: 'ollama',
+      model: this.model,
+      path,
+      operation,
+      params
+    }, body);
+    try {
+      const response = await globalThis.fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: params.signal
+      });
+      logModelRequestEnd(
+        {
+          provider: 'ollama',
+          model: this.model,
+          path,
+          operation,
+          params
+        },
+        requestLog,
+        response
+      );
+      return response;
+    } catch (error) {
+      logModelRequestFailure(
+        {
+          provider: 'ollama',
+          model: this.model,
+          path,
+          operation,
+          params
+        },
+        requestLog,
+        error
+      );
+      throw error;
+    }
   }
 }
 

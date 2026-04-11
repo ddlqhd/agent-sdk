@@ -64,7 +64,7 @@ const ollama = createOllama({
 });
 ```
 
-System prompt 的追加/替换与运行时修改见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节。
+System prompt 的追加/替换与运行时修改见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 11 节。
 
 ## 3. 最小可用示例（建议从这里开始）
 

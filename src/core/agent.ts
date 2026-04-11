@@ -25,11 +25,13 @@ import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
 import { createSkillTemplateProcessor } from '../skills/template.js';
 import type { SkillTemplateContext } from '../skills/template.js';
 import { ContextManager } from './context-manager.js';
+import { emitSDKLog } from './logger.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
+import { SummarizationCompressor } from './compressor.js';
 
 /** Default upper bound for model↔tool rounds per user turn when `AgentConfig.maxIterations` is omitted. */
 export const DEFAULT_MAX_ITERATIONS = 400;
@@ -142,11 +144,32 @@ export class Agent {
         ? {}
         : this.config.contextManagement ?? {};
 
-      this.contextManager = new ContextManager(this.config.model!, cmConfig);
+      const compressor = cmConfig.compressor ?? new SummarizationCompressor(this.config.model!, {
+        logger: this.config.logger,
+        logLevel: this.config.logLevel,
+        redaction: this.config.redaction,
+        sessionIdProvider: () => this.sessionManager.sessionId ?? undefined
+      });
+      this.contextManager = new ContextManager(this.config.model!, {
+        ...cmConfig,
+        compressor
+      });
     }
 
     // 启动异步初始化，保存 Promise 供外部等待
     this.initPromise = this.initializeAsync();
+  }
+
+  private log(
+    level: 'debug' | 'info' | 'warn' | 'error',
+    event: Parameters<typeof emitSDKLog>[0]['event']
+  ): void {
+    emitSDKLog({
+      logger: this.config.logger,
+      logLevel: this.config.logLevel,
+      level,
+      event
+    });
   }
 
   /**
@@ -202,7 +225,14 @@ export class Agent {
       }
     } catch (err) {
       // 初始化失败不应阻塞 Agent 使用，只输出警告
-      console.error('Failed to initialize:', err);
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.initialize.error',
+        message: 'Failed to initialize agent resources',
+        errorName: error.name,
+        errorMessage: error.message
+      });
     }
   }
 
@@ -224,7 +254,17 @@ export class Agent {
       try {
         await this.connectMCP(serverConfig);
       } catch (err) {
-        console.error(`Failed to connect MCP server "${serverConfig.name}":`, err);
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.log('error', {
+          component: 'tooling',
+          event: 'mcp.connect.error',
+          message: `Failed to connect MCP server "${serverConfig.name}"`,
+          errorName: error.name,
+          errorMessage: error.message,
+          metadata: {
+            serverName: serverConfig.name
+          }
+        });
       }
     }
   }
@@ -373,6 +413,18 @@ export class Agent {
       content: processedInput
     });
 
+    this.log('info', {
+      component: 'agent',
+      event: 'agent.run.start',
+      message: 'Starting agent turn',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      metadata: {
+        inputLength: input.length,
+        processedInputLength: processedInput.length,
+        includeRawStreamEvents: options?.includeRawStreamEvents === true
+      }
+    });
+
     yield this.annotateStreamEvent({ type: 'start', timestamp: Date.now() });
 
     try {
@@ -386,6 +438,13 @@ export class Agent {
       let iteration = 0;
       for (; iteration < maxIterations; iteration++) {
         if (signal?.aborted) {
+          this.log('info', {
+            component: 'agent',
+            event: 'agent.run.aborted',
+            message: 'Agent turn aborted before model request',
+            sessionId: this.sessionManager.sessionId ?? undefined,
+            iteration
+          });
           yield this.annotateStreamEvent(
             {
               type: 'end',
@@ -397,6 +456,18 @@ export class Agent {
           );
           return;
         }
+
+        this.log('debug', {
+          component: 'agent',
+          event: 'agent.iteration.start',
+          message: 'Starting agent iteration',
+          sessionId: this.sessionManager.sessionId ?? undefined,
+          iteration,
+          metadata: {
+            messageCount: this.messages.length,
+            toolCount: this.toolRegistry.getAll().length
+          }
+        });
 
         // 上下文压缩检查
         const contextEvents = await this.checkContextCompression();
@@ -411,7 +482,10 @@ export class Agent {
           maxTokens: this.config.maxTokens,
           signal,
           includeRawStreamEvents: options?.includeRawStreamEvents,
-          sessionId: this.sessionManager.sessionId ?? undefined
+          sessionId: this.sessionManager.sessionId ?? undefined,
+          logger: this.config.logger,
+          logLevel: this.config.logLevel,
+          redaction: this.config.redaction
         };
 
         const stream = this.config.model!.stream(modelParams);
@@ -546,6 +620,16 @@ export class Agent {
         this.messages.push(assistantMessage);
 
         if (!hasToolCalls) {
+          this.log('debug', {
+            component: 'agent',
+            event: 'agent.iteration.end',
+            message: 'Iteration completed without tool calls',
+            sessionId: this.sessionManager.sessionId ?? undefined,
+            iteration,
+            metadata: {
+              assistantContentLength: assistantContent.length
+            }
+          });
           break;
         }
 
@@ -577,6 +661,18 @@ export class Agent {
             content: result.content
           });
         }
+
+        this.log('debug', {
+          component: 'agent',
+          event: 'agent.iteration.end',
+          message: 'Iteration completed with tool calls',
+          sessionId: this.sessionManager.sessionId ?? undefined,
+          iteration,
+          metadata: {
+            toolCallCount: toolCalls.length,
+            toolResultCount: toolResults.length
+          }
+        });
       }
 
       await this.sessionManager.saveMessages(this.messages);
@@ -595,8 +691,26 @@ export class Agent {
         timestamp: Date.now(),
         reason: finishedByIterationCap ? 'max_iterations' : 'complete'
       });
+      this.log('info', {
+        component: 'agent',
+        event: 'agent.run.end',
+        message: finishedByIterationCap ? 'Agent turn stopped at max iterations' : 'Agent turn completed',
+        sessionId: this.sessionManager.sessionId ?? undefined,
+        metadata: {
+          iterations: sessionIterations,
+          promptTokens: totalUsage.promptTokens,
+          completionTokens: totalUsage.completionTokens,
+          totalTokens: totalUsage.totalTokens
+        }
+      });
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
+        this.log('info', {
+          component: 'agent',
+          event: 'agent.run.aborted',
+          message: 'Agent turn aborted',
+          sessionId: this.sessionManager.sessionId ?? undefined
+        });
         yield this.annotateStreamEvent({
           type: 'end',
           timestamp: Date.now(),
@@ -604,11 +718,20 @@ export class Agent {
         });
         return;
       }
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.run.error',
+        message: 'Agent turn failed',
+        sessionId: this.sessionManager.sessionId ?? undefined,
+        errorName: err.name,
+        errorMessage: err.message
+      });
       yield this.annotateStreamEvent({
         type: 'end',
         timestamp: Date.now(),
         reason: 'error',
-        error: error as Error
+        error: err
       });
     }
   }
@@ -1226,18 +1349,69 @@ export class Agent {
   > {
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
-        const result = await this.toolRegistry.execute(tc.name, tc.arguments, {
-          toolCallId: tc.id,
-          projectDir: this.config.cwd || process.cwd(),
-          agentDepth: this.agentDepth
+        const startedAt = Date.now();
+        this.log('info', {
+          component: 'tooling',
+          event: 'tool.call.start',
+          message: 'Executing tool call',
+          sessionId: this.sessionManager.sessionId ?? undefined,
+          toolName: tc.name,
+          toolCallId: tc.id
         });
-        const isError = Boolean(result.isError);
-        return {
-          toolCallId: tc.id,
-          content: isError ? `Error: ${result.content}` : result.content,
-          isError,
-          error: isError ? new Error(result.content) : undefined
-        };
+
+        try {
+          const result = await this.toolRegistry.execute(tc.name, tc.arguments, {
+            toolCallId: tc.id,
+            projectDir: this.config.cwd || process.cwd(),
+            agentDepth: this.agentDepth
+          });
+          const isError = Boolean(result.isError);
+          const error = isError ? new Error(result.content) : undefined;
+          this.log(isError ? 'warn' : 'info', {
+            component: 'tooling',
+            event: isError ? 'tool.call.error' : 'tool.call.end',
+            message: isError ? 'Tool call returned an error' : 'Tool call completed',
+            sessionId: this.sessionManager.sessionId ?? undefined,
+            toolName: tc.name,
+            toolCallId: tc.id,
+            durationMs: Date.now() - startedAt,
+            ...(error
+              ? {
+                  errorName: error.name,
+                  errorMessage: error.message
+                }
+              : {}),
+            metadata: {
+              resultLength: result.content.length
+            }
+          });
+
+          return {
+            toolCallId: tc.id,
+            content: isError ? `Error: ${result.content}` : result.content,
+            isError,
+            error
+          };
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.log('error', {
+            component: 'tooling',
+            event: 'tool.call.error',
+            message: 'Tool call threw an exception',
+            sessionId: this.sessionManager.sessionId ?? undefined,
+            toolName: tc.name,
+            toolCallId: tc.id,
+            durationMs: Date.now() - startedAt,
+            errorName: err.name,
+            errorMessage: err.message
+          });
+          return {
+            toolCallId: tc.id,
+            content: `Error: ${err.message}`,
+            isError: true,
+            error: err
+          };
+        }
       })
     );
 

@@ -11,7 +11,7 @@
 
 示例目录：`examples/web-demo/`。
 
-**与生产集成的对照方式**：`examples/web-demo/server/env.ts` 演示如何从环境变量组装模型与路径；`agent-factory.ts` 演示如何创建 `Agent`（含 MCP、Skill、Memory 路径等）；`demo-fixtures/mcp.demo.json` 与 `demo-fixtures/.claude/skills/` 演示配置文件与 Skill 目录的**真实布局**。将你在 Demo 里验证过的选项迁移到自有服务时，保持同一 `AgentConfig` 字段语义即可（详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 13 节「与 Web Demo 的对照」）。
+**与生产集成的对照方式**：`examples/web-demo/server/env.ts` 演示如何从环境变量组装模型与路径；`agent-factory.ts` 演示如何创建 `Agent`（含 MCP、Skill、Memory 路径等）；`demo-fixtures/mcp.demo.json` 与 `demo-fixtures/.claude/skills/` 演示配置文件与 Skill 目录的**真实布局**。将你在 Demo 里验证过的选项迁移到自有服务时，保持同一 `AgentConfig` 字段语义即可（详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 14 节「与 Web Demo 的对照」）。
 
 文件清单：
 

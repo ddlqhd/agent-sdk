@@ -6,3 +6,4 @@ export { SummarizationCompressor } from './compressor.js';
 export type { Compressor, CompressionResult, CompressionStats, SummarizationCompressorOptions } from './compressor.js';
 export { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 export type { EnvironmentInfo } from './environment.js';
+export { createConsoleSDKLogger, formatSDKLog } from './logger.js';
