@@ -143,6 +143,8 @@ const agent = new Agent({
 }
 ```
 
+`mcpServers` 中每个 **key**（如上文的 `filesystem`、`remote-service`）即对应 `MCPServerConfig.name`（`serverName`）。Agent 侧该服务器暴露的工具注册名为 **`mcp__<serverName>__<工具名>`**（工具名为 MCP 服务返回的原始名）。配置 `disallowedTools`、系统提示或 Hook matcher 时需使用上述注册名；在 key 与代码中服务器名一致时，可用 `formatMcpToolName('filesystem', 'read_file')` 等形式生成，避免手写拼错。
+
 ## 7. Skill 自动加载与手动调用
 
 - 默认扫描：

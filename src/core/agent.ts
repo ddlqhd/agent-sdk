@@ -20,6 +20,7 @@ import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
 import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
+import { formatMcpToolName, isMcpPrefixedToolName } from '../mcp/mcp-tool-name.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
 import { createSkillTemplateProcessor } from '../skills/template.js';
 import type { SkillTemplateContext } from '../skills/template.js';
@@ -854,8 +855,9 @@ export class Agent {
     await this.mcpAdapter.addServer(resolved);
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
+    const serverPrefix = formatMcpToolName(config.name, '');
     for (const tool of mcpTools) {
-      if (!tool.name.startsWith(`mcp_${config.name}__`)) {
+      if (!tool.name.startsWith(serverPrefix)) {
         continue;
       }
       if (this.toolRegistry.isDisallowed(tool.name)) {
@@ -874,7 +876,7 @@ export class Agent {
     // 获取要移除的工具列表
     const tools = this.toolRegistry.getAll();
     for (const tool of tools) {
-      if (tool.name.startsWith(`mcp_${name}__`)) {
+      if (tool.name.startsWith(formatMcpToolName(name, ''))) {
         this.toolRegistry.unregister(tool.name);
       }
     }
@@ -892,7 +894,7 @@ export class Agent {
     // 移除所有 MCP 工具
     const tools = this.toolRegistry.getAll();
     for (const tool of tools) {
-      if (tool.name.startsWith('mcp_') && tool.name.includes('__')) {
+      if (isMcpPrefixedToolName(tool.name)) {
         this.toolRegistry.unregister(tool.name);
       }
     }

@@ -410,7 +410,7 @@ PostToolUse（传入 toolResultRaw 与 toolResultFinal）
 1. **PreToolUse 放在参数校验成功之后、handler 之前**，这样 `toolInput` 已满足 schema，且 Pre 可安全返回 `updatedInput` 再 `parse` 一次。
 2. **PostToolUse** 在 **handler 成功**（未抛错且 `!result.isError`）且 **outputHandler 处理完成** 之后调用；上下文同时带上 `toolResultRaw`（handler 直接返回值）与 `toolResultFinal`（可能经 outputHandler 改写）。
 3. **PostToolUseFailure** 在下列失败时调用：参数校验失败、handler 抛错、handler 返回 `isError: true`、**工具未注册**；`failureKind` 分别为 `validation`、`handler_throw`，后两类均为 `tool_error`（含未找到工具）。
-4. MCP 等动态注册的工具名同样走 `toolName` 匹配；matcher 为正则，见 §9.1。
+4. MCP 等动态注册的工具名同样走 `toolName` 匹配（MCP 注册名形如 `mcp__<serverName>__<toolName>`，matcher 需写完整名）；matcher 为正则，见 §9.1。
 
 ---
 
@@ -660,7 +660,7 @@ project/
 
 ### 10.4 内置工具名参考（当前仓库）
 
-与 matcher 编写相关（节选）：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`WebFetch`、`WebSearch`、`Skill` 等。第三方与 MCP 工具以运行时注册名为准。
+与 matcher 编写相关（节选）：`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`WebFetch`、`WebSearch`、`Skill` 等。第三方与 MCP 工具以运行时注册名为准；MCP 工具为 `mcp__<server>__<tool>` 形式。
 
 ---
 

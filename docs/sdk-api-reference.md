@@ -135,7 +135,10 @@
 - `MCPAdapter` / `createMCPAdapter()`
 - `loadMCPConfig(configPath?, startDir?, userBasePath?)`
 - `validateMCPConfig(config)`
+- `formatMcpToolName(serverName, toolName)` / `isMcpPrefixedToolName(name)`：生成或与 Agent 内 **MCP 工具注册名** 一致的字符串（白名单、迁移脚本、与 `disallowedTools` 条目对齐时可用）
 - 类型（MCP 连接请统一使用根包 `MCPServerConfig`）：`MCPTool` `MCPResource` `MCPPrompt` `PromptMessage` `MCPConfigFile` `MCPConfigLoadResult`
+
+经 `Agent.connectMCP` 或构造时传入的 `mcpServers` 加载后，MCP 工具在 SDK 内的注册名为 **`mcp__<serverName>__<toolName>`**，其中 `<serverName>` 为 `MCPServerConfig.name`（或与 `mcp_config.json` 里 `mcpServers` 的 key 对应），`<toolName>` 为 MCP 协议返回的工具名。`disallowedTools`、Hook 的 `toolName` 匹配等均使用此注册名（见本文档前文「`disallowedTools`」）。旧版本曾为 `mcp_<serverName>__<toolName>`，升级后若提示词或配置中写死了工具名，需改为新格式。
 
 ## Skills 与 Memory
 

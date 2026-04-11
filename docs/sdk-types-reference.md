@@ -561,6 +561,10 @@ interface MCPServerConfig {
 
 stdio 的 `cwd` 若未设置或仅空白：`Agent.connectMCP` 会填入 `AgentConfig.cwd`（若也未配置则为 `process.cwd()`）；直接使用 `MCPClient` 且未设置时不向 spawn 传 `cwd`，子进程继承父进程工作目录。
 
+### MCP 工具注册名（Agent 对外）
+
+接入 Agent 后，MCP 工具在 `ToolRegistry` / 模型可见列表中的名称为 **`mcp__<serverName>__<toolName>`**。若 `serverName` 或 `toolName` 段内包含子串 `__`，按段解析可能产生歧义，建议避免。生成与校验可使用根包导出的 `formatMcpToolName` / `isMcpPrefixedToolName`（见 [`sdk-api-reference.md`](./sdk-api-reference.md)「MCP」）。
+
 ## `MCPConfigFile`
 
 ```ts

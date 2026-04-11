@@ -5,6 +5,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
 import { PACKAGE_VERSION } from '../version.js';
+import { formatMcpToolName } from './mcp-tool-name.js';
 
 export interface MCPTool {
   name: string;
@@ -196,7 +197,7 @@ export class MCPClient {
 
   toToolDefinitions(): ToolDefinition[] {
     return this._tools.map(tool => ({
-      name: `mcp_${this._name}__${tool.name}`,
+      name: formatMcpToolName(this._name, tool.name),
       description: tool.description || `MCP tool: ${tool.name}`,
       parameters: this.convertSchema(tool.inputSchema),
       handler: async (args: unknown) => this.callTool(tool.name, args),

@@ -82,7 +82,9 @@ export {
   MCPClient,
   createMCPClient,
   MCPAdapter,
-  createMCPAdapter
+  createMCPAdapter,
+  formatMcpToolName,
+  isMcpPrefixedToolName
 } from './mcp/index.js';
 export type { MCPTool, MCPResource, MCPPrompt, PromptMessage } from './mcp/index.js';
 

@@ -1,5 +1,6 @@
 import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
 import { MCPClient, type MCPTool } from './client.js';
+import { formatMcpToolName } from './mcp-tool-name.js';
 
 export class MCPAdapter {
   private clients: Map<string, MCPClient> = new Map();
@@ -16,7 +17,7 @@ export class MCPAdapter {
     this.clients.set(config.name, client);
 
     for (const tool of client.tools) {
-      const fullName = `mcp_${config.name}__${tool.name}`;
+      const fullName = formatMcpToolName(config.name, tool.name);
       this.toolMap.set(fullName, { client, toolName: tool.name });
     }
   }

@@ -51,7 +51,7 @@
 - **多模型适配**：统一 `ModelAdapter` 接口（仅用于构造 `Agent` 的 `model`）
 - **工具系统**：内置工具 + 自定义工具（Zod 参数校验）；`AgentConfig.tools` 中与内置同名则**替换**该内置实现（详见 `sdk-api-reference.md`「替换内置工具」与 `sdk-integration-recipes.md` 第 3 节）
 - **Streaming**：`AsyncIterable<StreamEvent>` 实时消费
-- **MCP**：stdio/http server 接入并自动映射为工具
+- **MCP**：stdio/http server 接入并映射为 **`mcp__…` 形式**的注册工具名（规则见 [`sdk-api-reference.md`](./sdk-api-reference.md)「MCP」）
 - **Skills**：`SKILL.md` 指导能力加载与调用
 - **Memory**：从 `CLAUDE.md` 注入长期上下文
 
