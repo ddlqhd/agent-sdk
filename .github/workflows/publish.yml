@@ -1,7 +1,12 @@
-# Publishes @ddlqhd/agent-sdk to the npm registry.
+# Publishes @ddlqhd/agent-sdk using npm Trusted Publishing (OIDC). No NPM_TOKEN secret.
 #
-# Setup (repository → Settings → Secrets and variables → Actions):
-#   NPM_TOKEN — npm "Automation" or Granular token with publish permission for this package/scope.
+# One-time setup on https://www.npmjs.com/ → your package → Settings → Trusted publishing:
+#   • Provider: GitHub Actions
+#   • Repository + workflow filename: publish.yml (exact name and extension, case-sensitive)
+#   • Optional: GitHub Environment name if you use environments
+#
+# Requires npm CLI ≥ 11.5.1 and Node ≥ 22.14 (see https://docs.npmjs.com/trusted-publishers ).
+# package.json "repository.url" must match this GitHub repository URL.
 #
 # Usage:
 #   • Create a GitHub Release from a tag whose version matches package.json (e.g. tag v0.2.0 ↔ "version": "0.2.0").
@@ -15,13 +20,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write  # Required for OIDC
+  id-token: write
   contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
 
     steps:
@@ -39,6 +45,9 @@ jobs:
           node-version: '24'
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm CLI for trusted publishing
+        run: npm install -g npm@^11.5.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -60,16 +69,9 @@ jobs:
       - name: Test
         run: pnpm test:run
 
-      - name: Who am I?
-        # 使用 pnpm 自己的 whoami，并显式指定 registry
-        run: pnpm whoami --registry=https://registry.npmjs.org/
-        env:
-          # pnpm 默认也会读取 NODE_AUTH_TOKEN
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Build
+        run: pnpm build
 
       - name: Publish to npm
-        # 使用 pnpm publish，它会自动处理构建产物和 workspace（如果有）
-        # 加上 --no-git-checks 是因为在 CI 环境中不需要检查 git 状态
+        # OIDC auth is applied during publish only; do not use npm whoami — it does not reflect OIDC.
         run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
