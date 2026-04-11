@@ -103,7 +103,7 @@
 - Shell：`Bash` 与 `getShellTools()`
 - 搜索：`Grep` 与 `getGrepTools()`（工作区内正则逐行扫描，非调用外部 `rg`；目录搜索时尊重搜索根下的 `.gitignore`）
 - Web：`WebFetch` `WebSearch` 与 `getWebTools()`
-- 任务：`TaskCreate` `TaskUpdate` `TaskList` 与 `getTaskTools()`
+- 任务规划：`TodoWrite` 与 `getPlanningTools()`
 - 交互：`AskUserQuestion`、`AskUserQuestionResolver`、`createAskUserQuestionTool()` 与 `getInteractionTools(options?)`；交互需宿主传入 `AgentConfig.askUserQuestion` 或 `getAllBuiltinTools(..., { resolve })`
 - Skill 激活：`Skill` 与 `getSkillTools()`
 - Subagent：`Agent`（通过 `createAgentTool()` 创建）与 `getSubagentTools()`

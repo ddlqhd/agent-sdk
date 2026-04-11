@@ -37,13 +37,11 @@
 | `WebFetch` | 抓取 URL 并返回可读 markdown | 否 |
 | `WebSearch` | 设置 `TAVILY_API_KEY` 时通过 Tavily 搜索；未设置时返回提示配置 Tavily 的说明（`isError: true`） | 否 |
 
-### 任务 (task)
+### 任务规划 (planning)
 
 | Tool | 说明 | Dangerous |
 |------|------|-----------|
-| `TaskCreate` | 创建会话任务 | 否 |
-| `TaskUpdate` | 更新或完成任务 | 否 |
-| `TaskList` | 列出任务 | 否 |
+| `TodoWrite` | 批量写入/更新完整 `todos` 列表（每项含 `content`、`status`；`activeForm` 可选）；多步任务结束前宜将全部项标为 `completed`；执行中可随时用新列表重规划 | 否 |
 
 ### 交互 (interaction)
 

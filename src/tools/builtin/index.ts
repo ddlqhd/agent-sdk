@@ -3,7 +3,7 @@ export * from './filesystem.js';
 export * from './shell.js';
 export * from './grep.js';
 export * from './web.js';
-export * from './task.js';
+export * from './planning.js';
 export * from './interaction.js';
 export * from './skill-activation.js';
 export * from './subagent.js';
@@ -14,7 +14,7 @@ import { getFileSystemTools } from './filesystem.js';
 import { getShellTools } from './shell.js';
 import { getGrepTools } from './grep.js';
 import { getWebTools } from './web.js';
-import { getTaskTools } from './task.js';
+import { getPlanningTools } from './planning.js';
 import { getInteractionTools, type CreateAskUserQuestionToolOptions } from './interaction.js';
 import { getSkillTools } from './skill-activation.js';
 import { getSubagentTools } from './subagent.js';
@@ -33,7 +33,7 @@ export function getAllBuiltinTools(
     ...getShellTools(),
     ...getGrepTools(),
     ...getWebTools(),
-    ...getTaskTools(),
+    ...getPlanningTools(),
     ...getInteractionTools(interactionOptions),
     ...getSubagentTools(),
     ...getSkillTools(skillRegistry)

@@ -131,7 +131,7 @@ Tool **names** are PascalCase / multi-word identifiers (what the model sees), de
 - `shell.ts` — **Bash** (marked `isDangerous: true`)
 - `grep.ts` — **Grep**
 - `web.ts` — **WebFetch**, **WebSearch** (Tavily when `TAVILY_API_KEY` is set; otherwise stub — see `tavily-search.ts`)
-- `task.ts` — **TaskCreate**, **TaskUpdate**, **TaskList**
+- `planning.ts` — **TodoWrite**
 - `interaction.ts` — **AskUserQuestion**
 - `skill-activation.ts` — **Skill** (invokes a registered skill by name)
 

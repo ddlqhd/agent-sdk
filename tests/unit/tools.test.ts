@@ -237,9 +237,7 @@ describe('Builtin Tools', () => {
     expect(names).toContain('Bash');
     expect(names).toContain('WebFetch');
     expect(names).toContain('WebSearch');
-    expect(names).toContain('TaskCreate');
-    expect(names).toContain('TaskUpdate');
-    expect(names).toContain('TaskList');
+    expect(names).toContain('TodoWrite');
     expect(names).toContain('AskUserQuestion');
     expect(names).toContain('Agent');
 
@@ -248,7 +246,9 @@ describe('Builtin Tools', () => {
     expect(names).not.toContain('list_directory');
     expect(names).not.toContain('http_request');
     expect(names).not.toContain('download_file');
-    expect(names).not.toContain('todo_write');
+    expect(names).not.toContain('TaskCreate');
+    expect(names).not.toContain('TaskUpdate');
+    expect(names).not.toContain('TaskList');
   });
 
   it('should filter safe tools (no dangerous)', async () => {
@@ -633,88 +633,98 @@ describe('Edit Tool', () => {
   });
 });
 
-describe('Task Tools', () => {
-  it('should create and list tasks', async () => {
-    const { taskCreateTool, taskListTool } = await import('../../src/tools/builtin/index.js');
+describe('TodoWrite Tool', () => {
+  it('should write a structured todo list', async () => {
+    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(taskCreateTool);
-    registry.register(taskListTool);
+    registry.register(todoWriteTool);
 
-    const createResult = await registry.execute('TaskCreate', {
-      subject: 'Fix bug',
-      description: 'Fix the login bug'
+    const result = await registry.execute('TodoWrite', {
+      todos: [
+        { content: 'Inspect code', activeForm: 'Inspecting code', status: 'completed' },
+        { content: 'Update tests', activeForm: 'Updating tests', status: 'in_progress' },
+        { content: 'Summarize changes', activeForm: 'Summarizing changes', status: 'pending' }
+      ]
     });
 
-    expect(createResult.isError).toBeFalsy();
-    expect(createResult.content).toContain('Task created');
-
-    const listResult = await registry.execute('TaskList', {});
-    expect(listResult.isError).toBeFalsy();
-    expect(listResult.content).toContain('Fix bug');
-    expect(listResult.content).toContain('pending');
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('Task list updated');
+    expect(result.content).toContain('[x] Inspect code');
+    expect(result.content).toContain('[>] Update tests');
+    expect(result.metadata).toMatchObject({
+      todos: [
+        { content: 'Inspect code', activeForm: 'Inspecting code', status: 'completed' },
+        { content: 'Update tests', activeForm: 'Updating tests', status: 'in_progress' },
+        { content: 'Summarize changes', activeForm: 'Summarizing changes', status: 'pending' }
+      ]
+    });
   });
 
-  it('should update task status', async () => {
-    const { taskCreateTool, taskUpdateTool } = await import('../../src/tools/builtin/index.js');
+  it('should accept todos without activeForm', async () => {
+    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(taskCreateTool);
-    registry.register(taskUpdateTool);
+    registry.register(todoWriteTool);
 
-    const createResult = await registry.execute('TaskCreate', {
-      subject: 'Write tests',
-      description: 'Write unit tests'
+    const result = await registry.execute('TodoWrite', {
+      todos: [{ content: 'Only content', status: 'completed' }]
     });
 
-    const taskId = (createResult.metadata as any)?.task?.id;
-    expect(taskId).toBeDefined();
-
-    const updateResult = await registry.execute('TaskUpdate', {
-      taskId,
-      status: 'in_progress'
+    expect(result.isError).toBeFalsy();
+    expect(result.metadata).toMatchObject({
+      todos: [{ content: 'Only content', status: 'completed' }]
     });
-
-    expect(updateResult.isError).toBeFalsy();
-    expect(updateResult.content).toContain('>');
   });
 
-  it('should delete tasks', async () => {
-    const { taskCreateTool, taskUpdateTool, taskListTool } = await import('../../src/tools/builtin/index.js');
+  it('should accept all pending (no in_progress yet)', async () => {
+    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(taskCreateTool);
-    registry.register(taskUpdateTool);
-    registry.register(taskListTool);
+    registry.register(todoWriteTool);
 
-    const createResult = await registry.execute('TaskCreate', {
-      subject: 'Obsolete task',
-      description: 'To be deleted'
+    const result = await registry.execute('TodoWrite', {
+      todos: [
+        { content: 'First step', activeForm: 'Doing first step', status: 'pending' },
+        { content: 'Second step', activeForm: 'Doing second step', status: 'pending' }
+      ]
     });
 
-    const taskId = (createResult.metadata as any)?.task?.id;
-
-    const deleteResult = await registry.execute('TaskUpdate', {
-      taskId,
-      status: 'deleted'
-    });
-
-    expect(deleteResult.isError).toBeFalsy();
-    expect(deleteResult.content).toContain('deleted');
-
-    const listResult = await registry.execute('TaskList', {});
-    expect(listResult.content).not.toContain('Obsolete task');
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('0 in progress');
   });
 
-  it('should return error for non-existent task', async () => {
-    const { taskUpdateTool } = await import('../../src/tools/builtin/index.js');
+  it('should accept all completed (no in_progress)', async () => {
+    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
     const registry = new ToolRegistry();
-    registry.register(taskUpdateTool);
+    registry.register(todoWriteTool);
 
-    const result = await registry.execute('TaskUpdate', {
-      taskId: '999',
-      status: 'completed'
+    const result = await registry.execute('TodoWrite', {
+      todos: [
+        { content: 'Done A', activeForm: 'Doing A', status: 'completed' },
+        { content: 'Done B', activeForm: 'Doing B', status: 'completed' }
+      ]
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('not found');
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('2 completed');
+    expect(result.content).toContain('0 in progress');
+  });
+
+  it('should accept multiple in_progress (parallel work)', async () => {
+    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const registry = new ToolRegistry();
+    registry.register(todoWriteTool);
+
+    const result = await registry.execute('TodoWrite', {
+      todos: [
+        { content: 'A', activeForm: 'Doing A', status: 'in_progress' },
+        { content: 'B', activeForm: 'Doing B', status: 'in_progress' },
+        { content: 'C', activeForm: 'Doing C', status: 'pending' }
+      ]
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('2 in progress');
+    expect(result.content).toContain('[>] A');
+    expect(result.content).toContain('[>] B');
   });
 });
 
