@@ -50,7 +50,9 @@ agent.registerTool(
 
 ## 3. 替换内置工具（同名覆盖）
 
-默认会先注册 SDK 内置工具；在 **`Agent` 构造配置的 `tools` 数组**里放入与内置**相同 `name`** 的 `ToolDefinition`，会用你的实现**替换**同名内置工具（无需先 `disallowedTools` 掉内置名——那样会导致内置与你的自定义都不会注册）。
+**规则与与 `disallowedTools` / `exclusiveTools` 的关系**以 [`sdk-api-reference.md`](./sdk-api-reference.md) 中「`AgentConfig` 工具与权限相关字段」与「**替换内置工具**」为准；以下为最小示例。
+
+默认会先注册 SDK 内置工具；在 **`Agent` 构造配置的 `tools` 数组**里放入与内置**相同 `name`** 的 `ToolDefinition`，会用你的实现**替换**同名内置工具。
 
 ```ts
 import { Agent, createOpenAI, createTool } from '@ddlqhd/agent-sdk';
@@ -418,23 +420,45 @@ const agent = new Agent({
 
 ### `allowedTools` / `canUseTool`
 
-用于**工具执行前审批**（与注册名一致）：
+用于**工具执行前审批**（与注册名一致）。**完整语义**以 [`sdk-api-reference.md`](./sdk-api-reference.md)「`AgentConfig` 工具与权限相关字段」为准；摘要：
 
-- 未设置 **`allowedTools`**：兼容行为——除 `disallowedTools` 外的工具均可自动执行（仍不暴露给模型的名不会注册）。
-- 设置 **`allowedTools`**：列表内为**自动批准**；不在列表内的调用需 **`canUseTool(toolName, input)`** 返回 `true` 才执行；若配置了 `allowedTools` 且某次调用不在列表内、又未配置 `canUseTool`，则拒绝。
-- **`allowedTools: []`**：无自动批准，每次执行都必须经 `canUseTool`；未配置 `canUseTool` 则全部拒绝。
-
-完整语义与类型见 [`sdk-api-reference.md`](./sdk-api-reference.md) 中 `AgentConfig` 与 [`sdk-types-reference.md`](./sdk-types-reference.md)。
+- 未设置 **`allowedTools`**：除 `disallowedTools` 外默认可执行。
+- 设置 **`allowedTools`**：列表内自动批准；未命中时需 **`canUseTool`**，否则拒绝。
+- **`allowedTools: []`**：无自动批准，依赖 **`canUseTool`**（未配置则全部拒绝）。
 
 ## 13. Subagent
 
-启用内置 **`Agent`** 工具时，子代理在**隔离上下文**中运行。可通过 **`AgentConfig.subagent`** 配置：
+内置工具 **`Agent`** 将任务委托给**新的 `Agent` 实例**在隔离上下文中执行（不继承父会话消息）。父级配置中的 **`AgentConfig.subagent`** 控制是否暴露该工具、嵌套深度、并发与超时等，字段说明见 [`sdk-api-reference.md`](./sdk-api-reference.md)。
 
-- **`enabled`**：是否暴露 `Agent` 工具（默认 `true`）
-- **`maxDepth`**：嵌套深度上限（默认 `1`，子代理内默认不再暴露 `Agent` 以防嵌套）
-- **`maxParallel`**、**`timeoutMs`**、**`allowDangerousTools`**、**`defaultAllowedTools`**：并发、超时与子代理侧工具策略
+### 工具调用参数（`SubagentRequest`）
 
-详见 [`sdk-api-reference.md`](./sdk-api-reference.md) 与示例 **`examples/subagent-demo.ts`**（[`sdk-examples-index.md`](./sdk-examples-index.md)）。
+根包通过 `export *` 导出 `SubagentRequest` 与 `subagentRequestSchema`，与运行时校验一致，主要包括：
+
+| 字段 | 说明 |
+|------|------|
+| **`prompt`** | 子任务描述（必填） |
+| **`description`** | 短标签，用于日志与返回 **metadata** |
+| **`subagent_type`** | `'general-purpose'` \| `'explore'`（默认 `general-purpose`）。**当前实现中仅写入结果 metadata**（`subagentType`），**不**据此切换专用工具集或追加系统提示；与描述文案中的 “profile” 相关的差异化行为以未来版本为准。 |
+| **`allowed_tools`** | 可选，按**注册名**白名单；若省略则使用 `AgentConfig.subagent.defaultAllowedTools`，若二者皆无则从**父级工具注册表**中选取 |
+| **`max_iterations`** | 子运行轮次上限；默认继承父 `AgentConfig.maxIterations`，并与 `DEFAULT_MAX_ITERATIONS` 链式合并 |
+| **`timeout_ms`** | 单次委托超时；实际上限为 `min(请求值, subagent.timeoutMs)` |
+| **`system_prompt`** | 作为子 `run` 的 `systemPrompt` 选项传入（与主会话系统提示独立） |
+
+### 子 Agent 实际可用的工具
+
+解析规则（与源码 `resolveSubagentTools` 一致）：
+
+1. 候选名来自 **`allowed_tools`**，或 **`defaultAllowedTools`**，或「父级全部**非** `isDangerous` 的工具」。
+2. 始终移除 **`Agent`**、**`AskUserQuestion`**（子级不可再委托、避免交互阻塞）。
+3. 若 **`allowDangerousTools`** 为 `false`：从候选集中去掉危险工具；若 **`allowed_tools`** 显式包含危险工具则直接报错。
+4. 子 `Agent` 使用 **`exclusiveTools`** 指向上述解析结果，**不**再合并 `AgentConfig.tools`；**不**继承父级 **MCP**（`mcpServers` 清空）。
+5. 子级 **`subagent.enabled`** 置为 **`false`**，故子会话内**不会**注册 `Agent` 工具（嵌套深度由 `maxDepth` 与 `ToolExecutionContext.agentDepth` 共同约束）。
+
+### 返回与 metadata
+
+成功时工具结果可带 **`metadata`**（如 `sessionId`、`subagentType`、`durationMs`、`usage`、`toolNames`、`description`），便于观测与计费；失败路径亦可能含部分字段。
+
+示例见 **`examples/subagent-demo.ts`**（[`sdk-examples-index.md`](./sdk-examples-index.md)）。
 
 ## 14. 与 Web Demo 的对照
 

@@ -67,7 +67,7 @@ When NOT to use this tool:
 
 Usage notes:
 - Always pass a short description and a complete prompt with all required context
-- Use subagent_type to select behavior; default is general-purpose
+- subagent_type is recorded in result metadata; current SDK does not change tools or prompts by type (general-purpose vs explore)
 - Subagents do not inherit parent conversation history, only the prompt you provide
 - Subagents cannot spawn other subagents (no nested Agent calls)`,
     parameters: subagentRequestSchema,

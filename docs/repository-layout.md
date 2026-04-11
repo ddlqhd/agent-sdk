@@ -16,7 +16,7 @@ agent-sdk/
 │   │   └── ollama.ts
 │   ├── tools/             # 工具系统
 │   │   ├── registry.ts
-│   │   ├── hooks/         # 工具 Hook
+│   │   ├── hooks/         # 工具 Hook（类型、HookManager、settings 加载；用户向说明见 docs/tool-hook-mechanism.md）
 │   │   └── builtin/       # 内置工具
 │   ├── storage/           # 会话存储
 │   ├── streaming/         # 流式归一化与辅助
@@ -32,3 +32,13 @@ agent-sdk/
 ├── tsconfig.json
 └── tsup.config.ts
 ```
+
+## Hook 实现位置（对照源码）
+
+工具 Hook 的配置格式、事件类型与安全说明见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)。源码入口：
+
+- `src/tools/hooks/types.ts` — 类型与协议
+- `src/tools/hooks/manager.ts` — `HookManager` 执行与合并
+- `src/tools/hooks/loader.ts`（及同目录索引）— `settings.json` 加载与项目/用户配置发现
+
+与 `ToolRegistry`、参数校验的衔接顺序见 `tool-hook-mechanism.md` 正文相关小节。

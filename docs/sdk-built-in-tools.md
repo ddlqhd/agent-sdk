@@ -61,4 +61,4 @@
 |------|------|-----------|
 | `Agent` | 将工作委托给子代理（独立上下文） | 否 |
 
-**Subagent 说明**：子代理默认**不**再暴露 `Agent` 工具（禁止嵌套）；并发、超时、危险工具等由 `AgentConfig.subagent` 控制。详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 中 Subagent 小节。
+**Subagent 说明**：子代理内**不**再暴露 `Agent`（禁止嵌套）；`subagent_type` 当前仅影响结果 metadata，详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 13 节。

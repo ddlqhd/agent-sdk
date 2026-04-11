@@ -1,54 +1,29 @@
 # Agent SDK 类型定义参考
 
-本页聚焦第三方集成最常用、最关键的公开类型。
+本页聚焦第三方集成最常用、最关键的公开类型。与 [`sdk-api-reference.md`](./sdk-api-reference.md) 的分工：**API 参考列稳定导出与职责，本页补充类型语义与字段说明**。根包 `export * from './core/types.js'` 等**未在本文逐一枚举**；完整字段以源码与 IDE 为准。
 
 ## 1. Agent 相关
 
-## `AgentConfig`
+### `AgentConfig`
 
-```ts
-interface AgentConfig {
-  model: ModelAdapter;
-  systemPrompt?: SystemPrompt;
-  tools?: ToolDefinition[];
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  canUseTool?: CanUseToolCallback;
-  exclusiveTools?: ToolDefinition[];
-  askUserQuestion?: AskUserQuestionResolver;
-  skills?: string[];
-  mcpServers?: MCPServerConfig[];
-  userBasePath?: string;
-  storage?: StorageConfig;
-  maxIterations?: number;
-  temperature?: number;
-  maxTokens?: number;
-  streaming?: boolean;
-  sessionId?: string;
-  callbacks?: AgentCallbacks;
-  logger?: SDKLogger;
-  logLevel?: SDKLogLevel;
-  redaction?: LogRedactionConfig;
-  memory?: boolean;
-  memoryConfig?: MemoryConfig;
-  skillConfig?: SkillConfig;
-  contextManagement?: boolean | ContextManagerConfig;
-  cwd?: string;
-  includeEnvironment?: boolean;
-  hookManager?: HookManager;
-  hookConfigDir?: string;
-  subagent?: {
-    enabled?: boolean;
-    maxDepth?: number;
-    maxParallel?: number;
-    timeoutMs?: number;
-    allowDangerousTools?: boolean;
-    defaultAllowedTools?: string[];
-  };
-}
-```
+构造 `Agent` 时的配置。下表为**分组摘要**；工具权限、同名替换、与 `disallowedTools`/`exclusiveTools` 的关系以 [`sdk-api-reference.md`](./sdk-api-reference.md)「`AgentConfig` 工具与权限相关字段」与「**替换内置工具**」为准。
 
-## `AgentCallbacks` / `AgentLifecycleCallbacks`
+| 分组 | 字段 |
+|------|------|
+| 必选 | `model` |
+| 系统与生成 | `systemPrompt`、`temperature`、`maxTokens`、`streaming`、`maxIterations`、`sessionId` |
+| 工具与权限 | `tools`、`allowedTools`、`disallowedTools`、`canUseTool`、`exclusiveTools` |
+| 交互 | `askUserQuestion` |
+| Skills / MCP / Memory | `skills`、`skillConfig`、`mcpServers`、`memory`、`memoryConfig` |
+| 会话与路径 | `storage`、`userBasePath`、`cwd` |
+| 上下文与环境 | `contextManagement`、`includeEnvironment` |
+| 可观测 | `callbacks`、`logger`、`logLevel`、`redaction` |
+| Hook | `hookManager`、`hookConfigDir` |
+| 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`allowDangerousTools`、`defaultAllowedTools`） |
+
+未显式设置时，SDK 会合并默认 **`maxIterations: 400`**、**`streaming: true`**（可被传入配置覆盖）；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出。
+
+### `AgentCallbacks` / `AgentLifecycleCallbacks`
 
 - **`callbacks.onEvent`**：与 `Agent.stream()` 产出的每个 `StreamEvent` 同步（含 `start` / `text_delta` / `tool_result` / `end` 等）。
 - **`callbacks.lifecycle.onModelEvent`**：仅模型适配器侧子集（见源码 `MODEL_STREAM_EVENT_TYPES` / `isModelStreamEventType`）。**与 `onEvent` 的关系**：模型来源的事件会进入 `onEvent`，其中子集会再进入 `onModelEvent`，二者可能重复；通常只需订阅 **`onEvent`（全量）** 或 **`lifecycle`（结构化）** 之一，或自行按 `event.type` 去重。
@@ -60,17 +35,7 @@ interface AgentConfig {
 
 `CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `@ddlqhd/agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
 
-构造 `Agent` 时，SDK 会将默认合并为 `maxIterations: 400`、`streaming: true`（再由传入的 `config` 覆盖；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出）。未显式设置 `maxIterations` 时，多轮工具循环的上界为 **400**。
-
-与工具相关的常用字段（完整列表以源码 `AgentConfig` 为准）：
-
-- **`tools`**：在默认内置之后注册；**与内置 `name` 相同时会替换内置定义**（见 [`sdk-api-reference.md`](./sdk-api-reference.md)「替换内置工具」）。
-- **`disallowedTools`**：按注册名禁止；被禁止的名不会注册内置，且 `tools` 中同名项也会被跳过。
-- **`allowedTools`** / **`canUseTool`**：自动批准与人工审批策略。
-- **`exclusiveTools`**：仅使用此处列出的工具，不合并默认内置。
-- **`logger` / `logLevel` / `redaction`**：用于将 SDK 生命周期日志接入宿主应用；日志事件固定带 `source: 'agent-sdk'`，文本前缀为 `"[agent-sdk][component][event]"`。
-
-## `AgentResult`
+### `AgentResult`
 
 ```ts
 interface AgentResult {
@@ -82,7 +47,7 @@ interface AgentResult {
 }
 ```
 
-## `StreamOptions`
+### `StreamOptions`
 
 ```ts
 interface StreamOptions {
@@ -95,7 +60,7 @@ interface StreamOptions {
 
 ## 2. 消息与内容
 
-## `Message` / `ToolCall`
+### `Message` / `ToolCall`
 
 ```ts
 interface ToolCall {
@@ -114,7 +79,7 @@ interface Message {
 }
 ```
 
-## `ContentPart`
+### `ContentPart`
 
 ```ts
 type ContentPart = TextContent | ThinkingContent | ImageContent;
@@ -126,7 +91,7 @@ type ContentPart = TextContent | ThinkingContent | ImageContent;
 
 ## 3. 模型层类型
 
-## `ModelAdapter`
+### `ModelAdapter`
 
 ```ts
 interface ModelAdapter {
@@ -137,7 +102,7 @@ interface ModelAdapter {
 }
 ```
 
-## `ModelCapabilities`
+### `ModelCapabilities`
 
 ```ts
 interface ModelCapabilities {
@@ -165,7 +130,7 @@ interface ModelCapabilities {
 
 真实模型或 API 的上限可能**低于**上述 SDK 默认；若收到与 `max_tokens` / 上下文相关的 400，请通过工厂的 `capabilities`（或更小的 `AgentConfig.maxTokens`）收窄。
 
-## `SDKLogger` / `LogEvent`
+### `SDKLogger` / `LogEvent`
 
 ```ts
 type SDKLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
@@ -206,7 +171,7 @@ interface LogEvent {
 - `tool.call.start` / `tool.call.end` / `tool.call.error`
 - `context.compress.start` / `context.compress.end`
 
-## `LogRedactionConfig`
+### `LogRedactionConfig`
 
 ```ts
 interface LogRedactionConfig {
@@ -230,7 +195,7 @@ interface LogRedactionConfig {
 
 未传入 `AgentConfig.logger`、且有效级别非 `silent` 时，SDK 可能将日志写入 **`console`**（见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 10 节「关键约定」）。
 
-## `ModelParams`
+### `ModelParams`
 
 ```ts
 interface ModelParams {
@@ -254,7 +219,7 @@ interface ModelParams {
 - **Anthropic 请求 `metadata`**：在 `createAnthropic` / `AnthropicAdapter` 构造参数 `AnthropicConfig.metadata` 中设置（静态对象，或接收当次请求的 **`ModelParams`** 并返回普通对象的函数）。适配器将 `sessionId` 映射为 `user_id` 后，与解析后的 `metadata` **浅合并**（配置中的键可覆盖 `user_id`）。类型名为 `AnthropicRequestMetadata`（由 `@ddlqhd/agent-sdk/models` 导出）。详见 [Anthropic Messages `metadata`](https://docs.anthropic.com/en/api/messages)（`user_id` 须为不透明标识，勿传邮箱等 PII）。
 - **Anthropic 初次 HTTP 重试**：`AnthropicConfig.fetchRetry`（类型 `AnthropicFetchRetryOptions`）。**省略**时默认 **`maxAttempts: 2`**（即失败时**自动再试 1 次**），对典型网络错误及 HTTP **429 / 502 / 503 / 504** 生效，并尊重 `Retry-After`（受 `maxDelayMs` 封顶）；**不**涵盖 SSE 已开始后的流式中断。若需严格单次请求、不重试，可设 `fetchRetry: { maxAttempts: 1 }`。
 
-## `CompletionResult` / `TokenUsage`
+### `CompletionResult` / `TokenUsage`
 
 ```ts
 interface CompletionResult {
@@ -273,7 +238,7 @@ interface TokenUsage {
 }
 ```
 
-## `SessionTokenUsage`
+### `SessionTokenUsage`
 
 `Agent.getSessionUsage()` 返回的会话级累计用量（与单次 API 返回的 `TokenUsage` 字段含义不同）：
 
@@ -291,7 +256,7 @@ interface SessionTokenUsage {
 
 ## 4. 工具层类型
 
-## `ToolDefinition`
+### `ToolDefinition`
 
 ```ts
 interface ToolDefinition {
@@ -304,7 +269,7 @@ interface ToolDefinition {
 }
 ```
 
-## `ToolResult`
+### `ToolResult`
 
 ```ts
 interface ToolResult {
@@ -314,7 +279,7 @@ interface ToolResult {
 }
 ```
 
-## `ToolExecutionContext`
+### `ToolExecutionContext`
 
 ```ts
 interface ToolExecutionContext {
@@ -328,7 +293,19 @@ interface ToolExecutionContext {
 
 ### `StreamEvent`（联合类型概述）
 
-`StreamEvent` 是以 `type` 为判别字段的联合类型，并与 `StreamEventAnnotations` 相交（见下）。**第三方集成应通过 `Agent.stream` 消费**；以下各小节按 `type` **分别**说明字段与时机。
+`StreamEvent` 是以 `type` 为判别字段的联合类型，并与 `StreamEventAnnotations` 相交（见下）。**第三方集成应通过 `Agent.stream` 消费**。下列总表与 `StreamEventType`（源码）一致；细节见各 `###` 小节。
+
+| `type` | 摘要 |
+|--------|------|
+| `start` | 本轮流开始 |
+| `text_start` / `text_delta` / `text_end` | 助手文本块边界与增量 |
+| `tool_call_start` / `tool_call_delta` / `tool_call_end` / `tool_call` | 工具调用流式与最终形态 |
+| `tool_result` / `tool_error` | 本地执行结果或错误 |
+| `thinking_start` / `thinking` / `thinking_end` | 扩展思考块边界与增量 |
+| `model_usage` | 模型侧用量片段 |
+| `session_summary` | 本轮累计用量与迭代数（成功路径权威用量） |
+| `end` | 本轮结束（含 `reason`） |
+| `context_compressed` | 上下文压缩完成 |
 
 ### 共用：`TokenUsage`
 
@@ -503,6 +480,30 @@ interface StreamEventAnnotations {
 
 **时机**：模型流中出现 thinking 块时。
 
+### `thinking_start`
+
+```ts
+{ type: 'thinking_start'; signature?: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `signature` | `string`（可选） | 提供商要求的思考块签名（如 Anthropic） |
+
+**时机**：模型侧开始一段 thinking 块时（若适配器发出该事件）。
+
+### `thinking_end`
+
+```ts
+{ type: 'thinking_end'; content?: string }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | `string`（可选） | 块收尾可选内容 |
+
+**时机**：离开当前 thinking 块前（若适配器发出该事件）。
+
 ### `model_usage`
 
 ```ts
@@ -604,9 +605,9 @@ sequenceDiagram
   A->>A: end complete or max_iterations
 ```
 
-### 实现备注（进阶）
+### 实现备注
 
-库内将各模型适配器的原始流规范一化为 `StreamEvent`；若你在源码中调试，可能会看到 `StreamChunkProcessor` 等类型。**应用代码应以 `Agent.stream` 产出的事件为准**，不要依赖内部类名。
+各适配器将原始流归一化为 `StreamEvent`。**应用集成以 `Agent.stream` 产出为准**；内部类名（如 `StreamChunkProcessor`）不视为稳定 API。
 
 ### 与 Claude Messages API 流式形状的对照（可选）
 
@@ -627,7 +628,7 @@ sequenceDiagram
 
 ## 6. MCP 类型
 
-## `MCPServerConfig`
+### `MCPServerConfig`
 
 ```ts
 interface MCPServerConfig {
@@ -648,7 +649,7 @@ stdio 的 `cwd` 若未设置或仅空白：`Agent.connectMCP` 会填入 `AgentCo
 
 接入 Agent 后，MCP 工具在 `ToolRegistry` / 模型可见列表中的名称为 **`mcp__<serverName>__<toolName>`**。若 `serverName` 或 `toolName` 段内包含子串 `__`，按段解析可能产生歧义，建议避免。生成与校验可使用根包导出的 `formatMcpToolName` / `isMcpPrefixedToolName`（见 [`sdk-api-reference.md`](./sdk-api-reference.md)「MCP」）。
 
-## `MCPConfigFile`
+### `MCPConfigFile`
 
 ```ts
 interface MCPConfigFile {
@@ -667,7 +668,7 @@ interface MCPConfigFile {
 
 ## 7. Skills 与 Memory 类型
 
-## `SkillMetadata` / `SkillDefinition`
+### `SkillMetadata` / `SkillDefinition`
 
 ```ts
 interface SkillMetadata {
@@ -689,7 +690,7 @@ interface SkillDefinition {
 }
 ```
 
-## `MemoryConfig` / `SkillConfig`
+### `MemoryConfig` / `SkillConfig`
 
 ```ts
 interface MemoryConfig {
@@ -704,6 +705,8 @@ interface SkillConfig {
 ```
 
 ## 8. 存储类型
+
+### `StorageConfig` / `StorageAdapter` / `SessionInfo`
 
 ```ts
 interface StorageConfig {

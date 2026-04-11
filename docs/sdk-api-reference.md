@@ -6,9 +6,17 @@
 - `@ddlqhd/agent-sdk/models`
 - `@ddlqhd/agent-sdk/tools`
 
+根包另有 `export * from './core/types.js'`、`export * from './tools/builtin/index.js'` 等；下文对类型与内置符号为**代表性列举，非穷尽**（完整符号以构建产物与 IDE 补全为准）。
+
 ## 1. `@ddlqhd/agent-sdk`（根入口）
 
-## Agent 与核心入口
+### 根入口其他导出
+
+- `PACKAGE_VERSION`：当前包版本字符串（与发布包版本一致）
+- `mergeProcessEnv` / `mergeMcpStdioEnv`：合并进程环境变量（MCP stdio 子进程等场景）
+- `createConsoleSDKLogger` / `formatSDKLog`：控制台日志辅助（可与 `AgentConfig.logger` 配合）
+
+### `Agent` 类与构造
 
 - `Agent`：核心执行引擎
 - `createAgent(config)`：创建 `Agent` 实例
@@ -60,9 +68,9 @@
 4. **创建 Agent 之后再替换**  
    `Agent.registerTool` 在名已存在时会抛错。应先 `agent.getToolRegistry().unregister('Read')`（或对应名），再 `registerTool` 新定义。
 
-详见 `docs/sdk-integration-recipes.md` 中的示例。
+示例代码见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 3 节。
 
-## Models（从根入口再导出）
+### Models（从根入口再导出）
 
 **集成约定**：`createModel` / `createOpenAI` / `createAnthropic` / `createOllama` 仅用于构造传入 `Agent` 的 `model`。应用代码须通过 `Agent` 执行，**勿**直接调用适配器上的 `stream` / `complete` 等执行型 API（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。导出的适配器类主要用于类型或高级场景；第三方默认以 `Agent` 为准。
 
@@ -76,7 +84,7 @@
 - `OllamaAdapter`
 - 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicFetchRetryOptions` `OllamaConfig` `ModelProvider` `CreateModelConfig`
 
-## Tools（从根入口再导出）
+### Tools（从根入口再导出）
 
 - `ToolRegistry`
 - `createTool(config)`
@@ -109,7 +117,7 @@
 - Subagent：`Agent`（通过 `createAgentTool()` 创建）与 `getSubagentTools()`
 - 汇总：`getAllBuiltinTools(skillRegistry, interactionOptions?)` / `getSafeBuiltinTools(skillRegistry, interactionOptions?)`
 
-## Storage
+### Storage
 
 - `createStorage(config)`
 - `getSessionStoragePath(userBasePath?)` / `getLatestSessionId(userBasePath?)`：会话目录与「最近会话 id」解析（与 CLI `--user-base-path` / `--resume` 一致）
@@ -117,7 +125,7 @@
 - `MemoryStorage` / `createMemoryStorage()`
 - `SessionManager` / `createSessionManager(config?)`
 
-## Streaming
+### Streaming
 
 第三方集成应以 **`Agent.stream`** 消费流式事件（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。
 
@@ -129,7 +137,7 @@
 
 各 `StreamEvent` 的字段与时机见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节。
 
-## MCP
+### MCP
 
 - `MCPClient` / `createMCPClient(config)`（`config` 为 `MCPServerConfig`，见 core types）
 - `MCPAdapter` / `createMCPAdapter()`
@@ -140,7 +148,7 @@
 
 经 `Agent.connectMCP` 或构造时传入的 `mcpServers` 加载后，MCP 工具在 SDK 内的注册名为 **`mcp__<serverName>__<toolName>`**，其中 `<serverName>` 为 `MCPServerConfig.name`（或与 `mcp_config.json` 里 `mcpServers` 的 key 对应），`<toolName>` 为 MCP 协议返回的工具名。`disallowedTools`、Hook 的 `toolName` 匹配等均使用此注册名（见本文档前文「`disallowedTools`」）。旧版本曾为 `mcp_<serverName>__<toolName>`，升级后若提示词或配置中写死了工具名，需改为新格式。
 
-## Skills 与 Memory
+### Skills 与 Memory
 
 - `SkillLoader` / `createSkillLoader(config?)`
 - `SkillRegistry` / `createSkillRegistry(config?)`
@@ -148,7 +156,7 @@
 - `MemoryManager`
 - 类型：`SkillLoaderConfig` `MemoryConfig`
 
-## Core Types（根入口 `export * from core/types`）
+### Core Types（根入口 `export * from core/types`）
 
 可直接从 `@ddlqhd/agent-sdk` 导入的核心类型包括：
 
@@ -164,6 +172,8 @@
   - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套
 - CLI 相关导出类型：`CLIConfig` `ChatOptions` `RunOptions` `ToolListOptions` `SessionListOptions` `MCPOptions` `SkillOptions`
 
+上文为常用类型子集；`export *` 另含生命周期回调、窄消息类型、`MODEL_STREAM_EVENT_TYPES` 等，以源码为准。
+
 ---
 
 ## 2. `@ddlqhd/agent-sdk/models`
@@ -176,7 +186,7 @@
 - `DEFAULT_ADAPTER_CAPABILITIES`（三提供商省略 `capabilities` 时的默认能力，见 [`sdk-types-reference.md`](./sdk-types-reference.md)）
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
 - 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
-- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig` `ZodToJsonSchemaOptions`
 
 > 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。Anthropic 适配器在未配置 `fetchRetry` 时默认对初次 `POST` **最多尝试 2 次**（约等于 1 次自动重试）；若需关闭重试，传 `fetchRetry: { maxAttempts: 1 }`。
 

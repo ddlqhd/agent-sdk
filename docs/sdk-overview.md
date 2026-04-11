@@ -2,6 +2,8 @@
 
 ## 1. 文档目标
 
+**语言**：集成说明与 API/类型参考以本目录下 Markdown 为准（中文为主）；仓库根目录 `README.md` 为英文安装与索引。
+
 本文档集面向第三方开发者，提供 `@ddlqhd/agent-sdk` 的稳定公开能力说明，包括：
 
 - 包入口与版本约束
@@ -57,6 +59,8 @@
 - **Memory**：从 `CLAUDE.md` 注入长期上下文
 
 ## 6. 文档地图与推荐阅读顺序
+
+按场景快速跳转见 [`README.md`](./README.md)（本目录索引表）。
 
 1. [`sdk-quickstart.md`](./sdk-quickstart.md)（先跑通）
 2. [`sdk-agent-loop.md`](./sdk-agent-loop.md)（循环与 `iteration`）

@@ -33,10 +33,11 @@ pnpm add @ddlqhd/agent-sdk zod
 
 ## Documentation
 
-Factual guides and API references live under **`docs/`** (single source of truth). Start here:
+Factual guides and API references live under **`docs/`** (single source of truth). For a **goal-oriented index** (Chinese), see [`docs/README.md`](docs/README.md). Start here:
 
 | Topic | Document |
 |--------|----------|
+| Docs hub (goal-oriented index, Chinese) | [`docs/README.md`](docs/README.md) |
 | Overview, export boundaries, integration rules | [`docs/sdk-overview.md`](docs/sdk-overview.md) |
 | Quick start | [`docs/sdk-quickstart.md`](docs/sdk-quickstart.md) |
 | Agent loop (`iteration`, tool cycles) | [`docs/sdk-agent-loop.md`](docs/sdk-agent-loop.md) |
