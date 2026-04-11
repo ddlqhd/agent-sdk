@@ -114,7 +114,7 @@ interface ModelCapabilities {
 - **`contextLength`**：供 SDK 内部（如上下文压缩预算）参考的上下文窗口规模（token），**不保证**与当前 `model` 字符串的真实上限一致。
 - **`maxOutputTokens`**：单次补全可生成的输出 token 上限的 SDK 侧缺省；各适配器会将其映射到具体 HTTP 字段（见下）。
 
-## 各提供商适配器的默认 `capabilities`
+### 各提供商适配器的默认 `capabilities`
 
 `createOpenAI` / `createAnthropic` / `createOllama`（及 `createModel` 构造的对应适配器）在**未**传入工厂选项中的 `capabilities` 时，共用常量 **`DEFAULT_ADAPTER_CAPABILITIES`**（由 `@ddlqhd/agent-sdk` 与 `@ddlqhd/agent-sdk/models` 导出）：`contextLength` **200000**，`maxOutputTokens` **32000**。
 
