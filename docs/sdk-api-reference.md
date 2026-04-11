@@ -168,7 +168,7 @@
 - MCP：`MCPServerConfig` `MCPResource` `MCPResourceContent` `MCPPrompt` `MCPPromptArgument`
 - Skills：`SkillMetadata` `SkillDefinition` `ParsedSkill`
 - Agent 配置：`SystemPromptConfig` `SystemPrompt` `ContextManagerConfig` `AgentConfig` `SkillConfig` `AgentCallbacks` `AgentResult`
-  - `AgentConfig.subagent` 支持 `enabled/maxDepth/maxParallel/timeoutMs/allowDangerousTools/defaultAllowedTools`
+  - `AgentConfig.subagent` 支持 `enabled/maxDepth/maxParallel/timeoutMs/allowDangerousTools/defaultAllowedTools/subagentTypePrompts`（`subagentTypePrompts` 可按 `general-purpose` / `explore` 覆盖内置追加到子代理 system 的片段，见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) §13）
   - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套
 - CLI 相关导出类型：`CLIConfig` `ChatOptions` `RunOptions` `ToolListOptions` `SessionListOptions` `MCPOptions` `SkillOptions`
 

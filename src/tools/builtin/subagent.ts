@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from '../../core/types.js';
+import { SUBAGENT_TYPES, type SubagentType } from './subagent-profiles.js';
+
+export type { SubagentType };
+export {
+  resolveSubagentTypeAppend,
+  subagentExploreDefaultsUnavailableMessage,
+  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
+  SUBAGENT_TYPES
+} from './subagent-profiles.js';
 
 export const subagentRequestSchema = z.object({
   prompt: z.string().min(1).describe('Task prompt for the subagent. Include all required context.'),
@@ -9,7 +18,7 @@ export const subagentRequestSchema = z.object({
     .optional()
     .describe('Short 3-5 words task label for logs and metadata.'),
   subagent_type: z
-    .enum(['general-purpose', 'explore'])
+    .enum(SUBAGENT_TYPES)
     .default('general-purpose')
     .describe('Subagent profile/type to use.'),
   allowed_tools: z
@@ -67,7 +76,8 @@ When NOT to use this tool:
 
 Usage notes:
 - Always pass a short description and a complete prompt with all required context
-- subagent_type is recorded in result metadata; current SDK does not change tools or prompts by type (general-purpose vs explore)
+- Use subagent_type: **general-purpose** (default) for balanced work, or **explore** for read-focused runs (SDK appends explore instructions; if you omit allowed_tools and subagent.defaultAllowedTools, tools default to Read/Glob/Grep/WebFetch/WebSearch)
+- Optional system_prompt is merged after the type-specific fragment; override per-type text via AgentConfig.subagent.subagentTypePrompts if needed
 - Subagents do not inherit parent conversation history, only the prompt you provide
 - Subagents cannot spawn other subagents (no nested Agent calls)`,
     parameters: subagentRequestSchema,

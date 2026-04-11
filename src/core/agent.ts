@@ -32,7 +32,14 @@ import { ContextManager } from './context-manager.js';
 import { emitSDKLog } from './logger.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
-import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
+import {
+  createAgentTool,
+  resolveSubagentTypeAppend,
+  subagentExploreDefaultsUnavailableMessage,
+  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
+  type SubagentRequest,
+  type SubagentType
+} from '../tools/builtin/subagent.js';
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
 import { SummarizationCompressor } from './compressor.js';
@@ -1444,7 +1451,10 @@ export class Agent {
     };
   }
 
-  private resolveSubagentTools(request: SubagentRequest): {
+  private resolveSubagentTools(
+    request: SubagentRequest,
+    subagentType: SubagentType
+  ): {
     tools?: ReturnType<ToolRegistry['getAll']>;
     error?: string;
   } {
@@ -1452,14 +1462,23 @@ export class Agent {
     const parentTools = this.toolRegistry.getAll();
     const byName = new Map(parentTools.map(tool => [tool.name, tool] as const));
 
-    const requestedNames = request.allowed_tools
-      ?? subagentConfig.defaultAllowedTools;
+    let requestedNames = request.allowed_tools ?? subagentConfig.defaultAllowedTools;
+
+    let usedExploreDefaultNames = false;
+    if (requestedNames === undefined && subagentType === 'explore') {
+      requestedNames = [...SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES];
+      usedExploreDefaultNames = true;
+    }
 
     let selected = requestedNames
       ? requestedNames
           .map(name => byName.get(name))
           .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined)
       : parentTools.filter(tool => !tool.isDangerous);
+
+    if (usedExploreDefaultNames && selected.length === 0) {
+      return { error: subagentExploreDefaultsUnavailableMessage() };
+    }
 
     selected = selected.filter(tool => tool.name !== 'Agent');
     selected = selected.filter(tool => tool.name !== 'AskUserQuestion');
@@ -1510,7 +1529,7 @@ export class Agent {
       request.max_iterations ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
     );
 
-    const resolved = this.resolveSubagentTools(request);
+    const resolved = this.resolveSubagentTools(request, normalizedType);
     if (!resolved.tools) {
       return {
         content: resolved.error ?? 'Unable to resolve subagent tools',
@@ -1537,8 +1556,12 @@ export class Agent {
 
     try {
       await child.waitForInit();
+      const typeAppend = resolveSubagentTypeAppend(normalizedType, this.config.subagent);
+      const mergedSystem = [typeAppend, request.system_prompt]
+        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .join('\n\n');
       const runPromise = child.run(request.prompt, {
-        systemPrompt: request.system_prompt
+        systemPrompt: mergedSystem || undefined
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timer = setTimeout(() => {

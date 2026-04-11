@@ -19,7 +19,7 @@
 | 上下文与环境 | `contextManagement`、`includeEnvironment` |
 | 可观测 | `callbacks`、`logger`、`logLevel`、`redaction` |
 | Hook | `hookManager`、`hookConfigDir` |
-| 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`allowDangerousTools`、`defaultAllowedTools`） |
+| 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`allowDangerousTools`、`defaultAllowedTools`、`subagentTypePrompts`） |
 
 未显式设置时，SDK 会合并默认 **`maxIterations: 400`**、**`streaming: true`**（可被传入配置覆盖）；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出。
 

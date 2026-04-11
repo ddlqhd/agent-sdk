@@ -5,6 +5,9 @@ import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/type
 import { z } from 'zod';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
+/** User message used only in tests that assert explore / system-prompt behavior (avoids colliding with `child-task` from parent delegation). */
+const SUBAGENT_PROBE_PROMPT = '__sdk_subagent_probe__';
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -21,6 +24,29 @@ function createSubagentTestModel(): ModelAdapter {
       }
 
       if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+        if (lastMessage.content === SUBAGENT_PROBE_PROMPT) {
+          const sysText = params.messages
+            .filter((m) => m.role === 'system')
+            .map((m) => (typeof m.content === 'string' ? m.content : ''))
+            .join('\n');
+          if (sysText.includes('Subagent role: explore')) {
+            if (sysText.includes('CUSTOM_USER_HINT')) {
+              yield { type: 'text', content: 'explore-with-custom-user' };
+            } else {
+              yield { type: 'text', content: 'explore-system-ok' };
+            }
+            yield { type: 'done' };
+            return;
+          }
+          if (sysText.includes('OVERRIDE_PROMPT')) {
+            yield { type: 'text', content: 'override-ok' };
+            yield { type: 'done' };
+            return;
+          }
+          yield { type: 'text', content: `child:${lastMessage.content}` };
+          yield { type: 'done' };
+          return;
+        }
         if (lastMessage.content.includes('[parent-delegate]')) {
           yield {
             type: 'tool_call',
@@ -158,6 +184,121 @@ describe('Agent subagent tool integration', () => {
     expect(toolNames).toContain('SafeEcho');
     expect(toolNames).not.toContain('DangerousExec');
     expect(toolNames).not.toContain('Agent');
+  });
+
+  it('appends explore profile to child system prompt', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('explore-system-ok');
+  });
+
+  it('merges explore append with request.system_prompt after type fragment', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore',
+      system_prompt: 'CUSTOM_USER_HINT'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('explore-with-custom-user');
+  });
+
+  it('respects subagent.subagentTypePrompts override for explore', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        subagentTypePrompts: {
+          explore: 'OVERRIDE_PROMPT'
+        }
+      }
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('override-ok');
+  });
+
+  it('uses read-oriented default tools for explore when no allowlist', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
+    expect(new Set(toolNames)).toEqual(
+      new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
+    );
+  });
+
+  it('does not apply explore default tools when allowed_tools is explicit', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore',
+      allowed_tools: ['Read']
+    });
+
+    expect(result.isError).toBeFalsy();
+    const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
+    expect(toolNames).toEqual(['Read']);
+  });
+
+  it('fails explore with a clear error when parent has none of the default explore tools', async () => {
+    const onlyCustom = createTool({
+      name: 'OnlyCustom',
+      description: 'custom',
+      parameters: z.object({}),
+      handler: async () => ({ content: 'ok' })
+    });
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      exclusiveTools: [onlyCustom]
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Explore subagent:');
+    expect(result.content).toContain('allowed_tools');
   });
 });
 

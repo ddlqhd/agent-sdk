@@ -878,6 +878,11 @@ export interface AgentConfig {
     allowDangerousTools?: boolean;
     /** 子代理默认允许工具列表（为空时自动使用安全工具） */
     defaultAllowedTools?: string[];
+    /**
+     * 按 subagent 类型（general-purpose / explore）覆盖内置追加 system 片段；未设置的类型仍用内置文案。
+     * 设为空字符串表示该类型不追加片段。
+     */
+    subagentTypePrompts?: Partial<Record<'general-purpose' | 'explore', string>>;
   };
 }
 

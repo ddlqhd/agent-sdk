@@ -430,6 +430,13 @@ const agent = new Agent({
 
 内置工具 **`Agent`** 将任务委托给**新的 `Agent` 实例**在隔离上下文中执行（不继承父会话消息）。父级配置中的 **`AgentConfig.subagent`** 控制是否暴露该工具、嵌套深度、并发与超时等，字段说明见 [`sdk-api-reference.md`](./sdk-api-reference.md)。
 
+- **`enabled`**：是否暴露 `Agent` 工具（默认 `true`）
+- **`maxDepth`**：嵌套深度上限（默认 `1`，子代理内默认不再暴露 `Agent` 以防嵌套）
+- **`maxParallel`**、**`timeoutMs`**、**`allowDangerousTools`**、**`defaultAllowedTools`**：并发、超时与子代理侧工具策略
+- **`subagentTypePrompts`**：按 `subagent_type`（`general-purpose` / `explore`）覆盖内置追加到子代理 system 的片段；设为空字符串表示该类型不追加
+
+工具参数 **`subagent_type`**：`explore` 时 SDK 会追加只读优先的说明；若在调用中**未**指定 `allowed_tools` 且配置里**未**设置 `defaultAllowedTools`，子代理默认仅暴露 **Read、Glob、Grep、WebFetch、WebSearch**（仍受父级已注册工具与 `allowDangerousTools` 约束）。若父级一个都匹配不上，会返回明确错误并提示扩大父级工具或传入 **`allowed_tools`**。**`system_prompt`** 会接在类型片段之后合并进子代理 system。
+
 ### 工具调用参数（`SubagentRequest`）
 
 根包通过 `export *` 导出 `SubagentRequest` 与 `subagentRequestSchema`，与运行时校验一致，主要包括：
@@ -438,17 +445,17 @@ const agent = new Agent({
 |------|------|
 | **`prompt`** | 子任务描述（必填） |
 | **`description`** | 短标签，用于日志与返回 **metadata** |
-| **`subagent_type`** | `'general-purpose'` \| `'explore'`（默认 `general-purpose`）。**当前实现中仅写入结果 metadata**（`subagentType`），**不**据此切换专用工具集或追加系统提示；与描述文案中的 “profile” 相关的差异化行为以未来版本为准。 |
-| **`allowed_tools`** | 可选，按**注册名**白名单；若省略则使用 `AgentConfig.subagent.defaultAllowedTools`，若二者皆无则从**父级工具注册表**中选取 |
+| **`subagent_type`** | `'general-purpose'` \| `'explore'`（默认 `general-purpose`）。`explore` 会追加只读优先的 system 片段，并在未指定 `allowed_tools` 与 `subagent.defaultAllowedTools` 时默认将子工具集限制为 Read/Glob/Grep/WebFetch/WebSearch（以父级已注册为准）；结果 **metadata** 中仍带 `subagentType`。 |
+| **`allowed_tools`** | 可选，按**注册名**白名单；若省略则使用 `AgentConfig.subagent.defaultAllowedTools`，若二者皆无：`general-purpose` 从父级取全部非危险工具；`explore` 默认仅尝试 Read/Glob/Grep/WebFetch/WebSearch（见上文） |
 | **`max_iterations`** | 子运行轮次上限；默认继承父 `AgentConfig.maxIterations`，并与 `DEFAULT_MAX_ITERATIONS` 链式合并 |
 | **`timeout_ms`** | 单次委托超时；实际上限为 `min(请求值, subagent.timeoutMs)` |
-| **`system_prompt`** | 作为子 `run` 的 `systemPrompt` 选项传入（与主会话系统提示独立） |
+| **`system_prompt`** | 接在类型片段之后，作为子 `run` 的追加 `systemPrompt` 合并传入（与主会话系统提示独立） |
 
 ### 子 Agent 实际可用的工具
 
 解析规则（与源码 `resolveSubagentTools` 一致）：
 
-1. 候选名来自 **`allowed_tools`**，或 **`defaultAllowedTools`**，或「父级全部**非** `isDangerous` 的工具」。
+1. 候选名来自 **`allowed_tools`**，或 **`defaultAllowedTools`**，或（`subagent_type === 'explore'` 且前两者皆无时）内置只读默认名，或（`general-purpose` 且前两者皆无时）「父级全部**非** `isDangerous` 的工具」。
 2. 始终移除 **`Agent`**、**`AskUserQuestion`**（子级不可再委托、避免交互阻塞）。
 3. 若 **`allowDangerousTools`** 为 `false`：从候选集中去掉危险工具；若 **`allowed_tools`** 显式包含危险工具则直接报错。
 4. 子 `Agent` 使用 **`exclusiveTools`** 指向上述解析结果，**不**再合并 `AgentConfig.tools`；**不**继承父级 **MCP**（`mcpServers` 清空）。
