@@ -9,7 +9,6 @@ async function main() {
       enabled: true,
       maxDepth: 1,
       maxParallel: 2,
-      timeoutMs: 120000,
       allowDangerousTools: false
     }
   });

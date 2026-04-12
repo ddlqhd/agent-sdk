@@ -3,7 +3,12 @@
 export { PACKAGE_VERSION } from './version.js';
 
 // Core
-export { Agent, createAgent, DEFAULT_MAX_ITERATIONS } from './core/agent.js';
+export {
+  Agent,
+  createAgent,
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_SUBAGENT_TIMEOUT_MS
+} from './core/agent.js';
 export type { StreamOptions } from './core/agent.js';
 export * from './core/types.js';
 export { mergeProcessEnv, mergeMcpStdioEnv } from './core/process-env-merge.js';

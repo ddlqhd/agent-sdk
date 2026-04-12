@@ -48,6 +48,9 @@ import { SummarizationCompressor } from './compressor.js';
 /** Default upper bound for model↔tool rounds per user turn when `AgentConfig.maxIterations` is omitted. */
 export const DEFAULT_MAX_ITERATIONS = 400;
 
+/** Default subagent run timeout when `AgentConfig.subagent.timeoutMs` is omitted (30 minutes). */
+export const DEFAULT_SUBAGENT_TIMEOUT_MS = 1800 * 1000;
+
 /**
  * 流式执行选项
  */
@@ -1454,7 +1457,7 @@ export class Agent {
       enabled: this.config.subagent?.enabled !== false,
       maxDepth: this.config.subagent?.maxDepth ?? 1,
       maxParallel: this.config.subagent?.maxParallel ?? 5,
-      timeoutMs: this.config.subagent?.timeoutMs ?? 120000,
+      timeoutMs: this.config.subagent?.timeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS,
       allowDangerousTools: this.config.subagent?.allowDangerousTools ?? false,
       defaultAllowedTools: this.config.subagent?.defaultAllowedTools
     };

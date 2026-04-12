@@ -878,7 +878,7 @@ export interface AgentConfig {
     maxDepth?: number;
     /** 并发子代理上限，默认 5 */
     maxParallel?: number;
-    /** 子代理默认超时（毫秒），默认 120000 */
+    /** 子代理默认超时（毫秒），默认 1800000（30 分钟） */
     timeoutMs?: number;
     /** 是否允许子代理使用危险工具，默认 false */
     allowDangerousTools?: boolean;

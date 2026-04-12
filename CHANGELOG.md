@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Subagent**: Default `AgentConfig.subagent.timeoutMs` is now **1800000ms (30 minutes)** (previously **120000ms / 2 minutes**). The main package exports **`DEFAULT_SUBAGENT_TIMEOUT_MS`** for the same value. To keep the old cap, set `subagent.timeoutMs: 120_000` (or another limit) explicitly.
+
 ### Breaking
 
 - **AgentCallbacks**: Removed `beforeToolCall` and `afterToolCall`. Use `lifecycle.onToolCallPlanned`, `onToolExecutionEnd`, `onToolResult`, and/or `HookManager` / `hookConfigDir` for tool interception and observation.
