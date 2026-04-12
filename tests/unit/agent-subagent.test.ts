@@ -8,6 +8,9 @@ import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 /** User message used only in tests that assert explore / system-prompt behavior (avoids colliding with `child-task` from parent delegation). */
 const SUBAGENT_PROBE_PROMPT = '__sdk_subagent_probe__';
 
+/** Asserts subagent default system prompt omits Skills section (loadSkills: false). */
+const SUBAGENT_NO_SKILLS_PROMPT = '__sdk_subagent_no_skills_probe__';
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -24,6 +27,19 @@ function createSubagentTestModel(): ModelAdapter {
       }
 
       if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+        if (lastMessage.content === SUBAGENT_NO_SKILLS_PROMPT) {
+          const sysText = params.messages
+            .filter((m) => m.role === 'system')
+            .map((m) => (typeof m.content === 'string' ? m.content : ''))
+            .join('\n');
+          const leaked =
+            sysText.includes('### Skills') ||
+            sysText.includes('{{SKILL_LIST}}') ||
+            sysText.includes('Call `Skill`');
+          yield { type: 'text', content: leaked ? 'skills-leaked-in-prompt' : 'no-skills-prompt-ok' };
+          yield { type: 'done' };
+          return;
+        }
         if (lastMessage.content === SUBAGENT_PROBE_PROMPT) {
           const sysText = params.messages
             .filter((m) => m.role === 'system')
@@ -151,6 +167,39 @@ describe('Agent subagent tool integration', () => {
     const toolNames = result.metadata?.toolNames as string[] | undefined;
     expect(toolNames).toBeDefined();
     expect(toolNames).not.toContain('AskUserQuestion');
+  });
+
+  it('excludes Skill from subagent toolset', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+    expect(agent.getToolRegistry().getAll().some((t) => t.name === 'Skill')).toBe(true);
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: 'child-task'
+    });
+
+    expect(result.isError).toBeFalsy();
+    const toolNames = result.metadata?.toolNames as string[] | undefined;
+    expect(toolNames).toBeDefined();
+    expect(toolNames).not.toContain('Skill');
+  });
+
+  it('omits Skills section from subagent default system prompt', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_NO_SKILLS_PROMPT
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('no-skills-prompt-ok');
   });
 
   it('uses safe tools by default for child toolset', async () => {

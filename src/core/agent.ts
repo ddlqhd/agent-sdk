@@ -20,7 +20,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
 import { getSessionStoragePath } from '../storage/session-path.js';
-import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
+import { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
 import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
@@ -234,11 +234,13 @@ export class Agent {
         await this.hookDiscoverPromise;
       }
 
-      // 初始化 skills（默认路径 + 配置路径）
-      await this.skillRegistry.initialize(
-        this.config.skillConfig,
-        this.config.skills
-      );
+      // 初始化 skills（默认路径 + 配置路径）；loadSkills === false 时跳过磁盘加载
+      if (this.config.loadSkills !== false) {
+        await this.skillRegistry.initialize(
+          this.config.skillConfig,
+          this.config.skills
+        );
+      }
 
       // 初始化 MCP 适配器
       if (this.config.mcpServers && this.config.mcpServers.length > 0) {
@@ -419,16 +421,12 @@ export class Agent {
 
     // 没有自定义提示词
     if (!customPrompt) {
-      let basePrompt = DEFAULT_SYSTEM_PROMPT;
-      basePrompt = basePrompt.replace('{{SKILL_LIST}}', this.skillRegistry.getFormattedList());
-      return basePrompt + envSection;
+      return this.buildDefaultPromptBase() + envSection;
     }
 
     // 字符串形式：追加模式
     if (typeof customPrompt === 'string') {
-      let basePrompt = DEFAULT_SYSTEM_PROMPT;
-      basePrompt = basePrompt.replace('{{SKILL_LIST}}', this.skillRegistry.getFormattedList());
-      return `${basePrompt}${envSection}\n\n${customPrompt}`;
+      return `${this.buildDefaultPromptBase()}${envSection}\n\n${customPrompt}`;
     }
 
     // 配置对象
@@ -439,10 +437,20 @@ export class Agent {
       return content + envSection;
     } else {
       // 追加模式：默认提示词 + 环境信息 + 自定义内容
-      let basePrompt = DEFAULT_SYSTEM_PROMPT;
-      basePrompt = basePrompt.replace('{{SKILL_LIST}}', this.skillRegistry.getFormattedList());
-      return `${basePrompt}${envSection}\n\n${content}`;
+      return `${this.buildDefaultPromptBase()}${envSection}\n\n${content}`;
     }
+  }
+
+  /**
+   * 默认系统提示壳：按 {@link AgentConfig.loadSkills} 决定是否含 Skills 段落；含则注入 skill 列表。
+   */
+  private buildDefaultPromptBase(): string {
+    const loadSkills = this.config.loadSkills !== false;
+    const shell = buildDefaultSystemPromptShell(loadSkills);
+    if (!loadSkills) {
+      return shell;
+    }
+    return shell.replace('{{SKILL_LIST}}', this.skillRegistry.getFormattedList());
   }
 
   /**
@@ -1470,6 +1478,8 @@ export class Agent {
     tools?: ReturnType<ToolRegistry['getAll']>;
     error?: string;
   } {
+    const disabledToolNames: readonly string[] = ['Agent', 'AskUserQuestion', 'Skill'];
+
     const subagentConfig = this.getSubagentConfig();
     const parentTools = this.toolRegistry.getAll();
     const byName = new Map(parentTools.map(tool => [tool.name, tool] as const));
@@ -1492,8 +1502,7 @@ export class Agent {
       return { error: subagentExploreDefaultsUnavailableMessage() };
     }
 
-    selected = selected.filter(tool => tool.name !== 'Agent');
-    selected = selected.filter(tool => tool.name !== 'AskUserQuestion');
+    selected = selected.filter(tool => !disabledToolNames.includes(tool.name));
 
     if (!subagentConfig.allowDangerousTools) {
       const requestedDangerous = request.allowed_tools?.some(name => byName.get(name)?.isDangerous);
@@ -1556,6 +1565,7 @@ export class Agent {
       tools: undefined,
       mcpServers: undefined,
       maxIterations,
+      loadSkills: false,
       subagent: {
         ...this.config.subagent,
         enabled: false

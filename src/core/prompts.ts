@@ -2,9 +2,34 @@
  * Agent SDK 默认系统提示词
  *
  * 占位符说明：
- * - {{SKILL_LIST}}: 会被运行时注入的skill列表替换
+ * - {{SKILL_LIST}}: 在 {@link buildDefaultSystemPromptShell}(`true`) 结果中由运行时替换为 skill 列表
  */
-export const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant powered by the Agent SDK. You can help users with various tasks by using your built-in tools and capabilities.
+
+/** Tools 小节中「自定义工具」一句：含 skills 语义（主 Agent 默认）。 */
+const CUSTOM_TOOLS_PHRASE_WITH_SKILLS = 'additional tools registered by the user or skills';
+
+/** Tools 小节中「自定义工具」一句：不含 skills 引导（`loadSkills: false` 时）。 */
+const CUSTOM_TOOLS_PHRASE_WITHOUT_SKILLS = 'additional tools registered by the user or host';
+
+/**
+ * Skills 子块（含 {{SKILL_LIST}}），仅当 `loadSkills === true` 时拼入模板。
+ */
+const SKILLS_SECTION_TEMPLATE = `### Skills
+Skills are instruction guides for specialized tasks. When activated, you receive the skill's full content including any referenced file paths.
+
+{{SKILL_LIST}}
+
+**Usage:**
+- **Listing skills**: When the user asks about available skills (e.g., "what skills do you have", "你有哪些技能", "list your skills") → Simply describe the skills listed above. Do NOT activate any skill.
+- **Activating skills**: When the user has a specific task that matches a skill's purpose → Call \`Skill\` with the skill name, then follow the returned instructions.
+- After activation, use the provided Base Path to read any referenced files.
+
+`;
+
+/**
+ * 骨架模板：`{{CUSTOM_TOOLS_PHRASE}}` 与 `{{SKILLS_SECTION}}` 由 {@link buildDefaultSystemPromptShell} 填充。
+ */
+const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are an AI assistant powered by the Agent SDK. You can help users with various tasks by using your built-in tools and capabilities.
 
 ## Core Capabilities
 
@@ -13,7 +38,7 @@ You have access to a set of tools that allow you to:
 - **File Operations**: read, write, list, delete files and directories
 - **Code Execution**: run shell commands, Python scripts, Node.js code
 - **Web Access**: make HTTP requests, fetch webpages, download files
-- **Custom Tools**: additional tools registered by the user or skills
+- **Custom Tools**: {{CUSTOM_TOOLS_PHRASE}}
 
 When to use tools:
 - Use tools when the task requires real-world actions (file I/O, computation, API calls)
@@ -32,17 +57,7 @@ When to use tools:
 
 Reserve **Bash** for real shell needs: \`git\`, package managers, build commands, compilers, and other operations that require a shell or are not covered above.
 
-### Skills
-Skills are instruction guides for specialized tasks. When activated, you receive the skill's full content including any referenced file paths.
-
-{{SKILL_LIST}}
-
-**Usage:**
-- **Listing skills**: When the user asks about available skills (e.g., "what skills do you have", "你有哪些技能", "list your skills") → Simply describe the skills listed above. Do NOT activate any skill.
-- **Activating skills**: When the user has a specific task that matches a skill's purpose → Call \`Skill\` with the skill name, then follow the returned instructions.
-- After activation, use the provided Base Path to read any referenced files.
-
-### Sessions
+{{SKILLS_SECTION}}### Sessions
 - Conversations are persisted in sessions
 - Use session IDs to maintain context across multiple interactions
 - Previous messages provide important context for current tasks
@@ -107,3 +122,18 @@ When hooks are configured (e.g. PreToolUse), a tool call may be **blocked** or i
 - Provide suggestions when you see opportunities for improvement
 - Acknowledge limitations honestly
 - Maintain a professional, friendly tone`;
+
+/**
+ * 构建默认系统提示「壳」：`loadSkills === true` 时仍含 `{{SKILL_LIST}}`，由 Agent 替换为列表。
+ */
+export function buildDefaultSystemPromptShell(loadSkills: boolean): string {
+  return DEFAULT_SYSTEM_PROMPT_TEMPLATE.replace('{{CUSTOM_TOOLS_PHRASE}}', loadSkills ? CUSTOM_TOOLS_PHRASE_WITH_SKILLS : CUSTOM_TOOLS_PHRASE_WITHOUT_SKILLS).replace(
+    '{{SKILLS_SECTION}}',
+    loadSkills ? SKILLS_SECTION_TEMPLATE : ''
+  );
+}
+
+/**
+ * 与历史行为一致：含 Skills 段落及未替换的 `{{SKILL_LIST}}` 占位符。
+ */
+export const DEFAULT_SYSTEM_PROMPT = buildDefaultSystemPromptShell(true);

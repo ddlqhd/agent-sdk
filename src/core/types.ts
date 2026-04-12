@@ -794,6 +794,12 @@ export interface AgentConfig {
   /** Skill 路径列表 */
   skills?: string[];
 
+  /**
+   * 是否从磁盘加载 Skill 并在默认系统提示中展开 Skills 段落。
+   * 未设置或 `true` 时与历史行为一致；`false` 时跳过 {@link SkillRegistry.initialize}，且不向模型暴露 Skills 说明（子 Agent 由 SDK 固定为 `false`）。
+   */
+  loadSkills?: boolean;
+
   /** MCP 服务器配置 */
   mcpServers?: MCPServerConfig[];
 
