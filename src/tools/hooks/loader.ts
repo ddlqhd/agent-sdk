@@ -1,6 +1,7 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
+import { isNonBlankString } from '../../utils/index.js';
 import type { HookEventType, HooksSettings, HooksSettingsFile } from './types.js';
 
 const EVENT_JSON_TO_RUNTIME: Record<string, HookEventType> = {
@@ -90,8 +91,7 @@ export async function loadHooksSettingsFromProject(projectDir: string): Promise<
  * `userBasePath` 省略时与 {@link AgentConfig.userBasePath} 默认行为一致，使用 `os.homedir()`。
  */
 export async function loadHooksSettingsFromUser(userBasePath?: string): Promise<HooksSettings> {
-  const base =
-    userBasePath !== undefined && String(userBasePath).trim() !== '' ? userBasePath : homedir();
+  const base = isNonBlankString(userBasePath) ? userBasePath : homedir();
   const path = join(base, '.claude', 'settings.json');
   try {
     const text = await readFile(path, 'utf-8');

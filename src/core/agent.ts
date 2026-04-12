@@ -30,6 +30,7 @@ import { createSkillTemplateProcessor } from '../skills/template.js';
 import type { SkillTemplateContext } from '../skills/template.js';
 import { ContextManager } from './context-manager.js';
 import { emitSDKLog } from './logger.js';
+import { isNonBlankString } from '../utils/index.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import {
@@ -1230,7 +1231,9 @@ export class Agent {
         ? {
             ...config,
             env: mergeMcpStdioEnv(this.config.env, config.env),
-            cwd: (config.cwd ?? '').trim() || (this.config.cwd || process.cwd())
+            cwd: isNonBlankString(config.cwd)
+              ? config.cwd.trim()
+              : this.config.cwd || process.cwd()
           }
         : config;
 
@@ -1565,7 +1568,7 @@ export class Agent {
       await child.waitForInit();
       const typeAppend = resolveSubagentTypeAppend(normalizedType, this.config.subagent);
       const mergedSystem = [typeAppend, request.system_prompt]
-        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .filter((s): s is string => isNonBlankString(s))
         .join('\n\n');
       const runPromise = child.run(request.prompt, {
         systemPrompt: mergedSystem || undefined
