@@ -56,6 +56,7 @@ export function parseHooksSettingsFile(raw: unknown): HooksSettings {
           id: typeof c.id === 'string' ? c.id : undefined,
           type: 'command',
           command: c.command,
+          if: typeof c.if === 'string' ? c.if : undefined,
           timeout: typeof c.timeout === 'number' ? c.timeout : undefined,
           async: typeof c.async === 'boolean' ? c.async : undefined
         });
@@ -85,10 +86,13 @@ export async function loadHooksSettingsFromProject(projectDir: string): Promise<
 }
 
 /**
- * 读取并解析用户级 `~/.claude/settings.json`
+ * 读取并解析用户级 `{userBasePath}/.claude/settings.json`。
+ * `userBasePath` 省略时与 {@link AgentConfig.userBasePath} 默认行为一致，使用 `os.homedir()`。
  */
-export async function loadHooksSettingsFromUser(): Promise<HooksSettings> {
-  const path = join(homedir(), '.claude', 'settings.json');
+export async function loadHooksSettingsFromUser(userBasePath?: string): Promise<HooksSettings> {
+  const base =
+    userBasePath !== undefined && String(userBasePath).trim() !== '' ? userBasePath : homedir();
+  const path = join(base, '.claude', 'settings.json');
   try {
     const text = await readFile(path, 'utf-8');
     const json = JSON.parse(text) as unknown;

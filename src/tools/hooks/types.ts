@@ -54,6 +54,8 @@ export interface CommandHookConfig {
   id?: string;
   type: 'command';
   command: string;
+  /** `ToolName(glob)`，与 Claude Code 一致；仅当匹配时对本次调用运行该 hook */
+  if?: string;
   timeout?: number;
   async?: boolean;
 }

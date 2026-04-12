@@ -32,7 +32,7 @@
 | 级别 | 路径 |
 |------|------|
 | 项目级 | `{项目目录}/.claude/settings.json` |
-| 用户级 | `~/.claude/settings.json` |
+| 用户级 | `{userBasePath}/.claude/settings.json`；未设置 `userBasePath` 时为 `~/.claude/settings.json`（`os.homedir()`）。与 `AgentConfig.userBasePath`、CLI `--user-base-path` 一致。 |
 
 ### 2.2 配置格式
 
@@ -104,7 +104,7 @@
 
 ```typescript
 interface HookGroup {
-  /** 正则表达式匹配工具名称，可省略表示匹配所有，见 §9.1 */
+  /** 工具名过滤，可省略表示匹配所有，语义见 §9.1 */
   matcher?: string;
   /** Hook 列表 */
   hooks: CommandHook[];
@@ -124,6 +124,11 @@ interface CommandHook {
   type: 'command';
   /** 要执行的 shell 命令 */
   command: string;
+  /**
+   * 可选。进一步缩小到单次调用：`ToolName(glob)`，glob 匹配 `tool_input.command`，
+   * 若无 `command` 则匹配 `file_path` 或 `path`。与 Claude Code `if` 字段对齐，见 §9.1。
+   */
+  if?: string;
   /** 超时时间（秒），默认 30 */
   timeout?: number;
   /**
@@ -260,6 +265,7 @@ export interface CommandHookConfig {
   id?: string;
   type: 'command';
   command: string;
+  if?: string;
   timeout?: number;
   async?: boolean;
 }
@@ -273,10 +279,12 @@ export interface CommandHookConfig {
 
 ```
 src/tools/hooks/
-├── index.ts        # 导出模块
-├── types.ts        # 类型定义
-├── loader.ts       # 配置文件加载器
-└── manager.ts      # Hook 管理器核心类
+├── index.ts          # 导出模块
+├── types.ts          # 类型定义
+├── loader.ts         # 配置文件加载器
+├── hook-if.ts        # matcher、`if` 子句匹配
+├── parse-output.ts   # PreToolUse stdout JSON 解析
+└── manager.ts        # Hook 管理器核心类
 ```
 
 ### 4.2 模块职责
@@ -285,6 +293,8 @@ src/tools/hooks/
 |------|------|
 | `types.ts` | 定义所有类型和接口 |
 | `loader.ts` | 加载并解析 `settings.json`，完成 JSON 键 → `HookEventType` 映射 |
+| `hook-if.ts` | `matchTool`、`matchesHookIfClause` |
+| `parse-output.ts` | `parsePreToolUseCommandOutput`（Claude 风格 stdout） |
 | `manager.ts` | Hook 管理、执行、优先级与 `updatedInput` 合并 |
 | `index.ts` | 统一导出所有公共 API |
 
@@ -305,8 +315,8 @@ export class HookManager {
   unregister(id: string): boolean;
 
   async loadProjectConfig(projectDir: string): Promise<void>;
-  async loadUserConfig(): Promise<void>;
-  async discoverAndLoad(projectDir?: string): Promise<void>;
+  async loadUserConfig(userBasePath?: string): Promise<void>;
+  async discoverAndLoad(projectDir?: string, userBasePath?: string): Promise<void>;
 
   /** 运行时总开关；为 false 时跳过所有 Hook，见 §10.2 */
   setEnabled(enabled: boolean): void;
@@ -343,9 +353,9 @@ export function createFunctionHook(config: {
 ```
 Agent 创建
     ↓
-HookManager.discoverAndLoad(projectDir)
-    ├─ loadProjectConfig(projectDir)   → 项目级 hooks、disableAllHooks
-    └─ loadUserConfig()                → 用户级 hooks、disableAllHooks
+HookManager.discoverAndLoad(projectDir, userBasePath?)
+    ├─ loadProjectConfig(projectDir)           → 项目级 hooks、disableAllHooks
+    └─ loadUserConfig(userBasePath)              → 用户级 hooks、disableAllHooks（路径见 §2.1）
     ↓
 合并规则（同一 id、同一 event）见 §6.3
     ↓
@@ -410,7 +420,7 @@ PostToolUse（传入 toolResultRaw 与 toolResultFinal）
 1. **PreToolUse 放在参数校验成功之后、handler 之前**，这样 `toolInput` 已满足 schema，且 Pre 可安全返回 `updatedInput` 再 `parse` 一次。
 2. **PostToolUse** 在 **handler 成功**（未抛错且 `!result.isError`）且 **outputHandler 处理完成** 之后调用；上下文同时带上 `toolResultRaw`（handler 直接返回值）与 `toolResultFinal`（可能经 outputHandler 改写）。
 3. **PostToolUseFailure** 在下列失败时调用：参数校验失败、handler 抛错、handler 返回 `isError: true`、**工具未注册**；`failureKind` 分别为 `validation`、`handler_throw`，后两类均为 `tool_error`（含未找到工具）。
-4. MCP 等动态注册的工具名同样走 `toolName` 匹配（MCP 注册名形如 `mcp__<serverName>__<toolName>`，matcher 需写完整名）；matcher 为正则，见 §9.1。
+4. MCP 等动态注册的工具名同样走 `toolName` 匹配（MCP 注册名形如 `mcp__<serverName>__<toolName>`）；简单名用精确匹配，复杂前缀可用正则 matcher，见 §9.1。
 
 ---
 
@@ -435,8 +445,13 @@ export class ToolRegistry {
 ```typescript
 export interface AgentConfig {
   hookManager?: HookManager;
-  /** 解析项目级 settings 的目录，默认 `process.cwd()` */
+  /** 项目根目录：用于解析 `{cwd}/.claude/settings.json`；默认取 `cwd ?? process.cwd()` */
   hookConfigDir?: string;
+  /**
+   * 是否从磁盘加载 Hook（项目 settings + 用户 `~/.claude/settings.json`）。
+   * 默认 `true`。设为 `false` 且未传入 `hookManager` 时，仅当显式设置了 `hookConfigDir` 才会创建 `HookManager` 并加载。
+   */
+  loadHookSettingsFromFiles?: boolean;
 }
 ```
 
@@ -444,12 +459,20 @@ export interface AgentConfig {
 
 ## 8. 使用示例
 
-### 8.1 基础用法（自动加载配置）
+### 8.1 基础用法（默认加载项目与用户 Hook）
+
+默认会从 `{AgentConfig.cwd ?? process.cwd()}/.claude/settings.json` 与 `~/.claude/settings.json` 加载（与 Claude Code 一致）。仅当需要覆盖项目目录时再设置 `hookConfigDir`。
 
 ```typescript
 import { createAgent } from '@ddlqhd/agent-sdk';
 
 const agent = createAgent({
+  model: openaiAdapter
+  // loadHookSettingsFromFiles 默认为 true；若需关闭：加 loadHookSettingsFromFiles: false
+});
+
+// 或显式指定项目目录（仍会与用户级 settings 合并）
+const agent2 = createAgent({
   model: openaiAdapter,
   hookConfigDir: '/path/to/project'
 });
@@ -461,7 +484,7 @@ const agent = createAgent({
 import { HookManager, createFunctionHook } from '@ddlqhd/agent-sdk';
 
 const hookManager = HookManager.create();
-await hookManager.discoverAndLoad('/path/to/project');
+await hookManager.discoverAndLoad('/path/to/project'); // 第二参 userBasePath 可选，与 AgentConfig.userBasePath 一致
 
 hookManager.register(createFunctionHook({
   id: 'security-check',
@@ -523,26 +546,25 @@ sys.exit(0)
 
 ## 9. 实现要点
 
-### 9.1 Matcher 匹配逻辑
+### 9.1 Matcher 与 `if` 子句
 
-`matcher` 为 **JavaScript 正则表达式源码**（不含定界符）。`Write|Edit` 表示匹配名为 `Write` 或 `Edit` 的工具。若工具名含正则元字符（如 `.`、`*`），需在配置中 **转义**。
+**matcher（工具名）**
 
-```typescript
-function matchTool(toolName: string, matcher?: string): boolean {
-  if (!matcher || matcher === '*') return true;
-  try {
-    return new RegExp(matcher).test(toolName);
-  } catch {
-    return false;
-  }
-}
-```
+与 Claude Code 一致：
 
-可选后续扩展：`matcherType: 'regex' | 'glob'`；首版仅支持 regex。
+- 省略、`""` 或 `"*"`：匹配所有工具名。
+- 若整串 **仅** 含字母、数字、`_`、`-`、`|`，则按 **精确工具名** 解析；`|` 表示多选一（如 `Write|Edit` 仅匹配名为 `Write` 或 `Edit` 的工具，**不会**把 `Write` 当成子串去匹配 `ReWrite`）。
+- 若含任意 **其他** 字符（如 `.`、`*`、`(`），则整串视为 **JavaScript 正则表达式源码**（不含定界符），例如 `mcp__.*__read.*` 匹配 MCP 工具名前缀。
 
-### 9.2 命令 Hook：stdin JSON 与退出码协议
+**`if`（可选，仅 command hook）**
 
-所有 command Hook 子进程 **标准输入** 为单行或多行 **UTF-8 JSON**（实现可选用紧凑单行），结构如下：
+- 格式：`ToolName(glob)`，其中 `ToolName` 须与当前 `tool_name` 一致（允许字母、数字、`_`、`-`）；`glob` 使用 `*`、`?` 通配，匹配 **优先** `tool_input.command` 字符串，若无则尝试 `file_path`、`path`。
+- 若当前调用不匹配 `if`，**跳过** 该条 command hook（不启动子进程）。
+- 格式无法解析时，实现**不**按 `if` 过滤（仍会执行 hook），以免静默吞掉配置。
+
+### 9.2 命令 Hook：stdin JSON、stdout JSON（PreToolUse）与退出码
+
+所有 command Hook 子进程 **标准输入** 为 **UTF-8 JSON**（与 Claude Code 对齐），结构如下：
 
 ```typescript
 interface HookCommandStdin {
@@ -560,15 +582,34 @@ interface HookCommandStdin {
 }
 ```
 
-**PreToolUse 结果（进程退出码）**：
+**PreToolUse：优先解析 stdout JSON，其次退出码**
+
+子进程 **标准输出** 若为合法 JSON，且包含决策字段，则 **优先** 采用（与 Claude Code `hookSpecificOutput` 对齐），例如：
+
+```json
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "optional",
+    "updatedInput": { "file_path": "/abs/path" }
+  }
+}
+```
+
+- `permissionDecision`：`allow` | `deny` | `ask` | `defer`（以及历史别名 `approve` / `block`）。SDK 无交互 UI 时，`ask` / `defer` 视为拒绝并附带原因。
+- `updatedInput`：在 `allow` 时可携带，与运行时 **浅合并** 进当前参数，再经 Zod 校验。
+
+解析顺序：先尝试 **整段** stdout 作为单个 JSON；若整段不是合法 JSON、或解析成功但 **不含** `hookSpecificOutput.permissionDecision` / 顶层 `decision` 等决策字段，则 **从最后一行向前** 逐行解析，直到某一行的对象能还原出有效决策；若末行是无关节 JSON（如 `{"debug":true}`），会继续向前查找（便于脚本先打日志、末行误输出调试 JSON 时仍能命中上一行决策）。
+
+若仍 **无法** 解析出有效决策，则回退 **退出码**：
 
 | 退出码 | 含义 |
 |--------|------|
 | `0` | 允许继续执行工具 |
-| `2` | **阻止**：禁止执行本次工具；**stderr** 应为 UTF-8 JSON：`{ "reason": string }` |
-| 其他非 0 | 实现可视为「阻止」或「配置错误」；建议与 `2` 区分时统一记录日志 |
+| `2` | **阻止**：禁止执行本次工具；**stderr** 可为 UTF-8 JSON：`{ "reason": string }` |
+| 其他非 0 | 视为阻止或配置错误；记录日志 |
 
-**Post* 命令**：退出码非 0 时记录 stderr，**不改变** 已产生的工具结果。
+**Post* 命令**：退出码非 0 时记录 stderr，**不改变** 已产生的工具结果（Post* 不解析 stdout 决策）。
 
 环境变量注入与 stdin 应 **同时** 提供，便于 shell 与脚本任选。
 
@@ -592,18 +633,33 @@ function buildEnv(context: HookContext): NodeJS.ProcessEnv {
 
 ### 9.4 PreToolUse：`updatedInput` 合并与再校验
 
-实现中 **command** 子进程仅通过 **退出码** 表达 Pre 结果（见 §9.2），**不会**向运行时回传 `updatedInput`。**仅函数 Hook** 的返回值可包含 `updatedInput`，并在与 command 合并后的顺序中参与浅合并。
+**合并顺序**（同一 `PreToolUse`）：项目与用户合并后的 **command** hook（按 §6.3 展开顺序）→ **函数 Hook**。
+
+- **command**：子进程若通过 **stdout JSON**（§9.2）或仅退出码给出 **允许**，可将 `updatedInput` 以 JSON 返回；运行时与当前 `workingInput` **浅合并**，后者覆盖同名字段。
+- **函数 Hook**：返回值的 `updatedInput` 同样参与浅合并。
+
+任一阶段返回 **拒绝** 则立即终止，不执行工具 handler。
 
 ```typescript
 async function executePreToolUse(context: HookContext): Promise<HookResult> {
   let workingInput = { ...context.toolInput };
 
-  // 先依次执行合并后的 command PreHook（仅 allowed / deny）
-  // 再依次执行函数 Hook（可返回 updatedInput）
-  for (const hook of orderedHooksForPre()) {
-    if (!matchTool(context.toolName, hook.matcher)) continue;
+  for (const cmdHook of mergedCommandPreHooksInOrder()) {
+    if (!matchTool(context.toolName, cmdHook.matcher)) continue;
+    if (!matchesIfClause(context.toolName, workingInput, cmdHook.if)) continue;
 
-    const result = await runHook(hook, { ...context, toolInput: workingInput });
+    const result = await runCommandHook(cmdHook, { ...context, toolInput: workingInput });
+    if (result?.allowed === false) {
+      return { allowed: false, reason: result.reason };
+    }
+    if (result?.updatedInput) {
+      workingInput = { ...workingInput, ...result.updatedInput };
+    }
+  }
+
+  for (const fnHook of functionPreHooksInOrder()) {
+    if (!matchTool(context.toolName, fnHook.matcher)) continue;
+    const result = await fnHook.handler({ ...context, toolInput: workingInput });
     if (result?.allowed === false) {
       return { allowed: false, reason: result.reason };
     }

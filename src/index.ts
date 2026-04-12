@@ -37,6 +37,8 @@ export {
   HookManager,
   createFunctionHook,
   matchTool,
+  matchesHookIfClause,
+  parsePreToolUseCommandOutput,
   buildHookEnv,
   mergeCommandHookLayers,
   parseHooksSettingsFile,

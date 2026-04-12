@@ -18,7 +18,7 @@
 | 会话与路径 | `storage`、`userBasePath`、`cwd` |
 | 上下文与环境 | `contextManagement`、`includeEnvironment` |
 | 可观测 | `callbacks`、`logger`、`logLevel`、`redaction` |
-| Hook | `hookManager`、`hookConfigDir` |
+| Hook | `hookManager`、`hookConfigDir`、`loadHookSettingsFromFiles` |
 | 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`allowDangerousTools`、`defaultAllowedTools`、`subagentTypePrompts`） |
 
 未显式设置时，SDK 会合并默认 **`maxIterations: 400`**、**`streaming: true`**（可被传入配置覆盖）；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出。
@@ -27,7 +27,7 @@
 
 - **`callbacks.onEvent`**：与 `Agent.stream()` 产出的每个 `StreamEvent` 同步（含 `start` / `text_delta` / `tool_result` / `end` 等）。
 - **`callbacks.lifecycle.onModelEvent`**：仅模型适配器侧子集（见源码 `MODEL_STREAM_EVENT_TYPES` / `isModelStreamEventType`）。**与 `onEvent` 的关系**：模型来源的事件会进入 `onEvent`，其中子集会再进入 `onModelEvent`，二者可能重复；通常只需订阅 **`onEvent`（全量）** 或 **`lifecycle`（结构化）** 之一，或自行按 `event.type` 去重。
-- **`callbacks.lifecycle`**：结构化观察点（会话、消息装配、模型请求、工具执行、落盘等），**仅通知、不改变执行结果**。拦截工具调用请使用 `hookManager` / `hookConfigDir`（见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）。
+- **`callbacks.lifecycle`**：结构化观察点（会话、消息装配、模型请求、工具执行、落盘等），**仅通知、不改变执行结果**。拦截工具调用请使用 `hookManager` / `hookConfigDir` / `loadHookSettingsFromFiles`（见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）。
 - **`callbacks.lifecycle.hooks`**：由 `Agent` 注入到 `ToolRegistry`，用于观察 Hook 管道（`onHookStart` / `onHookDecision` 等），不替代 `HookManager`。
 - **`onError`**：可选第二参数 `AgentErrorContext`，用于区分 `run` / `model` / `tool` 等阶段。
 

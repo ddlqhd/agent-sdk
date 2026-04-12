@@ -12,12 +12,9 @@ export type {
 
 export { parseHooksSettingsFile, loadHooksSettingsFromProject, loadHooksSettingsFromUser } from './loader.js';
 
-export {
-  HookManager,
-  createFunctionHook,
-  matchTool,
-  buildHookEnv,
-  mergeCommandHookLayers
-} from './manager.js';
+export { matchTool, matchesHookIfClause } from './hook-if.js';
+export { parsePreToolUseCommandOutput } from './parse-output.js';
+
+export { HookManager, createFunctionHook, buildHookEnv, mergeCommandHookLayers } from './manager.js';
 
 export type { FlatCommandHookEntry } from './manager.js';

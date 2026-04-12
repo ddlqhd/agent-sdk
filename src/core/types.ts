@@ -864,6 +864,12 @@ export interface AgentConfig {
    */
   hookConfigDir?: string;
 
+  /**
+   * 是否从磁盘加载 Hook：项目 `{hookConfigDir ?? cwd}/.claude/settings.json` 与用户 `{userBasePath}/.claude/settings.json`（未设置 {@link AgentConfig.userBasePath} 时用 `homedir()`）。
+   * 默认 `true`（与 Claude Code 一致）。设为 `false` 且未传入 {@link AgentConfig.hookManager} 时，仅当显式设置 {@link AgentConfig.hookConfigDir} 时才创建并加载 `HookManager`。
+   */
+  loadHookSettingsFromFiles?: boolean;
+
   /** Subagent 工具行为配置 */
   subagent?: {
     /** 是否启用 Agent 工具，默认 true */

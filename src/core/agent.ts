@@ -138,10 +138,16 @@ export class Agent {
 
     if (this.config.hookManager) {
       this.toolRegistry.setHookManager(this.config.hookManager);
-    } else if (this.config.hookConfigDir !== undefined) {
-      const hm = HookManager.create();
-      this.toolRegistry.setHookManager(hm);
-      this.hookDiscoverPromise = hm.discoverAndLoad(this.config.hookConfigDir);
+    } else {
+      const allowFileHooks =
+        this.config.loadHookSettingsFromFiles !== false ||
+        this.config.hookConfigDir !== undefined;
+      if (allowFileHooks) {
+        const hm = HookManager.create();
+        this.toolRegistry.setHookManager(hm);
+        const projectDir = this.config.hookConfigDir ?? this.config.cwd ?? process.cwd();
+        this.hookDiscoverPromise = hm.discoverAndLoad(projectDir, this.config.userBasePath);
+      }
     }
 
     // 初始化会话管理器（存储在用户目录下）
@@ -1539,6 +1545,7 @@ export class Agent {
 
     const childConfig: AgentConfig = {
       ...this.config,
+      hookManager: this.config.hookManager ?? this.toolRegistry.getHookManager() ?? undefined,
       exclusiveTools: resolved.tools,
       tools: undefined,
       mcpServers: undefined,

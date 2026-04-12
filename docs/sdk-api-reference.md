@@ -96,11 +96,13 @@
 - `HookManager`
 - `createFunctionHook`
 - `matchTool`
+- `matchesHookIfClause`
+- `parsePreToolUseCommandOutput`
 - `buildHookEnv`
 - `mergeCommandHookLayers`
 - `parseHooksSettingsFile`
 - `loadHooksSettingsFromProject`
-- `loadHooksSettingsFromUser`
+- `loadHooksSettingsFromUser(userBasePath?)`：省略 `userBasePath` 时读 `homedir()/.claude/settings.json`，否则读 `{userBasePath}/.claude/settings.json`（与 Agent `userBasePath` / CLI `--user-base-path` 对齐）
 - 类型：`HookContext` `HookEventType` `HookResult` `FunctionHook` `CommandHookConfig` `HookGroupConfig` `HooksSettings` `HooksSettingsFile` `FlatCommandHookEntry`
 
 ### 内置工具导出（根入口包含）

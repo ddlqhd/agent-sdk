@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
 import { loadHooksSettingsFromProject, loadHooksSettingsFromUser } from './loader.js';
+import { matchTool, matchesHookIfClause } from './hook-if.js';
+import { parsePreToolUseCommandOutput } from './parse-output.js';
 import type {
   CommandHookConfig,
   FunctionHook,
@@ -23,18 +25,6 @@ function emptyHooksRecord(): Record<HookEventType, HookGroupConfig[]> {
     postToolUse: [],
     postToolUseFailure: []
   };
-}
-
-/**
- * matcher 为 JavaScript 正则源码（不含定界符）
- */
-export function matchTool(toolName: string, matcher?: string): boolean {
-  if (!matcher || matcher === '*') return true;
-  try {
-    return new RegExp(matcher).test(toolName);
-  } catch {
-    return false;
-  }
 }
 
 function toUpperSnake(paramName: string): string {
@@ -137,7 +127,7 @@ function runSpawnWithStdin(
   env: NodeJS.ProcessEnv,
   stdinBody: string,
   timeoutSec: number
-): Promise<{ code: number | null; stderr: string }> {
+): Promise<{ code: number | null; stderr: string; stdout: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, {
       shell: true,
@@ -146,11 +136,12 @@ function runSpawnWithStdin(
     });
 
     let stderr = '';
+    let stdout = '';
     child.stderr?.on('data', (d: Buffer) => {
       stderr += d.toString('utf-8');
     });
-    child.stdout?.on('data', () => {
-      /* drain */
+    child.stdout?.on('data', (d: Buffer) => {
+      stdout += d.toString('utf-8');
     });
 
     const timeoutMs = Math.max(1, timeoutSec) * 1000;
@@ -165,7 +156,7 @@ function runSpawnWithStdin(
 
     child.on('close', code => {
       clearTimeout(timer);
-      resolve({ code, stderr });
+      resolve({ code, stderr, stdout });
     });
 
     try {
@@ -247,8 +238,12 @@ export class HookManager {
     const timeoutSec = cmd.timeout ?? 30;
 
     try {
-      const { code, stderr } = await runSpawnWithStdin(cmd.command, env, stdinBody, timeoutSec);
+      const { code, stderr, stdout } = await runSpawnWithStdin(cmd.command, env, stdinBody, timeoutSec);
       if (phase === 'pre') {
+        const parsed = parsePreToolUseCommandOutput(stdout);
+        if (parsed !== null) {
+          return parsed;
+        }
         if (code === 0) return { allowed: true };
         if (code === 2) {
           return {
@@ -324,15 +319,19 @@ export class HookManager {
     this.rebuildMerged();
   }
 
-  async loadUserConfig(): Promise<void> {
-    this.userHooks = await loadHooksSettingsFromUser();
+  async loadUserConfig(userBasePath?: string): Promise<void> {
+    this.userHooks = await loadHooksSettingsFromUser(userBasePath);
     this.rebuildMerged();
   }
 
-  async discoverAndLoad(projectDir?: string): Promise<void> {
+  /**
+   * @param projectDir 项目根（其下 `.claude/settings.json` 为项目层 hooks）
+   * @param userBasePath 用户根（其下 `.claude/settings.json` 为用户层 hooks）；与 {@link AgentConfig.userBasePath} 一致，省略则为 `homedir()`
+   */
+  async discoverAndLoad(projectDir?: string, userBasePath?: string): Promise<void> {
     const dir = projectDir ?? process.cwd();
     await this.loadProjectConfig(dir);
-    await this.loadUserConfig();
+    await this.loadUserConfig(userBasePath);
   }
 
   setEnabled(enabled: boolean): void {
@@ -352,10 +351,14 @@ export class HookManager {
 
     for (const entry of this.getHooksForEvent('preToolUse')) {
       if (!matchTool(context.toolName, entry.matcher)) continue;
+      if (!matchesHookIfClause(context.toolName, workingInput, entry.hook.if)) continue;
       const ctx = { ...context, toolInput: workingInput };
       const result = await this.runCommandHook(entry.hook, ctx, 'pre');
       if (result?.allowed === false) {
         return { allowed: false, reason: result.reason };
+      }
+      if (result?.updatedInput) {
+        workingInput = { ...workingInput, ...result.updatedInput };
       }
     }
 
@@ -379,6 +382,7 @@ export class HookManager {
 
     for (const entry of this.getHooksForEvent('postToolUse')) {
       if (!matchTool(context.toolName, entry.matcher)) continue;
+      if (!matchesHookIfClause(context.toolName, context.toolInput, entry.hook.if)) continue;
       if (entry.hook.async) {
         this.fireAsyncCommandHook(entry.hook, context);
         continue;
@@ -397,6 +401,7 @@ export class HookManager {
 
     for (const entry of this.getHooksForEvent('postToolUseFailure')) {
       if (!matchTool(context.toolName, entry.matcher)) continue;
+      if (!matchesHookIfClause(context.toolName, context.toolInput, entry.hook.if)) continue;
       if (entry.hook.async) {
         this.fireAsyncCommandHook(entry.hook, context);
         continue;
