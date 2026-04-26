@@ -1,4 +1,10 @@
-import type { Message, ModelAdapter, SessionTokenUsage, ContextManagerConfig } from './types.js';
+import type {
+  Message,
+  ModelAdapter,
+  SessionTokenUsage,
+  ContextManagerConfig,
+  StreamEvent
+} from './types.js';
 import type { Compressor, CompressionResult } from './compressor.js';
 import { SummarizationCompressor } from './compressor.js';
 
@@ -193,4 +199,34 @@ export class ContextManager {
   private estimateTokens(text: string): number {
     return Math.max(0, Math.round((text || '').length / 4));
   }
+}
+
+/**
+ * 单次迭代开始时的上下文维护：prune 旧工具输出，若 {@link ContextManager.shouldCompress} 为真则压缩并产出流事件。
+ */
+export async function runIterationCompaction(
+  cm: ContextManager,
+  messages: Message[],
+  usage: SessionTokenUsage
+): Promise<{
+  messages: Message[];
+  usage: SessionTokenUsage;
+  events: StreamEvent[];
+}> {
+  const pruned = cm.prune(messages);
+  if (!cm.shouldCompress(usage)) {
+    return { messages: pruned, usage, events: [] };
+  }
+
+  const result = await cm.compress(pruned);
+  return {
+    messages: result.messages,
+    usage: cm.resetUsage(),
+    events: [
+      {
+        type: 'context_compressed',
+        stats: result.stats
+      }
+    ]
+  };
 }

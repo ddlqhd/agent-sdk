@@ -27,8 +27,8 @@ import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
 import { formatMcpToolName, isMcpPrefixedToolName } from '../mcp/mcp-tool-name.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
-import { buildSkillInvocationPayload } from '../skills/invocation.js';
-import { ContextManager } from './context-manager.js';
+import { invokeUserSkill, processUserInputForSkills } from '../skills/user-invocation.js';
+import { ContextManager, runIterationCompaction } from './context-manager.js';
 import { emitSDKLog } from './logger.js';
 import { isNonBlankString } from '../utils/index.js';
 import { HookManager } from '../tools/hooks/manager.js';
@@ -543,12 +543,9 @@ export class Agent {
       }
     }
 
-    // 处理 skill 调用
-    let processedInput = input;
+    // 处理 skill 调用（成功展开、解析失败后的错误说明、或非 slash 原文均走 processed.prompt）
     const processed = await this.processInput(input);
-    if (processed.invoked) {
-      processedInput = processed.prompt;
-    }
+    const processedInput = processed.prompt;
 
     const userMsg: Message = {
       role: 'user',
@@ -558,7 +555,7 @@ export class Agent {
     this.safeLifecycleVoid(() => {
       this.config.callbacks?.lifecycle?.onUserMessage?.(
         userMsg,
-        processed.invoked ? 'processed_input' : 'raw_input',
+        processedInput !== input ? 'processed_input' : 'raw_input',
         this.baseRunContext()
       );
     });
@@ -1139,24 +1136,10 @@ export class Agent {
     skillName?: string;
     prompt: string;
   }> {
-    const invocation = this.parseSkillInvocation(input);
-
-    if (!invocation) {
-      return { invoked: false, prompt: input };
-    }
-
-    const { name, args } = invocation;
-
-    try {
-      const prompt = await this.invokeSkill(name, args);
-      return { invoked: true, skillName: name, prompt };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      return {
-        invoked: false,
-        prompt: `Error invoking skill "${name}": ${errorMsg}\n\nOriginal input: ${input}`
-      };
-    }
+    return processUserInputForSkills(this.skillRegistry, input, {
+      sessionId: this.sessionManager.sessionId || undefined,
+      cwd: this.config.cwd
+    });
   }
 
   /**
@@ -1166,56 +1149,10 @@ export class Agent {
    * @returns 处理后的 prompt
    */
   async invokeSkill(name: string, args: string = ''): Promise<string> {
-    const skill = this.skillRegistry.get(name);
-
-    if (!skill) {
-      const available = this.skillRegistry.getNames();
-      throw new Error(
-        `Skill "${name}" not found. Available skills: ${available.join(', ') || 'none'}`
-      );
-    }
-
-    // 检查 skill 是否可以被用户调用
-    if (skill.metadata.userInvocable === false) {
-      throw new Error(`Skill "${name}" is not user-invocable`);
-    }
-
-    return await buildSkillInvocationPayload(this.skillRegistry, name, args, {
+    return invokeUserSkill(this.skillRegistry, name, args, {
       sessionId: this.sessionManager.sessionId || undefined,
       cwd: this.config.cwd
     });
-  }
-
-  /**
-   * 解析 skill 调用格式
-   * 格式: /skill-name [args]
-   * @param input 用户输入
-   * @returns 解析结果或 null
-   */
-  private parseSkillInvocation(input: string): { name: string; args: string } | null {
-    const trimmed = input.trim();
-
-    // 必须以 / 开头
-    if (!trimmed.startsWith('/')) {
-      return null;
-    }
-
-    // 提取 skill 名称和参数（支持中文等任意非空白字符）
-    const match = trimmed.match(/^\/([^\s\/]+)(?:\s+(.*))?$/);
-
-    if (!match) {
-      return null;
-    }
-
-    const name = match[1];
-    const args = match[2] || '';
-
-    // 检查 skill 是否存在
-    if (!this.skillRegistry.has(name)) {
-      return null;
-    }
-
-    return { name, args };
   }
 
   /**
@@ -1429,24 +1366,14 @@ export class Agent {
       return [];
     }
 
-    // 先执行 prune 清理旧工具输出
-    this.messages = this.contextManager.prune(this.messages);
-
-    // 检查是否需要压缩
-    if (!this.contextManager.shouldCompress(this.sessionUsage)) {
-      return [];
-    }
-
-    const result = await this.contextManager.compress(this.messages);
-    this.messages = result.messages;
-    this.sessionUsage = this.contextManager.resetUsage();
-
-    return [
-      {
-        type: 'context_compressed',
-        stats: result.stats
-      }
-    ];
+    const { messages, usage, events } = await runIterationCompaction(
+      this.contextManager,
+      this.messages,
+      this.sessionUsage
+    );
+    this.messages = messages;
+    this.sessionUsage = usage;
+    return events;
   }
 
   private getSubagentConfig() {

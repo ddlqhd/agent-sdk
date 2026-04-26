@@ -7,3 +7,9 @@ export { SkillTemplateProcessor, createSkillTemplateProcessor } from './template
 export type { SkillTemplateContext } from './template.js';
 export { buildSkillInvocationPayload } from './invocation.js';
 export type { SkillInvocationRuntime } from './invocation.js';
+export {
+  parseUserSkillSlashCommand,
+  invokeUserSkill,
+  processUserInputForSkills
+} from './user-invocation.js';
+export type { ProcessUserInputForSkillsResult } from './user-invocation.js';
