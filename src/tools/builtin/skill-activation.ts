@@ -1,11 +1,21 @@
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { SkillRegistry } from '../../skills/registry.js';
+import { buildSkillInvocationPayload } from '../../skills/invocation.js';
+import type { SkillInvocationRuntime } from '../../skills/invocation.js';
+
+export interface CreateSkillToolOptions {
+  /**
+   * Session id and cwd for template expansion in skill content.
+   * When omitted, uses `process.cwd()` and no session id.
+   */
+  skillInvocationRuntime?: () => SkillInvocationRuntime;
+}
 
 /**
  * 创建 Skill 工具
  */
-export function createSkillTool(skillRegistry: SkillRegistry) {
+export function createSkillTool(skillRegistry: SkillRegistry, options?: CreateSkillToolOptions) {
   return createTool({
     name: 'Skill',
     category: 'skills',
@@ -22,7 +32,7 @@ How to invoke:
       skill: z.string().describe('The skill name. E.g., "commit", "review-pr", or "pdf"'),
       args: z.string().optional().describe('Optional arguments for the skill')
     }),
-    handler: async ({ skill: skillName }) => {
+    handler: async ({ skill: skillName, args = '' }) => {
       try {
         if (!skillRegistry.has(skillName)) {
           const available = skillRegistry.getMetadataList();
@@ -36,21 +46,28 @@ How to invoke:
           };
         }
 
-        const fullContent = await skillRegistry.loadFullContent(skillName);
         const skill = skillRegistry.get(skillName);
+        if (skill?.metadata.disableModelInvocation === true) {
+          return {
+            content:
+              `Skill "${skillName}" is not available for automatic invocation (disableModelInvocation: true). ` +
+              'If the user should trigger it themselves, they can use the / menu when applicable.',
+            isError: true
+          };
+        }
 
-        const sections: string[] = [];
-        sections.push(`# Skill: ${skill?.metadata.name || skillName}`);
-        sections.push(`Description: ${skill?.metadata.description || ''}`);
-        sections.push(`Base Path: ${skill?.path || ''}`);
-        sections.push('');
-        sections.push('---');
-        sections.push('');
-        sections.push(fullContent);
+        const runtime = options?.skillInvocationRuntime?.() ?? {};
+        const content = await buildSkillInvocationPayload(
+          skillRegistry,
+          skillName,
+          args,
+          {
+            sessionId: runtime.sessionId,
+            cwd: runtime.cwd
+          }
+        );
 
-        return {
-          content: sections.join('\n')
-        };
+        return { content };
       } catch (error) {
         return {
           content: `Error activating skill "${skillName}": ${error instanceof Error ? error.message : String(error)}`,
@@ -64,6 +81,6 @@ How to invoke:
 /**
  * 获取 Skill 相关工具
  */
-export function getSkillTools(skillRegistry: SkillRegistry) {
-  return [createSkillTool(skillRegistry)];
+export function getSkillTools(skillRegistry: SkillRegistry, options?: CreateSkillToolOptions) {
+  return [createSkillTool(skillRegistry, options)];
 }

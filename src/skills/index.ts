@@ -5,3 +5,5 @@ export { SkillRegistry, createSkillRegistry } from './registry.js';
 export { parseSkillMd, validateMetadata, inferMetadataFromPath } from './parser.js';
 export { SkillTemplateProcessor, createSkillTemplateProcessor } from './template.js';
 export type { SkillTemplateContext } from './template.js';
+export { buildSkillInvocationPayload } from './invocation.js';
+export type { SkillInvocationRuntime } from './invocation.js';

@@ -26,8 +26,7 @@ import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
 import { formatMcpToolName, isMcpPrefixedToolName } from '../mcp/mcp-tool-name.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
-import { createSkillTemplateProcessor } from '../skills/template.js';
-import type { SkillTemplateContext } from '../skills/template.js';
+import { buildSkillInvocationPayload } from '../skills/invocation.js';
 import { ContextManager } from './context-manager.js';
 import { emitSDKLog } from './logger.js';
 import { isNonBlankString } from '../utils/index.js';
@@ -209,7 +208,11 @@ export class Agent {
     }
 
     const builtins = getAllBuiltinTools(this.skillRegistry, {
-      resolve: this.config.askUserQuestion
+      resolve: this.config.askUserQuestion,
+      skillInvocationRuntime: () => ({
+        sessionId: this.sessionManager.sessionId || undefined,
+        cwd: this.config.cwd
+      })
     }).filter(t => !this.toolRegistry.isDisallowed(t.name));
 
     this.toolRegistry.registerMany(builtins);
@@ -1175,26 +1178,10 @@ export class Agent {
       throw new Error(`Skill "${name}" is not user-invocable`);
     }
 
-    // 获取 skill 内容
-    const content = await this.skillRegistry.loadFullContent(name);
-
-    // 创建模板处理器
-    const context: SkillTemplateContext = {
-      skillDir: skill.path || '',
+    return await buildSkillInvocationPayload(this.skillRegistry, name, args, {
       sessionId: this.sessionManager.sessionId || undefined,
       cwd: this.config.cwd
-    };
-    const processor = createSkillTemplateProcessor(context);
-
-    // 处理模板
-    let processedContent = await processor.process(content, args);
-
-    // 如果内容中没有 $ARGUMENTS 但有参数，追加到末尾
-    if (args && !content.includes('$ARGUMENTS') && !content.includes('$0')) {
-      processedContent += `\n\nARGUMENTS: ${args}`;
-    }
-
-    return processedContent;
+    });
   }
 
   /**
