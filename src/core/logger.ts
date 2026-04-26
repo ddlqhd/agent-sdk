@@ -1,3 +1,4 @@
+import { inspect } from 'util';
 import type { LogEvent, LogRedactionConfig, SDKLogLevel, SDKLogger } from './types.js';
 
 const TRUTHY = /^(1|true|yes)$/i;
@@ -194,6 +195,20 @@ export function formatSDKLog(event: LogEvent): string {
   return event.message ? `${prefix} ${event.message}${suffix}` : `${prefix}${suffix}`;
 }
 
+/**
+ * Render metadata for the built-in console logger. Node's default object printing uses a shallow
+ * inspect depth, which collapses nested message/tool objects to `[Object]`.
+ */
+function formatLogMetadataForConsole(metadata: unknown): string {
+  return inspect(metadata, {
+    depth: null,
+    maxArrayLength: null,
+    maxStringLength: null,
+    breakLength: 100,
+    colors: typeof process !== 'undefined' && process.stdout.isTTY === true
+  });
+}
+
 function consoleMethod(level: Exclude<SDKLogLevel, 'silent'>): (...args: unknown[]) => void {
   if (level === 'error') return console.error.bind(console);
   if (level === 'warn') return console.warn.bind(console);
@@ -209,7 +224,7 @@ export function createConsoleSDKLogger(): SDKLogger {
     const line = formatSDKLog(event);
     const logFn = consoleMethod(level);
     if (event.metadata != null) {
-      logFn(line, event.metadata);
+      logFn(`${line}\n${formatLogMetadataForConsole(event.metadata)}`);
     } else {
       logFn(line);
     }
