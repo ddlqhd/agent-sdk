@@ -344,6 +344,10 @@ export interface ToolExecutionContext {
   projectDir?: string;
   /** 当前 agent 深度（根 agent 为 0） */
   agentDepth?: number;
+  /**
+   * 与 `Agent` 流式运行传入的 `signal` 同源；工具应在长任务中检查 `signal.aborted` 并协作结束。
+   */
+  signal?: AbortSignal;
 }
 
 /**

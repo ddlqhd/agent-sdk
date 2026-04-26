@@ -47,7 +47,7 @@
 
 | Tool | 说明 | Dangerous |
 |------|------|-----------|
-| `AskUserQuestion` | 向用户结构化提问（需宿主配置 `askUserQuestion`，见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 相关小节） | 否 |
+| `AskUserQuestion` | 向用户结构化提问（需宿主配置 `askUserQuestion`；`resolver(questions, { signal? })` 以支持与 `Agent.stream` 同源取消，见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 与 [`sdk-agent-loop.md`](./sdk-agent-loop.md)） | 否 |
 
 ### Skill (skill-activation)
 

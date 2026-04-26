@@ -44,10 +44,18 @@ export type AskUserQuestionAnswer = {
 };
 
 /**
+ * 可选；与 `ToolExecutionContext.signal` 一致，用于在宿主侧取消等待（如 TTY 读入、Web 弹窗）。
+ */
+export interface AskUserQuestionResolverOptions {
+  signal?: AbortSignal;
+}
+
+/**
  * Host-provided implementation: CLI (TTY), web UI (WebSocket), tests, etc.
  */
 export type AskUserQuestionResolver = (
-  questions: AskUserQuestionItem[]
+  questions: AskUserQuestionItem[],
+  options?: AskUserQuestionResolverOptions
 ) => Promise<AskUserQuestionAnswer[]>;
 
 /**
@@ -116,7 +124,7 @@ Usage notes:
 - Use multiSelect: true to allow multiple answers to be selected for a question
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label`,
     parameters: questionsSchema,
-    handler: async ({ questions }) => {
+    handler: async ({ questions }, context) => {
       const promptText = formatAskUserQuestionPrompt(questions);
 
       if (!resolve) {
@@ -126,9 +134,17 @@ Usage notes:
         };
       }
 
+      if (context?.signal?.aborted) {
+        return {
+          content: 'AskUserQuestion was aborted before user input could be collected.',
+          isError: true,
+          metadata: { questions }
+        };
+      }
+
       let answers: AskUserQuestionAnswer[];
       try {
-        answers = await resolve(questions);
+        answers = await resolve(questions, { signal: context?.signal });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return {

@@ -11,6 +11,7 @@ import {
   type ContextManagerConfig,
   type Message,
   type ModelAdapter,
+  type ToolExecutionContext,
   type ToolResult,
   type AgentErrorContext,
   type AgentRunEndReason
@@ -43,6 +44,7 @@ import {
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
 import { SummarizationCompressor } from './compressor.js';
+import { TOOL_USER_ABORTED_MESSAGE } from './abort-constants.js';
 
 /** Default upper bound for model↔tool rounds per user turn when `AgentConfig.maxIterations` is omitted. */
 export const DEFAULT_MAX_ITERATIONS = 400;
@@ -875,7 +877,7 @@ export class Agent {
           break;
         }
 
-        const toolResults = await this.executeTools(toolCalls, iteration);
+        const toolResults = await this.executeTools(toolCalls, iteration, signal);
 
         for (const result of toolResults) {
           if (result.isError && result.error) {
@@ -1510,7 +1512,7 @@ export class Agent {
 
   private async runSubagent(
     request: SubagentRequest,
-    context?: { agentDepth?: number }
+    context?: ToolExecutionContext
   ): Promise<{
     content: string;
     isError?: boolean;
@@ -1518,6 +1520,7 @@ export class Agent {
   }> {
     const subagentConfig = this.getSubagentConfig();
     const currentDepth = context?.agentDepth ?? this.agentDepth;
+    const subagentSignal = context?.signal;
 
     if (!subagentConfig.enabled) {
       return { content: 'Subagent is disabled by configuration', isError: true };
@@ -1571,7 +1574,8 @@ export class Agent {
         .filter((s): s is string => isNonBlankString(s))
         .join('\n\n');
       const runPromise = child.run(request.prompt, {
-        systemPrompt: mergedSystem || undefined
+        systemPrompt: mergedSystem || undefined,
+        signal: subagentSignal
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timer = setTimeout(() => {
@@ -1620,7 +1624,8 @@ export class Agent {
    */
   private async executeTools(
     toolCalls: ToolCall[],
-    iteration: number
+    iteration: number,
+    signal?: AbortSignal
   ): Promise<
     Array<{
       toolCallId: string;
@@ -1629,6 +1634,18 @@ export class Agent {
       error?: Error;
     }>
   > {
+    if (signal?.aborted) {
+      return toolCalls.map((tc) => {
+        const err = new DOMException(TOOL_USER_ABORTED_MESSAGE, 'AbortError');
+        return {
+          toolCallId: tc.id,
+          content: `Error: ${TOOL_USER_ABORTED_MESSAGE}`,
+          isError: true,
+          error: err
+        };
+      });
+    }
+
     const results = await Promise.all(
       toolCalls.map(async (tc) => {
         this.safeLifecycleVoid(() => {
@@ -1665,7 +1682,8 @@ export class Agent {
           const result = await this.toolRegistry.execute(tc.name, tc.arguments, {
             toolCallId: tc.id,
             projectDir: this.config.cwd || process.cwd(),
-            agentDepth: this.agentDepth
+            agentDepth: this.agentDepth,
+            signal
           });
           const durationMs = Date.now() - startedAt;
           const isError = Boolean(result.isError);

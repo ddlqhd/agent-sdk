@@ -1,3 +1,4 @@
+import { TOOL_USER_ABORTED_MESSAGE } from '../core/abort-constants.js';
 import type {
   ToolDefinition,
   ToolExecutionContext,
@@ -33,6 +34,11 @@ export interface ToolExecuteOptions {
   toolCallId?: string;
   projectDir?: string;
   agentDepth?: number;
+  /**
+   * 若已 aborted，在调用 `handler` 前即返回，且不执行 preToolUse 之后的逻辑。
+   * 会传入 {@link ToolExecutionContext.signal}。
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -269,6 +275,10 @@ export class ToolRegistry {
       }
       workingInput = initial.data as Record<string, unknown>;
 
+      if (options?.signal?.aborted) {
+        return { content: TOOL_USER_ABORTED_MESSAGE, isError: true };
+      }
+
       if (hookMgr) {
         this.hookObserver?.onHookStart?.(
           this.hookObserverCtx('preToolUse', name, options)
@@ -308,7 +318,8 @@ export class ToolRegistry {
       const executionContext: ToolExecutionContext = {
         toolCallId: options?.toolCallId,
         projectDir: options?.projectDir,
-        agentDepth: options?.agentDepth
+        agentDepth: options?.agentDepth,
+        signal: options?.signal
       };
       const result = await tool.handler(handlerArgs, executionContext);
       const toolResultRaw = result;

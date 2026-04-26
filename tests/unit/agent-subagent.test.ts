@@ -151,6 +151,56 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('timed out');
   });
 
+  it('forwards ToolExecutionContext.signal to subagent run', async () => {
+    const ac = new AbortController();
+    const childProbe = '__subagent_parent_signal__';
+    const subagentModel: ModelAdapter = {
+      name: 'subagent-signal-model',
+      async *stream(params: ModelParams) {
+        const lastMessage = params.messages[params.messages.length - 1];
+        if (
+          lastMessage &&
+          lastMessage.role === 'user' &&
+          typeof lastMessage.content === 'string' &&
+          lastMessage.content === childProbe
+        ) {
+          if (!params.signal) {
+            yield { type: 'text', content: 'missing-signal' };
+            yield { type: 'done' };
+            return;
+          }
+          if (params.signal !== ac.signal) {
+            yield { type: 'text', content: 'wrong-signal' };
+            yield { type: 'done' };
+            return;
+          }
+          yield { type: 'text', content: 'subagent-signal-ok' };
+          yield { type: 'done' };
+          return;
+        }
+        yield { type: 'text', content: 'unexpected' };
+        yield { type: 'done' };
+      },
+      async complete() {
+        return { content: 'ok' };
+      }
+    };
+    const agent = new Agent({
+      model: subagentModel,
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const r = await agent.getToolRegistry().execute(
+      'Agent',
+      { prompt: childProbe },
+      { signal: ac.signal, projectDir: process.cwd() }
+    );
+
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('subagent-signal-ok');
+  });
+
   it('excludes AskUserQuestion from subagent toolset', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),

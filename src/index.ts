@@ -12,6 +12,7 @@ export {
 export type { StreamOptions } from './core/agent.js';
 export * from './core/types.js';
 export { mergeProcessEnv, mergeMcpStdioEnv } from './core/process-env-merge.js';
+export { TOOL_USER_ABORTED_MESSAGE } from './core/abort-constants.js';
 export { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from './core/prompts.js';
 export { createConsoleSDKLogger, formatSDKLog } from './core/logger.js';
 

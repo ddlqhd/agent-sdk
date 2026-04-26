@@ -171,7 +171,7 @@
 - Skills：`SkillMetadata` `SkillDefinition` `ParsedSkill`
 - Agent 配置：`SystemPromptConfig` `SystemPrompt` `ContextManagerConfig` `AgentConfig` `SkillConfig` `AgentCallbacks` `AgentResult`
   - `AgentConfig.subagent` 支持 `enabled/maxDepth/maxParallel/timeoutMs/allowDangerousTools/defaultAllowedTools/subagentTypePrompts`（`subagentTypePrompts` 可按 `general-purpose` / `explore` 覆盖内置追加到子代理 system 的片段，见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) §13）
-  - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套
+  - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套；`ToolExecutionContext.signal` 与 `StreamOptions.signal` 同源，用于协作式取消（见 [`sdk-agent-loop.md`](./sdk-agent-loop.md)）
 - CLI 相关导出类型：`CLIConfig` `ChatOptions` `RunOptions` `ToolListOptions` `SessionListOptions` `MCPOptions` `SkillOptions`
 
 上文为常用类型子集；`export *` 另含生命周期回调、窄消息类型、`MODEL_STREAM_EVENT_TYPES` 等，以源码为准。

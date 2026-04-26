@@ -6,6 +6,7 @@ import { extname, join, normalize } from 'node:path';
 import type {
   Agent,
   AskUserQuestionAnswer,
+  AskUserQuestionItem,
   AskUserQuestionResolver,
   SessionInfo,
   StreamEvent,
@@ -115,10 +116,34 @@ wss.on('connection', (socket: WebSocket) => {
     askPending.clear();
   }
 
-  const askUserQuestion: AskUserQuestionResolver = (questions) =>
+  const askUserQuestion: AskUserQuestionResolver = (
+    questions: AskUserQuestionItem[],
+    options?: { signal?: AbortSignal }
+  ) =>
     new Promise((resolve, reject) => {
+      if (options?.signal?.aborted) {
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        return;
+      }
       const id = randomUUID();
-      askPending.set(id, { resolve, reject });
+      const onAbort = () => {
+        options?.signal?.removeEventListener('abort', onAbort);
+        askPending.delete(id);
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      if (options?.signal) {
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
+      askPending.set(id, {
+        resolve: (answers) => {
+          options?.signal?.removeEventListener('abort', onAbort);
+          resolve(answers);
+        },
+        reject: (e) => {
+          options?.signal?.removeEventListener('abort', onAbort);
+          reject(e);
+        }
+      });
       sendJson(socket, { type: 'ask_user_question', requestId: id, questions });
     });
 

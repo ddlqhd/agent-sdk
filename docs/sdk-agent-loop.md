@@ -27,6 +27,10 @@
 
 若对话需要过多轮工具才能完成，可能触及 `maxIterations`。此时会在 **`session_summary` 之后**收到 `end`，且 **`reason: 'max_iterations'`**（用量仍以 `session_summary.usage` 为准）。生产环境可结合 [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)「工具调用循环过多」一节调参。
 
+## 取消与 `StreamOptions.signal`
+
+`Agent.stream` 的 **`signal`** 与向模型传参的 **`ModelParams.signal` 为同一** `AbortSignal`：在「等待下一轮模型输出」的流上取消会尽快结束。工具阶段也会收到同一 signal：`ToolRegistry.execute` 的选项与 `ToolExecutionContext` 上均有 **`signal`**；若本批工具在尚未开始执行时 signal 已处于 aborted，本轮工具不会真实执行，而是得到统一的「**The operation was aborted.**」式结果。已在运行中的**自定义**长任务应在 handler 中检查 `context.signal?.aborted`、把 `signal` 转交给 `fetch` / 子进程 / 可取消的宿主机 IO。内置 **`AskUserQuestion`** 在配置了 `askUserQuestion` 时，会将 **`{ signal }`** 传给 resolver，CLI 与 web-demo 会在 abort 时结束等待、避免读 stdin/弹窗无限阻塞。通过 **`Agent` 工具** 启动的子代理会把**同一** `signal` 传给子 `Agent.run` / `stream`，父级取消时子级也会按上述规则结束。无法协作取消的代码仍可能在后台跑完，这是**协作式取消**的固有限制。
+
 ## 另见
 
 - 会话持久化与 `sessionId`：[`sdk-quickstart.md`](./sdk-quickstart.md)、[`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 会话章节。
