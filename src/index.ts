@@ -31,10 +31,14 @@ export type {
   OpenAIConfig,
   AnthropicConfig,
   AnthropicFetchRetryOptions,
+  AnthropicThinkingOption,
+  AnthropicThinkingConfigObject,
+  AnthropicThinkingEffort,
   OllamaConfig,
   ModelProvider,
   CreateModelConfig
 } from './models/index.js';
+export { applyAnthropicThinking } from './models/index.js';
 
 // Tools
 export { ToolRegistry, createTool, getGlobalRegistry } from './tools/index.js';

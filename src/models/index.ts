@@ -13,8 +13,12 @@ export { AnthropicAdapter, createAnthropic } from './anthropic.js';
 export type {
   AnthropicConfig,
   AnthropicRequestMetadata,
-  AnthropicFetchRetryOptions
+  AnthropicFetchRetryOptions,
+  AnthropicThinkingOption,
+  AnthropicThinkingConfigObject,
+  AnthropicThinkingEffort
 } from './anthropic.js';
+export { applyAnthropicThinking } from './anthropic.js';
 export { OllamaAdapter, createOllama } from './ollama.js';
 export type { OllamaConfig, OllamaThinkOption } from './ollama.js';
 export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString } from './ollama.js';
@@ -25,6 +29,7 @@ import { OpenAIAdapter } from './openai.js';
 import { AnthropicAdapter } from './anthropic.js';
 import { OllamaAdapter } from './ollama.js';
 import type { OllamaThinkOption } from './ollama.js';
+import type { AnthropicThinkingOption } from './anthropic.js';
 
 export type ModelProvider = 'openai' | 'anthropic' | 'ollama';
 
@@ -33,6 +38,8 @@ export interface CreateModelConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  /** Anthropic only: Messages API `thinking` / `output_config` (extended thinking). */
+  thinking?: AnthropicThinkingOption;
   /** Ollama only: passed as `think` on `/api/chat`. */
   think?: OllamaThinkOption;
 }
@@ -58,7 +65,8 @@ export function createModel(
       return new AnthropicAdapter({
         apiKey: modelConfig.apiKey || merged.ANTHROPIC_API_KEY || '',
         baseUrl: modelConfig.baseUrl || merged.ANTHROPIC_BASE_URL,
-        model: modelConfig.model
+        model: modelConfig.model,
+        thinking: modelConfig.thinking
       });
     case 'ollama':
       return new OllamaAdapter({

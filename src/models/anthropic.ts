@@ -54,6 +54,59 @@ function normalizeFetchRetry(options?: AnthropicFetchRetryOptions): Required<Ant
   return { maxAttempts, baseDelayMs, maxDelayMs };
 }
 
+/** Soft guidance for adaptive thinking (Messages API `output_config.effort`). */
+export type AnthropicThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+
+/**
+ * Anthropic Messages API `thinking` 参数（扩展思考 / adaptive）。
+ * 见 <https://docs.anthropic.com/en/build-with-claude/extended-thinking>。
+ */
+export type AnthropicThinkingConfigObject =
+  | { type: 'enabled'; budget_tokens: number; display?: 'omitted' | string }
+  | { type: 'disabled' }
+  | { type: 'adaptive'; effort?: AnthropicThinkingEffort };
+
+/**
+ * 简单布尔或官方对象。`true` 等价于 `{ type: 'enabled', budget_tokens: 1024 }`；`false` 为 `{ type: 'disabled' }`。
+ * `adaptive` 且带 `effort` 时，会额外写入 `output_config.effort`。
+ */
+export type AnthropicThinkingOption = boolean | AnthropicThinkingConfigObject;
+
+const DEFAULT_THINKING_BUDGET_TOKENS = 1024;
+
+/**
+ * 将 `AnthropicThinkingOption` 转为请求体 `thinking` 与可选的 `output_config`。
+ * @internal Exported for unit tests.
+ */
+export function applyAnthropicThinking(option: AnthropicThinkingOption): {
+  thinking: Record<string, unknown>;
+  outputConfig?: { effort: AnthropicThinkingEffort };
+} {
+  if (option === true) {
+    return {
+      thinking: { type: 'enabled', budget_tokens: DEFAULT_THINKING_BUDGET_TOKENS }
+    };
+  }
+  if (option === false) {
+    return { thinking: { type: 'disabled' } };
+  }
+  switch (option.type) {
+    case 'adaptive': {
+      const out: { thinking: Record<string, unknown>; outputConfig?: { effort: AnthropicThinkingEffort } } = {
+        thinking: { type: 'adaptive' }
+      };
+      if (option.effort) {
+        out.outputConfig = { effort: option.effort };
+      }
+      return out;
+    }
+    case 'enabled':
+      return { thinking: { ...option } as Record<string, unknown> };
+    case 'disabled':
+      return { thinking: { type: 'disabled' } };
+  }
+}
+
 function isAbortError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === 'AbortError') {
     return true;
@@ -163,6 +216,10 @@ export interface AnthropicConfig {
    * 省略时默认共 2 次尝试（**1** 次自动重试）；传入 `fetchRetry: { maxAttempts: 1 }` 可改为只请求 1 次、不重试。
    */
   fetchRetry?: AnthropicFetchRetryOptions;
+  /**
+   * Extended thinking / adaptive。省略则请求中不包含 `thinking`（保持与旧版一致）。
+   */
+  thinking?: AnthropicThinkingOption;
 }
 
 /**
@@ -176,6 +233,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   private version: string;
   private requestMetadata?: AnthropicRequestMetadata;
   private fetchRetry: Required<AnthropicFetchRetryOptions>;
+  private thinkingOption?: AnthropicThinkingOption;
 
   constructor(config: AnthropicConfig = {}) {
     super();
@@ -185,6 +243,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
     this.version = config.version || '2023-06-01';
     this.requestMetadata = config.metadata;
     this.fetchRetry = normalizeFetchRetry(config.fetchRetry);
+    this.thinkingOption = config.thinking;
 
     if (!this.apiKey) {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
@@ -384,17 +443,23 @@ export class AnthropicAdapter extends BaseModelAdapter {
       throw new Error(`Anthropic API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as {
+      content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: unknown }>;
+      usage?: unknown;
+    };
     const result: CompletionResult = {
       content: ''
     };
 
     // 处理内容块
-    const toolCalls: any[] = [];
+    const toolCalls: Array<{ id: string; name: string; arguments: unknown }> = [];
+    const thinkingParts: string[] = [];
     for (const block of data.content || []) {
-      if (block.type === 'text') {
+      if (block.type === 'text' && typeof block.text === 'string') {
         result.content += block.text;
-      } else if (block.type === 'tool_use') {
+      } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.length > 0) {
+        thinkingParts.push(block.thinking);
+      } else if (block.type === 'tool_use' && block.id && block.name) {
         toolCalls.push({
           id: block.id,
           name: block.name,
@@ -402,14 +467,22 @@ export class AnthropicAdapter extends BaseModelAdapter {
         });
       }
     }
+    if (thinkingParts.length > 0) {
+      result.thinking = thinkingParts.join('\n\n');
+    }
 
     if (toolCalls.length > 0) {
       result.toolCalls = toolCalls;
     }
 
     // 处理使用统计
-    if (data.usage) {
-      const usage = data.usage;
+    if (data.usage && typeof data.usage === 'object') {
+      const usage = data.usage as {
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
       // Anthropic 的 input_tokens 已扣除缓存命中的部分
       // 完整的上下文大小 = input_tokens + cache_read_input_tokens
       const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
@@ -450,6 +523,14 @@ export class AnthropicAdapter extends BaseModelAdapter {
     const mergedMetadata = this.mergeAnthropicMetadata(params);
     if (mergedMetadata && Object.keys(mergedMetadata).length > 0) {
       body.metadata = mergedMetadata;
+    }
+
+    if (this.thinkingOption !== undefined) {
+      const { thinking, outputConfig } = applyAnthropicThinking(this.thinkingOption);
+      body.thinking = thinking;
+      if (outputConfig) {
+        body.output_config = outputConfig;
+      }
     }
 
     return body;

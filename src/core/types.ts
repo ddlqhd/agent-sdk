@@ -236,7 +236,7 @@ export interface StreamChunk {
  */
 export interface CompletionResult {
   content: string;
-  /** Ollama extended thinking trace (when using thinking-capable models). */
+  /** Extended thinking trace: Ollama `think` output, or Anthropic `thinking` content blocks in non-stream `complete`. */
   thinking?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;

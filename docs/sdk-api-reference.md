@@ -82,7 +82,8 @@
 - `OpenAIAdapter`
 - `AnthropicAdapter`
 - `OllamaAdapter`
-- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicFetchRetryOptions` `OllamaConfig` `ModelProvider` `CreateModelConfig`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicFetchRetryOptions` `AnthropicThinkingOption` `AnthropicThinkingConfigObject` `AnthropicThinkingEffort` `OllamaConfig` `ModelProvider` `CreateModelConfig`
+- 辅助：`applyAnthropicThinking`（将 `AnthropicThinkingOption` 归一化为 Messages API 的 `thinking` 与可选 `output_config`；通常由适配器使用，高级场景可自测归一化结果）
 
 ### Tools（从根入口再导出）
 
@@ -188,7 +189,8 @@
 - `DEFAULT_ADAPTER_CAPABILITIES`（三提供商省略 `capabilities` 时的默认能力，见 [`sdk-types-reference.md`](./sdk-types-reference.md)）
 - 适配器类：`OpenAIAdapter` `AnthropicAdapter` `OllamaAdapter`
 - 高级导出：`BaseModelAdapter` `zodToJsonSchema` `toolsToModelSchema` `mergeTokenUsage` `ollamaStreamChunksFromChatData` `ollamaMessageContentToApiString`
-- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig` `ZodToJsonSchemaOptions`
+- 类型：`OpenAIConfig` `AnthropicConfig` `AnthropicRequestMetadata` `AnthropicFetchRetryOptions` `AnthropicThinkingOption` `AnthropicThinkingConfigObject` `AnthropicThinkingEffort` `OllamaConfig` `OllamaThinkOption` `ModelProvider` `CreateModelConfig` `ZodToJsonSchemaOptions`
+- 辅助：`applyAnthropicThinking`
 
 > 建议第三方优先使用工厂函数，`BaseModelAdapter` 与 schema 辅助函数偏高级/扩展场景。Anthropic 适配器在未配置 `fetchRetry` 时默认对初次 `POST` **最多尝试 2 次**（约等于 1 次自动重试）；若需关闭重试，传 `fetchRetry: { maxAttempts: 1 }`。
 

@@ -217,6 +217,7 @@ interface ModelParams {
 - **`sessionId`**：`Agent` 在每轮模型请求中都会传入，便于适配器与上游 API 关联会话。OpenAI / Ollama 适配器当前不读取该字段。
 - **`logger` / `logLevel` / `redaction`**：`Agent` 会在内部模型调用时自动填入，用于让 provider 请求日志与宿主应用日志系统对接。
 - **Anthropic 请求 `metadata`**：在 `createAnthropic` / `AnthropicAdapter` 构造参数 `AnthropicConfig.metadata` 中设置（静态对象，或接收当次请求的 **`ModelParams`** 并返回普通对象的函数）。适配器将 `sessionId` 映射为 `user_id` 后，与解析后的 `metadata` **浅合并**（配置中的键可覆盖 `user_id`）。类型名为 `AnthropicRequestMetadata`（由 `@ddlqhd/agent-sdk/models` 导出）。详见 [Anthropic Messages `metadata`](https://docs.anthropic.com/en/api/messages)（`user_id` 须为不透明标识，勿传邮箱等 PII）。
+- **Anthropic extended thinking**：在 `createAnthropic` / `AnthropicAdapter` 的 `AnthropicConfig.thinking` 中设置（或 `createModel({ provider: 'anthropic', thinking, ... })` 透传）。类型为 `AnthropicThinkingOption`：布尔时 `true` 映射为 `{ type: 'enabled', budget_tokens: 1024 }`，`false` 为 `{ type: 'disabled' }`；也可传官方对象，如 `{ type: 'enabled', budget_tokens: N }`、`{ type: 'disabled' }`、或 `adaptive` 模式。若 `adaptive` 且带 `effort`（`low` \| `medium` \| `high` \| `max`），会在请求中额外写入 `output_config.effort`。**省略** `thinking` 时不在请求体中带 `thinking`（与旧版一致）。`budget_tokens` 与模型/版本、以及是否采用 adaptive 的约束以 [Anthropic 文档](https://docs.anthropic.com/en/build-with-claude/extended-thinking) 为准。
 - **Anthropic 初次 HTTP 重试**：`AnthropicConfig.fetchRetry`（类型 `AnthropicFetchRetryOptions`）。**省略**时默认 **`maxAttempts: 2`**（即失败时**自动再试 1 次**），对典型网络错误及 HTTP **429 / 502 / 503 / 504** 生效，并尊重 `Retry-After`（受 `maxDelayMs` 封顶）；**不**涵盖 SSE 已开始后的流式中断。若需严格单次请求、不重试，可设 `fetchRetry: { maxAttempts: 1 }`。
 
 ### `CompletionResult` / `TokenUsage`
@@ -224,7 +225,7 @@ interface ModelParams {
 ```ts
 interface CompletionResult {
   content: string;
-  /** Ollama 等模型在「思考」能力下的扩展思考轨迹（若有） */
+  /** 扩展思考轨迹：Ollama 或 Anthropic 非流式 `complete` 的 thinking 块（若有） */
   thinking?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
