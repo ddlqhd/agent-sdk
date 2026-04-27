@@ -234,9 +234,12 @@ describe('SummarizationCompressor', () => {
 
     const result = await compressor.compress(messages, 5_000);
 
-    // Should have system + summary + recent messages
+    // system + synthetic user summary + recent messages
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].role).toBe('system');
+    expect(result[1].role).toBe('user');
+    expect(typeof result[1].content).toBe('string');
+    expect(result[1].content as string).toContain('compressed summary of earlier conversation');
   });
 
   it('should not compress when messages are too few', async () => {
@@ -273,9 +276,228 @@ describe('SummarizationCompressor', () => {
 
     const result = await compressor.compress(messages, 5_000);
 
-    // Should have system + summary + 2 recent messages
+    // system + synthetic user summary + 2 recent messages
     expect(result.length).toBe(4);
+    expect(result[1].role).toBe('user');
     expect(result[result.length - 2].content).toBe('Recent question');
     expect(result[result.length - 1].content).toBe('Recent answer');
+  });
+
+  it('should call complete with system + user transcript only, not raw tool messages', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: 'Mock summary of conversation',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }
+    });
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 2 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Start' },
+      {
+        role: 'assistant',
+        content: 'Calling tool',
+        toolCalls: [{ id: 'c1', name: 'Read', arguments: { file_path: '/x' } }]
+      },
+      { role: 'tool', toolCallId: 'c1', content: 'file body' },
+      { role: 'user', content: 'Recent' },
+      { role: 'assistant', content: 'Recent reply' }
+    ];
+
+    await compressor.compress(messages, 5_000);
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    const params = complete.mock.calls[0]![0]!;
+    expect(params.messages).toHaveLength(2);
+    expect(params.messages[0]!.role).toBe('system');
+    expect(params.messages[1]!.role).toBe('user');
+    const userContent = params.messages[1]!.content as string;
+    expect(userContent).toContain('Summarize the conversation segment below for context compression');
+    expect(userContent).toContain('<conversation_segment>');
+    expect(userContent).toContain('</conversation_segment>');
+    expect(userContent).toContain('Compression task:');
+    expect(userContent).toContain('[tool]');
+    expect(userContent).toContain('toolCallId=c1');
+    // Must not pass structured assistant/tool as separate chat messages
+    expect(params.messages).not.toContainEqual(
+      expect.objectContaining({ role: 'tool', toolCallId: 'c1' })
+    );
+  });
+
+  it('should keep paired assistant tool call when recent window starts with tool message', async () => {
+    const model = createMockModel();
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 3 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Start task' },
+      {
+        role: 'assistant',
+        content: 'Calling read',
+        toolCalls: [{ id: 'c1', name: 'Read', arguments: { file_path: '/x' } }]
+      },
+      { role: 'tool', toolCallId: 'c1', content: 'tool result' },
+      { role: 'assistant', content: 'Post tool note 1' },
+      { role: 'assistant', content: 'Post tool note 2' }
+    ];
+
+    const result = await compressor.compress(messages, 5_000);
+
+    const assistantIndex = result.findIndex(
+      (m) => m.role === 'assistant' && m.toolCalls?.some((tc) => tc.id === 'c1')
+    );
+    const toolIndex = result.findIndex((m) => m.role === 'tool' && m.toolCallId === 'c1');
+
+    expect(assistantIndex).toBeGreaterThanOrEqual(0);
+    expect(toolIndex).toBeGreaterThanOrEqual(0);
+    expect(assistantIndex).toBeLessThan(toolIndex);
+  });
+
+  it('should not throw when tool arguments are not JSON-serializable', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: 'summary ok',
+      usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
+    });
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 2 });
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+
+    const messages: Message[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Start' },
+      {
+        role: 'assistant',
+        content: 'Tool call',
+        toolCalls: [{ id: 'c1', name: 'Read', arguments: cyclic }]
+      },
+      { role: 'tool', toolCallId: 'c1', content: 'result' },
+      { role: 'user', content: 'Recent' },
+      { role: 'assistant', content: 'Recent reply' }
+    ];
+
+    await expect(compressor.compress(messages, 5_000)).resolves.toBeDefined();
+    const params = complete.mock.calls[0]![0]!;
+    const userContent = params.messages[1]!.content as string;
+    expect(userContent).toContain('Read([unserializable arguments])');
+  });
+
+  it('should add synthetic user summary when recent window has no user message', async () => {
+    const model = createMockModel();
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 4 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: 'step0',
+        toolCalls: [{ id: 'a', name: 'Read', arguments: { file_path: '/a' } }]
+      },
+      { role: 'tool', toolCallId: 'a', content: 'r0' },
+      { role: 'assistant', content: 'step1' },
+      {
+        role: 'assistant',
+        content: 'step2',
+        toolCalls: [{ id: 'b', name: 'Bash', arguments: { cmd: 'ls' } }]
+      },
+      { role: 'tool', toolCallId: 'b', content: 'r1' },
+      { role: 'assistant', content: 'tail1' },
+      { role: 'assistant', content: 'tail2' }
+    ];
+
+    const result = await compressor.compress(messages, 5_000);
+
+    expect(result[0]!.role).toBe('system');
+    expect(result[1]!.role).toBe('user');
+    expect(result[1]!.content as string).toContain('compressed summary of earlier conversation');
+  });
+
+  it('should use text content when model returns both toolCalls and content', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: 'Summary with text',
+      toolCalls: [{ id: 't1', name: 'Read', arguments: {} }],
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+    });
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 2 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' }
+    ];
+
+    const result = await compressor.compress(messages, 5_000);
+    expect(result[1]!.role).toBe('user');
+    expect(result[1]!.content as string).toContain('Summary with text');
+  });
+
+  it('should reject empty summary from model', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: '   ',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    });
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 2 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' }
+    ];
+
+    await expect(compressor.compress(messages, 5_000)).rejects.toThrow('empty summary');
+  });
+
+  it('should reject when model returns only tool calls without text', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: '',
+      toolCalls: [{ id: 't1', name: 'Read', arguments: {} }]
+    });
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, { preserveRecent: 2 });
+
+    const messages: Message[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' }
+    ];
+
+    await expect(compressor.compress(messages, 5_000)).rejects.toThrow(
+      'Context compression returned tool calls but no text summary'
+    );
   });
 });
