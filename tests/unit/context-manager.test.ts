@@ -451,7 +451,7 @@ describe('SummarizationCompressor', () => {
     expect(result[1]!.content as string).toContain('Summary with text');
   });
 
-  it('should reject empty summary from model', async () => {
+  it('should fall back locally when model returns empty summary', async () => {
     const complete = vi.fn().mockResolvedValue({
       content: '   ',
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
@@ -472,10 +472,15 @@ describe('SummarizationCompressor', () => {
       { role: 'assistant', content: 'd' }
     ];
 
-    await expect(compressor.compress(messages, 5_000)).rejects.toThrow('empty summary');
+    const result = await compressor.compress(messages, 5_000);
+    expect(result[0]!.role).toBe('system');
+    expect(result[1]!.role).toBe('user');
+    expect(result[1]!.content as string).toContain('did not produce a usable LLM summary');
+    expect(result[1]!.content as string).toContain('empty summary');
+    expect(result.length).toBe(messages.length + 1);
   });
 
-  it('should reject when model returns only tool calls without text', async () => {
+  it('should fall back locally when model returns only tool calls without text', async () => {
     const complete = vi.fn().mockResolvedValue({
       content: '',
       toolCalls: [{ id: 't1', name: 'Read', arguments: {} }]
@@ -496,8 +501,67 @@ describe('SummarizationCompressor', () => {
       { role: 'assistant', content: 'd' }
     ];
 
-    await expect(compressor.compress(messages, 5_000)).rejects.toThrow(
-      'Context compression returned tool calls but no text summary'
-    );
+    const result = await compressor.compress(messages, 5_000);
+    expect(result[1]!.content as string).toContain('did not produce a usable LLM summary');
+    expect(result[1]!.content as string).toContain('tool calls but no text summary');
+  });
+
+  it('should replace oversized tool results in the preserved recent window after successful summary', async () => {
+    const model = createMockModel();
+    const compressor = new SummarizationCompressor(model, {
+      preserveRecent: 2,
+      maxPreservedToolResultChars: 20
+    });
+
+    const longToolBody = 'x'.repeat(100);
+    const messages: Message[] = [
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Old' },
+      { role: 'assistant', content: 'Old reply' },
+      { role: 'user', content: 'Recent q' },
+      {
+        role: 'assistant',
+        content: 'Calling',
+        toolCalls: [{ id: 't1', name: 'Read', arguments: { file_path: '/f' } }]
+      },
+      { role: 'tool', toolCallId: 't1', content: longToolBody }
+    ];
+
+    const result = await compressor.compress(messages, 5_000);
+    const toolMsg = result.find((m) => m.role === 'tool' && m.toolCallId === 't1');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.toolCallId).toBe('t1');
+    expect(toolMsg!.content).not.toBe(longToolBody);
+    expect(toolMsg!.content as string).toContain('replaced locally');
+    expect(toolMsg!.content as string).toContain('100');
+  });
+
+  it('should fall back locally when complete throws and still sanitize tool outputs', async () => {
+    const complete = vi.fn().mockRejectedValue(new Error('network down'));
+    const model: ModelAdapter = {
+      name: 'mock-model',
+      capabilities: { contextLength: 10_000, maxOutputTokens: 2_000 },
+      stream: vi.fn(),
+      complete
+    };
+    const compressor = new SummarizationCompressor(model, {
+      preserveRecent: 2,
+      maxPreservedToolResultChars: 10
+    });
+
+    const longBody = 'y'.repeat(50);
+    const messages: Message[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b', toolCalls: [{ id: 'z', name: 'Read', arguments: {} }] },
+      { role: 'tool', toolCallId: 'z', content: longBody },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' }
+    ];
+
+    const result = await compressor.compress(messages, 5_000);
+    expect(result[1]!.content as string).toContain('network down');
+    const toolMsg = result.find((m) => m.role === 'tool' && m.toolCallId === 'z');
+    expect(toolMsg!.content as string).toContain('replaced locally');
   });
 });

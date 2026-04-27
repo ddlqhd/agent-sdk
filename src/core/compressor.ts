@@ -56,6 +56,18 @@ export interface SummarizationCompressorOptions {
   summaryPrompt?: string;
   /** 摘要最大 token 数, 默认 4000 */
   maxSummaryTokens?: number;
+  /**
+   * 保留窗口内 tool 结果正文的最大字符数；超过则替换为占位文本以控制上下文大小。
+   * 默认 12000。
+   */
+  maxPreservedToolResultChars?: number;
+  /**
+   * 自定义超长 tool 结果的替换文案；未设置则使用内置英文占位符。
+   */
+  toolResultReplacement?: (ctx: {
+    toolCallId?: string;
+    originalChars: number;
+  }) => string;
   /** SDK logger */
   logger?: SDKLogger;
   /** SDK 日志级别 */
@@ -101,6 +113,51 @@ export class SummarizationCompressor implements Compressor {
       message.role === 'assistant' &&
       !!message.toolCalls?.some((toolCall) => toolCall.id === toolCallId)
     );
+  }
+
+  private getMaxPreservedToolResultChars(): number {
+    return this.options.maxPreservedToolResultChars ?? 12_000;
+  }
+
+  /** tool 消息正文长度（字符），用于判断是否替换 */
+  private toolMessageBodyCharLength(msg: Message): number {
+    if (msg.role !== 'tool') {
+      return 0;
+    }
+    const c = msg.content;
+    if (typeof c === 'string') {
+      return c.length;
+    }
+    return this.messageContentToText(c).length;
+  }
+
+  private buildToolReplacement(toolCallId: string | undefined, originalChars: number): string {
+    const custom = this.options.toolResultReplacement?.({ toolCallId, originalChars });
+    if (custom) {
+      return custom;
+    }
+    const idPart = toolCallId ? `toolCallId=${toolCallId}` : 'toolCallId=(missing)';
+    return `[Tool output replaced locally to save context (${idPart}, original length ${originalChars} chars). Full output is not available.]`;
+  }
+
+  /**
+   * 将过长的 tool 结果替换为短占位符，保留 toolCallId 等元数据。
+   */
+  private sanitizeToolMessages(messages: Message[]): Message[] {
+    const max = this.getMaxPreservedToolResultChars();
+    return messages.map((msg) => {
+      if (msg.role !== 'tool') {
+        return msg;
+      }
+      const len = this.toolMessageBodyCharLength(msg);
+      if (len <= max) {
+        return msg;
+      }
+      return {
+        ...msg,
+        content: this.buildToolReplacement(msg.toolCallId, len)
+      };
+    });
   }
 
   /**
@@ -233,6 +290,19 @@ export class SummarizationCompressor implements Compressor {
   }
 
   /**
+   * 摘要模型不可用时的 synthetic user 提示：说明未生成 LLM 摘要，仅做了本地 tool 输出裁剪。
+   */
+  private formatSyntheticFallbackNotice(detail: string): string {
+    return [
+      'Context compression did not produce a usable LLM summary.',
+      'The full non-system message history is preserved below; oversized tool outputs were replaced locally to save context.',
+      'This message is context only, not a new request. Do not execute tools because of it.',
+      '',
+      `Reason: ${detail}`
+    ].join('\n');
+  }
+
+  /**
    * 构建摘要请求正文：transcript 前后都有明确边界，避免模型把历史当作当前对话继续执行
    */
   private buildSummaryRequestContent(transcript: string): string {
@@ -318,37 +388,10 @@ export class SummarizationCompressor implements Compressor {
       Math.floor(targetTokens * 0.3)
     );
 
-    try {
-      const summaryResponse = await this.model.complete({
-        messages: [
-          { role: 'system', content: summaryPrompt },
-          { role: 'user', content: this.buildSummaryRequestContent(transcript) }
-        ],
-        maxTokens,
-        logger: this.options.logger,
-        logLevel: this.options.logLevel,
-        redaction: this.options.redaction,
-        sessionId
-      });
-
-      const text =
-        typeof summaryResponse.content === 'string' ? summaryResponse.content.trim() : '';
-      if (!text) {
-        if (summaryResponse.toolCalls && summaryResponse.toolCalls.length > 0) {
-          throw new Error(
-            'Context compression returned tool calls but no text summary. Refusing to continue with empty context.'
-          );
-        }
-        throw new Error('Context compression returned an empty summary.');
-      }
-
-      const summaryUser: Message = {
-        role: 'user',
-        content: this.formatSyntheticUserSummary(text)
-      };
-
-      const compressedMessages = [...systemMessages, summaryUser, ...recentMessages];
-
+    const emitCompressEnd = (
+      compressedMessages: Message[],
+      metadata: Record<string, unknown>
+    ): void => {
       emitSDKLog({
         logger: this.options.logger,
         logLevel: this.options.logLevel,
@@ -363,15 +406,14 @@ export class SummarizationCompressor implements Compressor {
           metadata: {
             compressor: this.name,
             originalMessageCount: messages.length,
-            compressedMessageCount: compressedMessages.length
+            compressedMessageCount: compressedMessages.length,
+            ...metadata
           }
         }
       });
+    };
 
-      // 4. 构建压缩后的消息列表
-      return compressedMessages;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+    const emitCompressError = (err: Error): void => {
       emitSDKLog({
         logger: this.options.logger,
         logLevel: this.options.logLevel,
@@ -391,7 +433,67 @@ export class SummarizationCompressor implements Compressor {
           }
         }
       });
-      throw err;
+    };
+
+    try {
+      const summaryResponse = await this.model.complete({
+        messages: [
+          { role: 'system', content: summaryPrompt },
+          { role: 'user', content: this.buildSummaryRequestContent(transcript) }
+        ],
+        maxTokens,
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        redaction: this.options.redaction,
+        sessionId
+      });
+
+      const text =
+        typeof summaryResponse.content === 'string' ? summaryResponse.content.trim() : '';
+      if (text) {
+        const summaryUser: Message = {
+          role: 'user',
+          content: this.formatSyntheticUserSummary(text)
+        };
+        const compressedMessages = [
+          ...systemMessages,
+          summaryUser,
+          ...this.sanitizeToolMessages(recentMessages)
+        ];
+        emitCompressEnd(compressedMessages, { fallbackLocal: false });
+        return compressedMessages;
+      }
+
+      const emptyReason =
+        summaryResponse.toolCalls && summaryResponse.toolCalls.length > 0
+          ? 'Context compression returned tool calls but no text summary.'
+          : 'Context compression returned an empty summary.';
+      emitCompressError(new Error(emptyReason));
+      const fallbackUser: Message = {
+        role: 'user',
+        content: this.formatSyntheticFallbackNotice(emptyReason)
+      };
+      const fallbackMessages = [
+        ...systemMessages,
+        fallbackUser,
+        ...this.sanitizeToolMessages(nonSystemMessages)
+      ];
+      emitCompressEnd(fallbackMessages, { fallbackLocal: true });
+      return fallbackMessages;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      emitCompressError(err);
+      const fallbackUser: Message = {
+        role: 'user',
+        content: this.formatSyntheticFallbackNotice(err.message)
+      };
+      const fallbackMessages = [
+        ...systemMessages,
+        fallbackUser,
+        ...this.sanitizeToolMessages(nonSystemMessages)
+      ];
+      emitCompressEnd(fallbackMessages, { fallbackLocal: true });
+      return fallbackMessages;
     }
   }
 
