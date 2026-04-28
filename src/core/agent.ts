@@ -582,6 +582,33 @@ export class Agent {
     });
 
     yield this.streamOut({ type: 'start', timestamp: Date.now() });
+    let abortedPersisted = false;
+    const persistOnAbortIfNeeded = async (iterationForContext?: number): Promise<void> => {
+      if (abortedPersisted) {
+        return;
+      }
+      try {
+        await this.sessionManager.saveMessages(this.messages);
+        abortedPersisted = true;
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onMessagePersist?.({
+            ...this.baseRunContext(),
+            ...(iterationForContext !== undefined ? { iteration: iterationForContext } : {}),
+            messageCount: this.messages.length
+          });
+        });
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.log('warn', {
+          component: 'agent',
+          event: 'agent.persistence.error',
+          message: 'Failed to persist messages during aborted run',
+          sessionId: this.sessionManager.sessionId ?? undefined,
+          errorName: err.name,
+          errorMessage: err.message
+        });
+      }
+    };
 
     try {
       const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
@@ -605,6 +632,7 @@ export class Agent {
           this.safeLifecycleVoid(() => {
             this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
           });
+          await persistOnAbortIfNeeded(iteration);
           yield this.streamOut(
             {
               type: 'end',
@@ -758,13 +786,7 @@ export class Agent {
               );
             });
 
-            await this.sessionManager.saveMessages(this.messages);
-            this.safeLifecycleVoid(() => {
-              this.config.callbacks?.lifecycle?.onMessagePersist?.({
-                ...this.baseRunContext(),
-                messageCount: this.messages.length
-              });
-            });
+            await persistOnAbortIfNeeded(iteration);
 
             this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: totalUsage });
             this.safeLifecycleVoid(() => {
@@ -982,6 +1004,7 @@ export class Agent {
         this.safeLifecycleVoid(() => {
           this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext() });
         });
+        await persistOnAbortIfNeeded();
         yield this.streamOut({
           type: 'end',
           timestamp: Date.now(),
