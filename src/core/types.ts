@@ -572,6 +572,12 @@ export interface MCPServerConfig {
   /** HTTP 配置 */
   url?: string;
   headers?: Record<string, string>;
+
+  /**
+   * 单次 MCP `tools/call` 请求超时（毫秒），映射到 SDK `RequestOptions.timeout`。
+   * 省略、≤0 或非有限数：不在请求选项中传入 `timeout`，沿用 SDK 默认（见 `@modelcontextprotocol/sdk` 的 `DEFAULT_REQUEST_TIMEOUT_MSEC`）。
+   */
+  toolTimeoutMs?: number;
 }
 
 /**

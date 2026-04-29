@@ -21,6 +21,10 @@ export interface MCPConfigFile {
       url?: string;
       /** HTTP headers */
       headers?: Record<string, string>;
+      /**
+       * 单次 MCP 工具调用超时（毫秒），见 {@link MCPServerConfig.toolTimeoutMs}
+       */
+      toolTimeoutMs?: number;
     };
   };
 }
@@ -87,9 +91,17 @@ function transformConfig(config: MCPConfigFile): MCPServerConfig[] {
     // 根据是否有 url 判断 transport 类型
     const transport = serverConfig.url ? 'http' : 'stdio';
 
+    const toolTimeoutMs =
+      typeof serverConfig.toolTimeoutMs === 'number' &&
+      Number.isFinite(serverConfig.toolTimeoutMs) &&
+      serverConfig.toolTimeoutMs > 0
+        ? serverConfig.toolTimeoutMs
+        : undefined;
+
     const server: MCPServerConfig = {
       name,
       transport,
+      ...(toolTimeoutMs !== undefined ? { toolTimeoutMs } : {}),
       ...(transport === 'stdio'
         ? {
             command: serverConfig.command,
@@ -212,6 +224,16 @@ export function validateMCPConfig(config: MCPConfigFile): string[] {
 
     if (server.command && server.url) {
       errors.push(`Server "${name}": cannot have both "command" and "url"`);
+    }
+
+    if (server.toolTimeoutMs !== undefined) {
+      if (
+        typeof server.toolTimeoutMs !== 'number' ||
+        !Number.isFinite(server.toolTimeoutMs) ||
+        server.toolTimeoutMs < 0
+      ) {
+        errors.push(`Server "${name}": "toolTimeoutMs" must be a non-negative finite number`);
+      }
     }
   }
 

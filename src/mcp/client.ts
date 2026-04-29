@@ -1,9 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
+import type { MCPServerConfig, ToolDefinition, ToolExecutionContext, ToolResult } from '../core/types.js';
 import { PACKAGE_VERSION } from '../version.js';
 import { formatMcpToolName } from './mcp-tool-name.js';
 
@@ -46,9 +48,13 @@ export class MCPClient {
   private _connected = false;
   private _tools: MCPTool[] = [];
   private _serverInfo?: { name: string; version: string };
+  private readonly _toolTimeoutMs?: number;
 
   constructor(config: MCPServerConfig) {
     this._name = config.name;
+    const t = config.toolTimeoutMs;
+    this._toolTimeoutMs =
+      typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : undefined;
 
     this.client = new Client(
       { name: 'agent-sdk-client', version: PACKAGE_VERSION },
@@ -111,12 +117,26 @@ export class MCPClient {
     return this._tools;
   }
 
-  async callTool(name: string, args: unknown): Promise<ToolResult> {
+  async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<ToolResult> {
+    const params = {
+      name,
+      arguments: args as Record<string, unknown>
+    };
+
+    const requestOptions: RequestOptions = {};
+    if (this._toolTimeoutMs !== undefined) {
+      requestOptions.timeout = this._toolTimeoutMs;
+    }
+    if (signal) {
+      requestOptions.signal = signal;
+    }
+    const useRequestOptions =
+      requestOptions.timeout !== undefined || requestOptions.signal !== undefined;
+
     try {
-      const result = await this.client.callTool({
-        name,
-        arguments: args as Record<string, unknown>
-      });
+      const result = useRequestOptions
+        ? await this.client.callTool(params, undefined, requestOptions)
+        : await this.client.callTool(params);
 
       if ('toolResult' in result) {
         return {
@@ -145,7 +165,7 @@ export class MCPClient {
       };
     } catch (error) {
       return {
-        content: `MCP tool error: ${error instanceof Error ? error.message : String(error)}`,
+        content: formatMcpToolCallFailure(name, error),
         isError: true
       };
     }
@@ -200,7 +220,8 @@ export class MCPClient {
       name: formatMcpToolName(this._name, tool.name),
       description: tool.description || `MCP tool: ${tool.name}`,
       parameters: this.convertSchema(tool.inputSchema),
-      handler: async (args: unknown) => this.callTool(tool.name, args),
+      handler: async (args: unknown, context?: ToolExecutionContext) =>
+        this.callTool(tool.name, args, context?.signal),
       category: 'mcp'  // 标记为 MCP 类别，用于输出处理策略选择
     }));
   }
@@ -266,6 +287,31 @@ export class MCPClient {
   get tools(): MCPTool[] {
     return this._tools;
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === 'AbortError') {
+    return true;
+  }
+  return (
+    typeof DOMException !== 'undefined' &&
+    error instanceof DOMException &&
+    error.name === 'AbortError'
+  );
+}
+
+function formatMcpToolCallFailure(toolName: string, error: unknown): string {
+  if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+    return `MCP tool "${toolName}" timed out: ${error.message}`;
+  }
+  if (isAbortError(error)) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return msg ? `MCP tool "${toolName}" aborted: ${msg}` : `MCP tool "${toolName}" aborted`;
+  }
+  return `MCP tool error: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 export function createMCPClient(config: MCPServerConfig): MCPClient {

@@ -641,10 +641,12 @@ interface MCPServerConfig {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  /** 单次 tools/call 超时（毫秒），见 `RequestOptions.timeout` */
+  toolTimeoutMs?: number;
 }
 ```
 
-stdio 的 `cwd` 若未设置或仅空白：`Agent.connectMCP` 会填入 `AgentConfig.cwd`（若也未配置则为 `process.cwd()`）；直接使用 `MCPClient` 且未设置时不向 spawn 传 `cwd`，子进程继承父进程工作目录。
+stdio 的 `cwd` 若未设置或仅空白：`Agent.connectMCP` 会填入 `AgentConfig.cwd`（若也未配置则为 `process.cwd()`）；直接使用 `MCPClient` 且未设置时不向 spawn 传 `cwd`，子进程继承父进程工作目录。`toolTimeoutMs` 仅影响 MCP 工具调用；Agent 取消流时可将 `AbortSignal` 传入 MCP 请求选项（与集成文档一致）。
 
 ### MCP 工具注册名（Agent 对外）
 
@@ -662,6 +664,7 @@ interface MCPConfigFile {
       cwd?: string;
       url?: string;
       headers?: Record<string, string>;
+      toolTimeoutMs?: number;
     };
   };
 }

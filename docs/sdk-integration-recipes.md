@@ -139,13 +139,16 @@ const agent = new Agent({
       "url": "https://example.com/mcp",
       "headers": {
         "Authorization": "Bearer ${MCP_TOKEN}"
-      }
+      },
+      "toolTimeoutMs": 120000
     }
   }
 }
 ```
 
 `mcpServers` 中每个 **key**（如上文的 `filesystem`、`remote-service`）即对应 `MCPServerConfig.name`（`serverName`）。Agent 侧该服务器暴露的工具注册名为 **`mcp__<serverName>__<工具名>`**（工具名为 MCP 服务返回的原始名）。配置 `disallowedTools`、系统提示或 Hook matcher 时需使用上述注册名；在 key 与代码中服务器名一致时，可用 `formatMcpToolName('filesystem', 'read_file')` 等形式生成，避免手写拼错。
+
+可选字段 **`toolTimeoutMs`**：针对该 MCP 服务器上单次 `tools/call` 的超时（毫秒），会传给 `@modelcontextprotocol/sdk` 的 `RequestOptions.timeout`。省略或设为 `0` 时不传自定义超时，沿用 SDK 默认请求超时。Agent 在流式运行中传入的 **`AbortSignal`**（例如用户取消）会经工具执行上下文传到 MCP 的 `RequestOptions.signal`，与 `toolTimeoutMs` 可同时生效。
 
 ## 7. Skill 自动加载与手动调用
 
