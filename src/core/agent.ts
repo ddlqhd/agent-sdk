@@ -14,7 +14,10 @@ import {
   type ToolExecutionContext,
   type ToolResult,
   type AgentErrorContext,
-  type AgentRunEndReason
+  type AgentRunEndReason,
+  type ModelParams,
+  type SystemMessageSource,
+  type UserMessageSource
 } from '../core/types.js';
 import { randomUUID } from 'crypto';
 import { ToolRegistry } from '../tools/registry.js';
@@ -45,6 +48,16 @@ import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
 import { SummarizationCompressor } from './compressor.js';
 import { TOOL_USER_ABORTED_MESSAGE } from './abort-constants.js';
+
+/** Aggregates model stream output for one agent iteration (text, thinking, tool calls, fatal error). */
+interface ModelStreamState {
+  hasToolCalls: boolean;
+  toolCalls: ToolCall[];
+  assistantContent: string;
+  thinkingContent: string;
+  thinkingSignature?: string;
+  fatalModelError: boolean;
+}
 
 /** Default upper bound for model↔tool rounds per user turn when `AgentConfig.maxIterations` is omitted. */
 export const DEFAULT_MAX_ITERATIONS = 400;
@@ -458,13 +471,7 @@ export class Agent {
     return shell.replace('{{SKILL_LIST}}', this.skillRegistry.getFormattedList());
   }
 
-  /**
-   * 流式执行
-   */
-  async *stream(input: string, options?: StreamOptions): AsyncIterable<StreamEvent> {
-    const signal = options?.signal;
-
-    // 恢复或创建会话
+  private async prepareStreamSession(options?: StreamOptions): Promise<void> {
     if (options?.sessionId) {
       const isSwitchingSession = this.sessionManager.sessionId !== options.sessionId;
       if (isSwitchingSession) {
@@ -472,32 +479,33 @@ export class Agent {
       }
       try {
         this.messages = await this.sessionManager.resumeSession(options.sessionId);
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onSessionResume?.({
-            sessionId: options.sessionId!,
-            messageCount: this.messages.length
-          });
-        });
+        this.notifySessionResume(options.sessionId, this.messages.length);
       } catch {
-        // 目标会话不存在时，创建新会话并保持已重置的空状态
         this.sessionManager.createSession(options.sessionId);
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onSessionCreate?.({
-            sessionId: this.sessionManager.sessionId ?? undefined
-          });
-        });
+        this.notifySessionCreate();
       }
     } else if (!this.sessionManager.sessionId) {
       this.resetSessionState();
       this.sessionManager.createSession();
-      this.safeLifecycleVoid(() => {
-        this.config.callbacks?.lifecycle?.onSessionCreate?.({
-          sessionId: this.sessionManager.sessionId ?? undefined
-        });
-      });
+      this.notifySessionCreate();
     }
+  }
 
-    // 添加系统提示
+  private notifySessionResume(sessionId: string, messageCount: number): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onSessionResume?.({ sessionId, messageCount });
+    });
+  }
+
+  private notifySessionCreate(): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onSessionCreate?.({
+        sessionId: this.sessionManager.sessionId ?? undefined
+      });
+    });
+  }
+
+  private appendInitialSystemMessages(options?: StreamOptions): void {
     if (this.messages.length === 0) {
       const usedRuntimePrompt = options?.systemPrompt !== undefined;
       const systemPrompt = this.buildSystemPrompt(
@@ -508,58 +516,56 @@ export class Agent {
         content: systemPrompt
       };
       this.messages.push(sysMsg);
-      this.safeLifecycleVoid(() => {
-        this.config.callbacks?.lifecycle?.onSystemMessage?.(
-          sysMsg,
-          usedRuntimePrompt ? 'runtime_prompt' : 'default_prompt',
-          this.baseRunContext()
-        );
-      });
+      this.notifySystemMessage(
+        sysMsg,
+        usedRuntimePrompt ? 'runtime_prompt' : 'default_prompt'
+      );
     }
 
-    // 加载长期记忆（作为独立的 system message）
-    // 检查是否应该加载记忆：
-    // 1. 记忆功能已启用
-    // 2. 这是新用户消息（会话中没有用户消息）
     if (this.config.memory !== false) {
       const hasUserMessages = this.messages.some(m => m.role === 'user');
-
-      // 只有当还没有用户消息时才加载记忆
-      // 这样可以确保记忆只被加载一次，并且是在对话开始时
       if (!hasUserMessages) {
-        const memoryManager = new MemoryManager(this.config.cwd, this.config.memoryConfig, this.config.userBasePath);
+        const memoryManager = new MemoryManager(
+          this.config.cwd,
+          this.config.memoryConfig,
+          this.config.userBasePath
+        );
         const memoryContent = memoryManager.loadMemory();
-
         if (memoryContent) {
           const memMsg: Message = {
             role: 'system',
             content: memoryContent
           };
           this.messages.push(memMsg);
-          this.safeLifecycleVoid(() => {
-            this.config.callbacks?.lifecycle?.onSystemMessage?.(memMsg, 'memory', this.baseRunContext());
-          });
+          this.notifySystemMessage(memMsg, 'memory');
         }
       }
     }
+  }
 
-    // 处理 skill 调用（成功展开、解析失败后的错误说明、或非 slash 原文均走 processed.prompt）
+  private notifySystemMessage(message: Message, source: SystemMessageSource): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onSystemMessage?.(message, source, this.baseRunContext());
+    });
+  }
+
+  private async appendUserMessageFromProcessedInput(input: string): Promise<{ processedInput: string }> {
     const processed = await this.processInput(input);
     const processedInput = processed.prompt;
-
     const userMsg: Message = {
       role: 'user',
       content: processedInput
     };
     this.messages.push(userMsg);
+    const userSource: UserMessageSource =
+      processedInput !== input ? 'processed_input' : 'raw_input';
     this.safeLifecycleVoid(() => {
-      this.config.callbacks?.lifecycle?.onUserMessage?.(
-        userMsg,
-        processedInput !== input ? 'processed_input' : 'raw_input',
-        this.baseRunContext()
-      );
+      this.config.callbacks?.lifecycle?.onUserMessage?.(userMsg, userSource, this.baseRunContext());
     });
+    return { processedInput };
+  }
 
+  private logRunStart(input: string, processedInput: string, options?: StreamOptions): void {
     this.log('info', {
       component: 'agent',
       event: 'agent.run.start',
@@ -571,7 +577,9 @@ export class Agent {
         includeRawStreamEvents: options?.includeRawStreamEvents === true
       }
     });
+  }
 
+  private notifyRunStart(input: string, processedInput: string, options?: StreamOptions): void {
     this.safeLifecycleVoid(() => {
       this.config.callbacks?.lifecycle?.onRunStart?.({
         ...this.baseRunContext(),
@@ -580,10 +588,12 @@ export class Agent {
         resumeSessionId: options?.sessionId
       });
     });
+  }
 
-    yield this.streamOut({ type: 'start', timestamp: Date.now() });
+  /** Persists aborted runs at most once; used for AbortError paths and streaming abort paths. */
+  private createAbortPersistController(): (iterationForContext?: number) => Promise<void> {
     let abortedPersisted = false;
-    const persistOnAbortIfNeeded = async (iterationForContext?: number): Promise<void> => {
+    return async (iterationForContext?: number): Promise<void> => {
       if (abortedPersisted) {
         return;
       }
@@ -609,6 +619,545 @@ export class Agent {
         });
       }
     };
+  }
+
+  private createEmptyModelStreamState(): ModelStreamState {
+    return {
+      hasToolCalls: false,
+      toolCalls: [],
+      assistantContent: '',
+      thinkingContent: '',
+      thinkingSignature: undefined,
+      fatalModelError: false
+    };
+  }
+
+  /**
+   * Side effects on aggregated token usage when yielding a stream event (`streamOut`).
+   */
+  private applyModelStreamEventToState(out: StreamEvent, state: ModelStreamState, totalUsage: TokenUsage): void {
+    if (out.type === 'text_delta') {
+      state.assistantContent += out.content;
+    }
+    if (out.type === 'thinking') {
+      state.thinkingContent += out.content;
+      if (out.signature !== undefined && !state.thinkingSignature) {
+        state.thinkingSignature = out.signature;
+      }
+    }
+    if (out.type === 'tool_call') {
+      state.hasToolCalls = true;
+      state.toolCalls.push({
+        id: out.id,
+        name: out.name,
+        arguments: out.arguments
+      });
+    }
+    if (out.type === 'model_usage') {
+      const usage = out.usage;
+      if (usage.promptTokens > 0) {
+        totalUsage.promptTokens = usage.promptTokens;
+        this.sessionUsage.contextTokens = usage.promptTokens;
+        this.sessionUsage.inputTokens += usage.promptTokens;
+      }
+      totalUsage.completionTokens += usage.completionTokens;
+      totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
+      this.sessionUsage.outputTokens += usage.completionTokens;
+    }
+  }
+
+  /** Normal iteration path (after flush); interrupt path differs for thinking/text shape. */
+  private buildAssistantMessageFromStreamAggregate(args: {
+    assistantContent: string;
+    thinkingContent: string;
+    thinkingSignature?: string;
+    toolCalls: ToolCall[];
+    interruptPath: boolean;
+  }): Message | undefined {
+    const { assistantContent, thinkingContent, thinkingSignature, toolCalls, interruptPath } =
+      args;
+
+    if (interruptPath) {
+      if (!assistantContent) {
+        return undefined;
+      }
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: assistantContent
+      };
+      if (thinkingContent) {
+        assistantMessage.content = [
+          { type: 'thinking', thinking: thinkingContent, signature: thinkingSignature || '' },
+          { type: 'text', text: assistantContent }
+        ];
+      }
+      return assistantMessage;
+    }
+
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: assistantContent
+    };
+    if (thinkingContent) {
+      const contentParts: any[] = [
+        {
+          type: 'thinking',
+          thinking: thinkingContent,
+          signature: thinkingSignature
+        }
+      ];
+      if (assistantContent.trim()) {
+        contentParts.push({ type: 'text', text: assistantContent });
+      }
+      assistantMessage.content = contentParts;
+    }
+    if (toolCalls.length > 0) {
+      assistantMessage.toolCalls = toolCalls;
+    }
+    return assistantMessage;
+  }
+
+  private notifyAssistantMessage(message: Message, iteration: number): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onAssistantMessage?.(message, {
+        ...this.baseRunContext(),
+        iteration
+      });
+    });
+  }
+
+  private notifyRunAbort(iteration?: number): void {
+    this.safeLifecycleVoid(() => {
+      if (iteration !== undefined) {
+        this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
+      } else {
+        this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext() });
+      }
+    });
+  }
+
+  private notifyIterationStart(iteration: number): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onIterationStart?.({
+        ...this.baseRunContext(),
+        iteration,
+        messageCount: this.messages.length,
+        toolCount: this.toolRegistry.getAll().length
+      });
+    });
+  }
+
+  private notifyIterationEnd(iteration: number, hadToolCalls: boolean): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onIterationEnd?.({
+        ...this.baseRunContext(),
+        iteration,
+        hadToolCalls
+      });
+    });
+  }
+
+  private notifyModelRequestStart(iteration: number, options?: StreamOptions): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onModelRequestStart?.({
+        ...this.baseRunContext(),
+        iteration,
+        messageCount: this.messages.length,
+        toolCount: this.toolRegistry.getAll().length,
+        temperature: this.config.temperature,
+        maxTokens: this.config.maxTokens,
+        includeRawStreamEvents: options?.includeRawStreamEvents
+      });
+    });
+  }
+
+  private notifyModelRequestEnd(iteration: number): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onModelRequestEnd?.({ ...this.baseRunContext(), iteration });
+    });
+  }
+
+  private notifyModelRequestError(error: Error, iteration: number): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onModelRequestError?.(error, {
+        phase: 'model',
+        iteration
+      });
+    });
+  }
+
+  private buildModelParamsForStream(options?: StreamOptions, signal?: AbortSignal): ModelParams {
+    return {
+      messages: this.messages,
+      tools: this.toolRegistry.getAll(),
+      temperature: this.config.temperature,
+      maxTokens: this.config.maxTokens,
+      signal,
+      includeRawStreamEvents: options?.includeRawStreamEvents,
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      logger: this.config.logger,
+      logLevel: this.config.logLevel,
+      redaction: this.config.redaction
+    };
+  }
+
+  private logIterationStart(iteration: number): void {
+    this.log('debug', {
+      component: 'agent',
+      event: 'agent.iteration.start',
+      message: 'Starting agent iteration',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      iteration,
+      metadata: {
+        messageCount: this.messages.length,
+        toolCount: this.toolRegistry.getAll().length
+      }
+    });
+  }
+
+  private logIterationEnd(
+    iteration: number,
+    args:
+      | { hadToolCalls: false; assistantContentLength: number }
+      | { hadToolCalls: true; toolCallCount: number; toolResultCount: number }
+  ): void {
+    if (args.hadToolCalls) {
+      this.log('debug', {
+        component: 'agent',
+        event: 'agent.iteration.end',
+        message: 'Iteration completed with tool calls',
+        sessionId: this.sessionManager.sessionId ?? undefined,
+        iteration,
+        metadata: {
+          toolCallCount: args.toolCallCount,
+          toolResultCount: args.toolResultCount
+        }
+      });
+      return;
+    }
+
+    this.log('debug', {
+      component: 'agent',
+      event: 'agent.iteration.end',
+      message: 'Iteration completed without tool calls',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      iteration,
+      metadata: {
+        assistantContentLength: args.assistantContentLength
+      }
+    });
+  }
+
+  private async *yieldContextCompressionEvents(iteration: number): AsyncGenerator<StreamEvent, void, undefined> {
+    const contextEvents = await this.checkContextCompression();
+    for (const event of contextEvents) {
+      if (event.type === 'context_compressed') {
+        this.safeLifecycleVoid(() => {
+          this.config.callbacks?.lifecycle?.onContextCompressed?.({
+            ...this.baseRunContext(),
+            iteration,
+            stats: event.stats
+          });
+        });
+      }
+      yield this.streamOut(event, iteration);
+    }
+  }
+
+  private appendInterruptionUserMarker(): void {
+    const interruptMsg: Message = {
+      role: 'user',
+      content: '[User interrupted the response]'
+    };
+    this.messages.push(interruptMsg);
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onUserMessage?.(
+        interruptMsg,
+        'interruption_marker',
+        this.baseRunContext()
+      );
+    });
+  }
+
+  private async *yieldAbortDuringModelStream(args: {
+    chunkProcessor: StreamChunkProcessor;
+    iteration: number;
+    state: ModelStreamState;
+    totalUsage: TokenUsage;
+    persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
+  }): AsyncGenerator<StreamEvent, void, undefined> {
+    const { chunkProcessor, iteration, state, totalUsage, persistOnAbortIfNeeded } = args;
+
+    for (const event of chunkProcessor.flush()) {
+      const out = this.streamOut(event, iteration);
+      yield out;
+      this.applyModelStreamEventToState(out, state, totalUsage);
+    }
+
+    const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
+      assistantContent: state.assistantContent,
+      thinkingContent: state.thinkingContent,
+      thinkingSignature: state.thinkingSignature,
+      toolCalls: [],
+      interruptPath: true
+    });
+    if (assistantMessage) {
+      this.messages.push(assistantMessage);
+      this.notifyAssistantMessage(assistantMessage, iteration);
+    }
+
+    this.appendInterruptionUserMarker();
+
+    await persistOnAbortIfNeeded(iteration);
+
+    this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: totalUsage });
+    this.notifyRunAbort(iteration);
+
+    yield this.streamOut(
+      {
+        type: 'end',
+        usage: totalUsage,
+        timestamp: Date.now(),
+        reason: 'aborted',
+        partialContent: state.assistantContent
+      },
+      iteration
+    );
+  }
+
+  private async *yieldModelAdapterStreamThroughFlush(args: {
+    modelParams: ModelParams;
+    iteration: number;
+    signal?: AbortSignal;
+    totalUsage: TokenUsage;
+    persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
+    outcome: { kind: 'ok' | 'aborted' | 'fatal' };
+    state: ModelStreamState;
+  }): AsyncGenerator<StreamEvent, void, undefined> {
+    const { modelParams, iteration, signal, totalUsage, persistOnAbortIfNeeded, outcome, state } =
+      args;
+    const chunkProcessor = new StreamChunkProcessor({ emitTextBoundaries: true });
+
+    const upstream = this.config.model!.stream(modelParams);
+
+    outer: for await (const chunk of upstream) {
+      if (signal?.aborted) {
+        yield* this.yieldAbortDuringModelStream({
+          chunkProcessor,
+          iteration,
+          state,
+          totalUsage,
+          persistOnAbortIfNeeded
+        });
+        outcome.kind = 'aborted';
+        return;
+      }
+
+      const events = chunkProcessor.processChunk(chunk);
+      for (const event of events) {
+        const out = this.streamOut(event, iteration);
+        yield out;
+        this.applyModelStreamEventToState(out, state, totalUsage);
+        if (out.type === 'end' && out.reason === 'error' && out.error) {
+          this.emitAgentError(out.error, { phase: 'model', iteration });
+          this.notifyModelRequestError(out.error, iteration);
+        }
+        if (out.type === 'end' && out.reason === 'error') {
+          state.fatalModelError = true;
+          break outer;
+        }
+      }
+    }
+
+    if (state.fatalModelError) {
+      outcome.kind = 'fatal';
+      return;
+    }
+
+    for (const event of chunkProcessor.flush()) {
+      const out = this.streamOut(event, iteration);
+      yield out;
+      this.applyModelStreamEventToState(out, state, totalUsage);
+    }
+    outcome.kind = 'ok';
+  }
+
+  /** Emits tool_error/tool_result StreamEvents and appends tool messages. */
+  private *yieldToolExecutionPipeline(
+    toolResults: Array<{
+      toolCallId: string;
+      content: string;
+      isError: boolean;
+      error?: Error;
+    }>,
+    iteration: number
+  ): Generator<StreamEvent, void, undefined> {
+    for (const result of toolResults) {
+      if (result.isError && result.error) {
+        yield this.streamOut(
+          {
+            type: 'tool_error',
+            toolCallId: result.toolCallId,
+            error: result.error
+          },
+          iteration
+        );
+      }
+      yield this.streamOut(
+        {
+          type: 'tool_result',
+          toolCallId: result.toolCallId,
+          result: result.content
+        },
+        iteration
+      );
+
+      const toolMsg: Message = {
+        role: 'tool',
+        toolCallId: result.toolCallId,
+        content: result.content
+      };
+      this.messages.push(toolMsg);
+      this.safeLifecycleVoid(() => {
+        this.config.callbacks?.lifecycle?.onToolMessage?.(toolMsg, {
+          ...this.baseRunContext(),
+          iteration,
+          toolCallId: result.toolCallId
+        });
+      });
+    }
+  }
+
+  private async *yieldSuccessfulRunTermination(
+    totalUsage: TokenUsage,
+    iteration: number,
+    maxIterations: number
+  ): AsyncGenerator<StreamEvent, void, undefined> {
+    await this.sessionManager.saveMessages(this.messages);
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onMessagePersist?.({
+        ...this.baseRunContext(),
+        messageCount: this.messages.length
+      });
+    });
+
+    const finishedByIterationCap = iteration >= maxIterations;
+    const sessionIterations = finishedByIterationCap ? maxIterations : iteration + 1;
+
+    yield this.streamOut({
+      type: 'session_summary',
+      usage: totalUsage,
+      iterations: sessionIterations
+    });
+
+    this.emitRunEnd({
+      reason: finishedByIterationCap ? 'max_iterations' : 'complete',
+      iterations: sessionIterations,
+      usage: totalUsage
+    });
+    yield this.streamOut({
+      type: 'end',
+      timestamp: Date.now(),
+      reason: finishedByIterationCap ? 'max_iterations' : 'complete'
+    });
+    this.log('info', {
+      component: 'agent',
+      event: 'agent.run.end',
+      message: finishedByIterationCap
+        ? 'Agent turn stopped at max iterations'
+        : 'Agent turn completed',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      metadata: {
+        iterations: sessionIterations,
+        promptTokens: totalUsage.promptTokens,
+        completionTokens: totalUsage.completionTokens,
+        totalTokens: totalUsage.totalTokens
+      }
+    });
+  }
+
+  private async *yieldEarlyAbortBeforeModel(args: {
+    iteration: number;
+    totalUsage: TokenUsage;
+    persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
+  }): AsyncGenerator<StreamEvent, void, undefined> {
+    const { iteration, totalUsage, persistOnAbortIfNeeded } = args;
+    this.log('info', {
+      component: 'agent',
+      event: 'agent.run.aborted',
+      message: 'Agent turn aborted before model request',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      iteration
+    });
+    this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage: totalUsage });
+    this.notifyRunAbort(iteration);
+    await persistOnAbortIfNeeded(iteration);
+    yield this.streamOut(
+      {
+        type: 'end',
+        usage: totalUsage,
+        timestamp: Date.now(),
+        reason: 'aborted'
+      },
+      iteration
+    );
+  }
+
+  private async *yieldStreamCatchError(
+    error: unknown,
+    persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>
+  ): AsyncGenerator<StreamEvent, void, undefined> {
+    if ((error as Error).name === 'AbortError') {
+      this.log('info', {
+        component: 'agent',
+        event: 'agent.run.aborted',
+        message: 'Agent turn aborted',
+        sessionId: this.sessionManager.sessionId ?? undefined
+      });
+      this.emitRunEnd({ reason: 'aborted', iterations: 0 });
+      this.notifyRunAbort();
+      await persistOnAbortIfNeeded();
+      yield this.streamOut({
+        type: 'end',
+        timestamp: Date.now(),
+        reason: 'aborted'
+      });
+      return;
+    }
+    const err = error instanceof Error ? error : new Error(String(error));
+    this.log('error', {
+      component: 'agent',
+      event: 'agent.run.error',
+      message: 'Agent turn failed',
+      sessionId: this.sessionManager.sessionId ?? undefined,
+      errorName: err.name,
+      errorMessage: err.message
+    });
+    this.emitAgentError(err, { phase: 'run' });
+    this.emitRunEnd({ reason: 'error', iterations: 0, error: err });
+    yield this.streamOut({
+      type: 'end',
+      timestamp: Date.now(),
+      reason: 'error',
+      error: err
+    });
+  }
+
+  /**
+   * 流式执行
+   */
+  async *stream(input: string, options?: StreamOptions): AsyncIterable<StreamEvent> {
+    const signal = options?.signal;
+
+    await this.prepareStreamSession(options);
+    this.appendInitialSystemMessages(options);
+    const { processedInput } = await this.appendUserMessageFromProcessedInput(input);
+
+    this.logRunStart(input, processedInput, options);
+    this.notifyRunStart(input, processedInput, options);
+
+    yield this.streamOut({ type: 'start', timestamp: Date.now() });
+    const persistOnAbortIfNeeded = this.createAbortPersistController();
 
     try {
       const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
@@ -621,414 +1170,77 @@ export class Agent {
       let iteration = 0;
       for (; iteration < maxIterations; iteration++) {
         if (signal?.aborted) {
-          this.log('info', {
-            component: 'agent',
-            event: 'agent.run.aborted',
-            message: 'Agent turn aborted before model request',
-            sessionId: this.sessionManager.sessionId ?? undefined,
-            iteration
-          });
-          this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage: totalUsage });
-          this.safeLifecycleVoid(() => {
-            this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
-          });
-          await persistOnAbortIfNeeded(iteration);
-          yield this.streamOut(
-            {
-              type: 'end',
-              usage: totalUsage,
-              timestamp: Date.now(),
-              reason: 'aborted'
-            },
-            iteration
-          );
+          yield* this.yieldEarlyAbortBeforeModel({ iteration, totalUsage, persistOnAbortIfNeeded });
           return;
         }
 
-        this.log('debug', {
-          component: 'agent',
-          event: 'agent.iteration.start',
-          message: 'Starting agent iteration',
-          sessionId: this.sessionManager.sessionId ?? undefined,
+        this.logIterationStart(iteration);
+        this.notifyIterationStart(iteration);
+
+        yield* this.yieldContextCompressionEvents(iteration);
+
+        this.notifyModelRequestStart(iteration, options);
+
+        const modelParams = this.buildModelParamsForStream(options, signal);
+        const state = this.createEmptyModelStreamState();
+        const outcome = { kind: 'ok' as 'ok' | 'aborted' | 'fatal' };
+
+        for await (const ev of this.yieldModelAdapterStreamThroughFlush({
+          modelParams,
           iteration,
-          metadata: {
-            messageCount: this.messages.length,
-            toolCount: this.toolRegistry.getAll().length
-          }
-        });
-
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onIterationStart?.({
-            ...this.baseRunContext(),
-            iteration,
-            messageCount: this.messages.length,
-            toolCount: this.toolRegistry.getAll().length
-          });
-        });
-
-        // 上下文压缩检查
-        const contextEvents = await this.checkContextCompression();
-        for (const event of contextEvents) {
-          if (event.type === 'context_compressed') {
-            this.safeLifecycleVoid(() => {
-              this.config.callbacks?.lifecycle?.onContextCompressed?.({
-                ...this.baseRunContext(),
-                iteration,
-                stats: event.stats
-              });
-            });
-          }
-          yield this.streamOut(event, iteration);
-        }
-
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onModelRequestStart?.({
-            ...this.baseRunContext(),
-            iteration,
-            messageCount: this.messages.length,
-            toolCount: this.toolRegistry.getAll().length,
-            temperature: this.config.temperature,
-            maxTokens: this.config.maxTokens,
-            includeRawStreamEvents: options?.includeRawStreamEvents
-          });
-        });
-
-        const modelParams = {
-          messages: this.messages,
-          tools: this.toolRegistry.getAll(),
-          temperature: this.config.temperature,
-          maxTokens: this.config.maxTokens,
           signal,
-          includeRawStreamEvents: options?.includeRawStreamEvents,
-          sessionId: this.sessionManager.sessionId ?? undefined,
-          logger: this.config.logger,
-          logLevel: this.config.logLevel,
-          redaction: this.config.redaction
-        };
-
-        const stream = this.config.model!.stream(modelParams);
-        let hasToolCalls = false;
-        const toolCalls: ToolCall[] = [];
-        let assistantContent = '';
-        let thinkingContent = '';
-        let thinkingSignature: string | undefined;
-        const chunkProcessor = new StreamChunkProcessor({ emitTextBoundaries: true });
-
-        const applyStreamOut = (out: StreamEvent): void => {
-          if (out.type === 'text_delta') {
-            assistantContent += out.content;
-          }
-          if (out.type === 'thinking') {
-            thinkingContent += out.content;
-            if (out.signature !== undefined && !thinkingSignature) {
-              thinkingSignature = out.signature;
-            }
-          }
-          if (out.type === 'tool_call') {
-            hasToolCalls = true;
-            toolCalls.push({
-              id: out.id,
-              name: out.name,
-              arguments: out.arguments
-            });
-          }
-          if (out.type === 'model_usage') {
-            const usage = out.usage;
-            if (usage.promptTokens > 0) {
-              totalUsage.promptTokens = usage.promptTokens;
-              this.sessionUsage.contextTokens = usage.promptTokens;
-              this.sessionUsage.inputTokens += usage.promptTokens;
-            }
-            totalUsage.completionTokens += usage.completionTokens;
-            totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
-            this.sessionUsage.outputTokens += usage.completionTokens;
-          }
-        };
-
-        let fatalModelError = false;
-        for await (const chunk of stream) {
-          if (signal?.aborted) {
-            for (const event of chunkProcessor.flush()) {
-              const out = this.streamOut(event, iteration);
-              yield out;
-              applyStreamOut(out);
-            }
-            if (assistantContent) {
-              const assistantMessage: Message = {
-                role: 'assistant',
-                content: assistantContent
-              };
-              if (thinkingContent) {
-                assistantMessage.content = [
-                  { type: 'thinking', thinking: thinkingContent, signature: thinkingSignature || '' },
-                  { type: 'text', text: assistantContent }
-                ];
-              }
-              this.messages.push(assistantMessage);
-              this.safeLifecycleVoid(() => {
-                this.config.callbacks?.lifecycle?.onAssistantMessage?.(assistantMessage, {
-                  ...this.baseRunContext(),
-                  iteration
-                });
-              });
-            }
-
-            const interruptMsg: Message = {
-              role: 'user',
-              content: '[User interrupted the response]'
-            };
-            this.messages.push(interruptMsg);
-            this.safeLifecycleVoid(() => {
-              this.config.callbacks?.lifecycle?.onUserMessage?.(
-                interruptMsg,
-                'interruption_marker',
-                this.baseRunContext()
-              );
-            });
-
-            await persistOnAbortIfNeeded(iteration);
-
-            this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: totalUsage });
-            this.safeLifecycleVoid(() => {
-              this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext(), iteration });
-            });
-
-            yield this.streamOut(
-              {
-                type: 'end',
-                usage: totalUsage,
-                timestamp: Date.now(),
-                reason: 'aborted',
-                partialContent: assistantContent
-              },
-              iteration
-            );
-            return;
-          }
-
-          const events = chunkProcessor.processChunk(chunk);
-          for (const event of events) {
-            const out = this.streamOut(event, iteration);
-            yield out;
-            applyStreamOut(out);
-            if (out.type === 'end' && out.reason === 'error' && out.error) {
-              this.emitAgentError(out.error, { phase: 'model', iteration });
-              this.safeLifecycleVoid(() => {
-                this.config.callbacks?.lifecycle?.onModelRequestError?.(out.error!, {
-                  phase: 'model',
-                  iteration
-                });
-              });
-            }
-            if (out.type === 'end' && out.reason === 'error') {
-              fatalModelError = true;
-              break;
-            }
-          }
-          if (fatalModelError) {
-            break;
-          }
+          totalUsage,
+          persistOnAbortIfNeeded,
+          outcome,
+          state
+        })) {
+          yield ev;
         }
 
-        if (fatalModelError) {
+        if (outcome.kind === 'aborted') {
+          return;
+        }
+        if (outcome.kind === 'fatal') {
           return;
         }
 
-        for (const event of chunkProcessor.flush()) {
-          const out = this.streamOut(event, iteration);
-          yield out;
-          applyStreamOut(out);
-        }
+        this.notifyModelRequestEnd(iteration);
 
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onModelRequestEnd?.({ ...this.baseRunContext(), iteration });
-        });
-
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: assistantContent
-        };
-
-        if (thinkingContent) {
-          const contentParts: any[] = [
-            {
-              type: 'thinking',
-              thinking: thinkingContent,
-              signature: thinkingSignature
-            }
-          ];
-          if (assistantContent.trim()) {
-            contentParts.push({ type: 'text', text: assistantContent });
-          }
-          assistantMessage.content = contentParts;
-        }
-
-        if (toolCalls.length > 0) {
-          assistantMessage.toolCalls = toolCalls;
-        }
+        const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
+          assistantContent: state.assistantContent,
+          thinkingContent: state.thinkingContent,
+          thinkingSignature: state.thinkingSignature,
+          toolCalls: state.toolCalls,
+          interruptPath: false
+        })!;
 
         this.messages.push(assistantMessage);
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onAssistantMessage?.(assistantMessage, {
-            ...this.baseRunContext(),
-            iteration
-          });
-        });
+        this.notifyAssistantMessage(assistantMessage, iteration);
 
-        if (!hasToolCalls) {
-          this.log('debug', {
-            component: 'agent',
-            event: 'agent.iteration.end',
-            message: 'Iteration completed without tool calls',
-            sessionId: this.sessionManager.sessionId ?? undefined,
-            iteration,
-            metadata: {
-              assistantContentLength: assistantContent.length
-            }
+        if (!state.hasToolCalls) {
+          this.logIterationEnd(iteration, {
+            hadToolCalls: false,
+            assistantContentLength: state.assistantContent.length
           });
-          this.safeLifecycleVoid(() => {
-            this.config.callbacks?.lifecycle?.onIterationEnd?.({
-              ...this.baseRunContext(),
-              iteration,
-              hadToolCalls: false
-            });
-          });
+          this.notifyIterationEnd(iteration, false);
           break;
         }
 
-        const toolResults = await this.executeTools(toolCalls, iteration, signal);
+        const toolResults = await this.executeTools(state.toolCalls, iteration, signal);
 
-        for (const result of toolResults) {
-          if (result.isError && result.error) {
-            yield this.streamOut(
-              {
-                type: 'tool_error',
-                toolCallId: result.toolCallId,
-                error: result.error
-              },
-              iteration
-            );
-          }
-          yield this.streamOut(
-            {
-              type: 'tool_result',
-              toolCallId: result.toolCallId,
-              result: result.content
-            },
-            iteration
-          );
+        yield* this.yieldToolExecutionPipeline(toolResults, iteration);
 
-          const toolMsg: Message = {
-            role: 'tool',
-            toolCallId: result.toolCallId,
-            content: result.content
-          };
-          this.messages.push(toolMsg);
-          this.safeLifecycleVoid(() => {
-            this.config.callbacks?.lifecycle?.onToolMessage?.(toolMsg, {
-              ...this.baseRunContext(),
-              iteration,
-              toolCallId: result.toolCallId
-            });
-          });
-        }
-
-        this.log('debug', {
-          component: 'agent',
-          event: 'agent.iteration.end',
-          message: 'Iteration completed with tool calls',
-          sessionId: this.sessionManager.sessionId ?? undefined,
-          iteration,
-          metadata: {
-            toolCallCount: toolCalls.length,
-            toolResultCount: toolResults.length
-          }
+        this.logIterationEnd(iteration, {
+          hadToolCalls: true,
+          toolCallCount: state.toolCalls.length,
+          toolResultCount: toolResults.length
         });
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onIterationEnd?.({
-            ...this.baseRunContext(),
-            iteration,
-            hadToolCalls: true
-          });
-        });
+        this.notifyIterationEnd(iteration, true);
       }
 
-      await this.sessionManager.saveMessages(this.messages);
-      this.safeLifecycleVoid(() => {
-        this.config.callbacks?.lifecycle?.onMessagePersist?.({
-          ...this.baseRunContext(),
-          messageCount: this.messages.length
-        });
-      });
-
-      const finishedByIterationCap = iteration >= maxIterations;
-      const sessionIterations = finishedByIterationCap ? maxIterations : iteration + 1;
-
-      yield this.streamOut({
-        type: 'session_summary',
-        usage: totalUsage,
-        iterations: sessionIterations
-      });
-
-      this.emitRunEnd({
-        reason: finishedByIterationCap ? 'max_iterations' : 'complete',
-        iterations: sessionIterations,
-        usage: totalUsage
-      });
-      yield this.streamOut({
-        type: 'end',
-        timestamp: Date.now(),
-        reason: finishedByIterationCap ? 'max_iterations' : 'complete'
-      });
-      this.log('info', {
-        component: 'agent',
-        event: 'agent.run.end',
-        message: finishedByIterationCap ? 'Agent turn stopped at max iterations' : 'Agent turn completed',
-        sessionId: this.sessionManager.sessionId ?? undefined,
-        metadata: {
-          iterations: sessionIterations,
-          promptTokens: totalUsage.promptTokens,
-          completionTokens: totalUsage.completionTokens,
-          totalTokens: totalUsage.totalTokens
-        }
-      });
+      yield* this.yieldSuccessfulRunTermination(totalUsage, iteration, maxIterations);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        this.log('info', {
-          component: 'agent',
-          event: 'agent.run.aborted',
-          message: 'Agent turn aborted',
-          sessionId: this.sessionManager.sessionId ?? undefined
-        });
-        this.emitRunEnd({ reason: 'aborted', iterations: 0 });
-        this.safeLifecycleVoid(() => {
-          this.config.callbacks?.lifecycle?.onRunAbort?.({ ...this.baseRunContext() });
-        });
-        await persistOnAbortIfNeeded();
-        yield this.streamOut({
-          type: 'end',
-          timestamp: Date.now(),
-          reason: 'aborted'
-        });
-        return;
-      }
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.log('error', {
-        component: 'agent',
-        event: 'agent.run.error',
-        message: 'Agent turn failed',
-        sessionId: this.sessionManager.sessionId ?? undefined,
-        errorName: err.name,
-        errorMessage: err.message
-      });
-      this.emitAgentError(err, { phase: 'run' });
-      this.emitRunEnd({ reason: 'error', iterations: 0, error: err });
-      yield this.streamOut({
-        type: 'end',
-        timestamp: Date.now(),
-        reason: 'error',
-        error: err
-      });
+      yield* this.yieldStreamCatchError(error, persistOnAbortIfNeeded);
     }
   }
 

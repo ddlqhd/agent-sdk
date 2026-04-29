@@ -17,6 +17,26 @@ const textOnlyModel: ModelAdapter = {
 };
 
 describe('Agent lifecycle callbacks', () => {
+  it('fires onModelRequestEnd before onAssistantMessage', async () => {
+    const callOrder: string[] = [];
+    const agent = new Agent({
+      model: textOnlyModel,
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      callbacks: {
+        lifecycle: {
+          onModelRequestEnd: () => callOrder.push('model_end'),
+          onAssistantMessage: () => callOrder.push('assistant_message')
+        }
+      }
+    });
+
+    await agent.waitForInit();
+    await agent.run('ordering');
+
+    expect(callOrder).toEqual(['model_end', 'assistant_message']);
+  });
+
   it('invokes core observation hooks on a simple turn without tools', async () => {
     const onRunStart = vi.fn();
     const onSystemMessage = vi.fn();
