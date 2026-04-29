@@ -222,34 +222,41 @@ describe('ToolRegistry', () => {
 });
 
 describe('Builtin Tools', () => {
-  it('should provide all builtin tools', async () => {
-    const { getAllBuiltinTools } = await import('../../src/tools/builtin/index.js');
-    const skillRegistry = createSkillRegistry();
-    const tools = getAllBuiltinTools(skillRegistry);
-    const names = tools.map(t => t.name);
+  it(
+    'should provide all builtin tools',
+    async () => {
+      const { getAllBuiltinTools } = await import('../../src/tools/builtin/index.js');
+      const skillRegistry = createSkillRegistry();
+      const tools = getAllBuiltinTools(skillRegistry);
+      const names = tools.map(t => t.name);
 
-    // Core tools should be present
-    expect(names).toContain('Read');
-    expect(names).toContain('Write');
-    expect(names).toContain('Edit');
-    expect(names).toContain('Glob');
-    expect(names).toContain('Grep');
-    expect(names).toContain('Bash');
-    expect(names).toContain('WebFetch');
-    expect(names).toContain('WebSearch');
-    expect(names).toContain('TodoWrite');
-    expect(names).toContain('AskUserQuestion');
-    expect(names).toContain('Agent');
+      // Core tools should be present
+      expect(names).toContain('Read');
+      expect(names).toContain('Write');
+      expect(names).toContain('Edit');
+      expect(names).toContain('Glob');
+      expect(names).toContain('Grep');
+      expect(names).toContain('Bash');
+      expect(names).toContain('BashList');
+      expect(names).toContain('BashOutput');
+      expect(names).toContain('BashKill');
+      expect(names).toContain('WebFetch');
+      expect(names).toContain('WebSearch');
+      expect(names).toContain('TodoWrite');
+      expect(names).toContain('AskUserQuestion');
+      expect(names).toContain('Agent');
 
-    // Removed tools should not be present
-    expect(names).not.toContain('DeleteFile');
-    expect(names).not.toContain('list_directory');
-    expect(names).not.toContain('http_request');
-    expect(names).not.toContain('download_file');
-    expect(names).not.toContain('TaskCreate');
-    expect(names).not.toContain('TaskUpdate');
-    expect(names).not.toContain('TaskList');
-  });
+      // Removed tools should not be present
+      expect(names).not.toContain('DeleteFile');
+      expect(names).not.toContain('list_directory');
+      expect(names).not.toContain('http_request');
+      expect(names).not.toContain('download_file');
+      expect(names).not.toContain('TaskCreate');
+      expect(names).not.toContain('TaskUpdate');
+      expect(names).not.toContain('TaskList');
+    },
+    15_000
+  );
 
   it('should filter safe tools (no dangerous)', async () => {
     const { getSafeBuiltinTools } = await import('../../src/tools/builtin/index.js');
@@ -1242,6 +1249,171 @@ describe('Builtin Tools cwd inheritance', () => {
       await fs.rm(overrideDir, { recursive: true, force: true });
     }
   });
+});
+
+describe('Bash background shell tools', () => {
+  it(
+    'runs Bash with background:true, lists job, reads output, and kills',
+    async () => {
+      const { bashTool, bashListTool, bashOutputTool, bashKillTool } = await import(
+        '../../src/tools/builtin/shell.js'
+      );
+      const registry = new ToolRegistry();
+      registry.register(bashTool);
+      registry.register(bashListTool);
+      registry.register(bashOutputTool);
+      registry.register(bashKillTool);
+
+      const os = await import('os');
+      const projectDir = os.tmpdir();
+
+      const bg = await registry.execute(
+        'Bash',
+        {
+          command: 'node -e "console.log(\'bg_start\'); setInterval(()=>{}, 3600000)"',
+          background: true,
+          blockUntilMs: 3000
+        },
+        { projectDir }
+      );
+
+      expect(bg.isError).toBeFalsy();
+      const m = bg.content.match(/jobId:\s*(bash_[a-f0-9]+)/);
+      expect(m).toBeTruthy();
+      const jobId = m![1];
+      expect(bg.content).toContain('bg_start');
+
+      const listed = await registry.execute('BashList', {});
+      expect(listed.content).toContain(jobId);
+
+      const out = await registry.execute('BashOutput', {
+        job_id: jobId,
+        stream: 'stdout',
+        waitMs: 500
+      });
+      expect(out.isError).toBeFalsy();
+      const parsed = JSON.parse(out.content) as { nextCursorStdout: number; status: string };
+      expect(parsed.status).toBe('running');
+
+      const killed = await registry.execute('BashKill', { job_id: jobId });
+      expect(killed.isError).toBeFalsy();
+    },
+    25_000
+  );
+
+  it('foreground Bash respects AbortSignal', async () => {
+    const { bashTool } = await import('../../src/tools/builtin/shell.js');
+    const registry = new ToolRegistry();
+    registry.register(bashTool);
+
+    const controller = new AbortController();
+    const run = registry.execute(
+      'Bash',
+      { command: 'node -e "for(;;){}"' },
+      { signal: controller.signal, projectDir: process.cwd() }
+    );
+
+    await new Promise((r) => setTimeout(r, 150));
+    controller.abort();
+
+    const result = await run;
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Aborted/i);
+  });
+
+  it('BashOutput returns not_found for unknown job id', async () => {
+    const { bashOutputTool } = await import('../../src/tools/builtin/shell.js');
+    const registry = new ToolRegistry();
+    registry.register(bashOutputTool);
+    const out = await registry.execute('BashOutput', {
+      job_id: 'bash_000000000000000000000000'
+    });
+    expect(out.isError).toBeFalsy();
+    const parsed = JSON.parse(out.content) as { status: string };
+    expect(parsed.status).toBe('not_found');
+  });
+
+  it('combined stream sinceCursor advances with limitChars paging', async () => {
+    const { bashTool, bashOutputTool, bashKillTool } = await import(
+      '../../src/tools/builtin/shell.js'
+    );
+    const registry = new ToolRegistry();
+    registry.register(bashTool);
+    registry.register(bashOutputTool);
+    registry.register(bashKillTool);
+
+    const os = await import('os');
+    const projectDir = os.tmpdir();
+    const total = 9000;
+    const page = 4000;
+
+    const bg = await registry.execute(
+      'Bash',
+      {
+        command: `node -e "console.log('x'.repeat(${total})); setInterval(()=>{}, 3600000)"`,
+        background: true,
+        blockUntilMs: 4000
+      },
+      { projectDir }
+    );
+    expect(bg.isError).toBeFalsy();
+    const m = bg.content.match(/jobId:\s*(bash_[a-f0-9]+)/);
+    expect(m).toBeTruthy();
+    const jobId = m![1];
+
+    const o1 = await registry.execute('BashOutput', {
+      job_id: jobId,
+      stream: 'all',
+      limitChars: page,
+      sinceCursor: 0
+    });
+    const j1 = JSON.parse(o1.content) as {
+      nextCursorCombinedApprox: number;
+      combinedCursorStale?: boolean;
+      status: string;
+    };
+    expect(j1.status).toBe('running');
+    expect(j1.combinedCursorStale).toBe(false);
+    expect(j1.nextCursorCombinedApprox).toBe(page);
+
+    const o2 = await registry.execute('BashOutput', {
+      job_id: jobId,
+      stream: 'all',
+      limitChars: page,
+      sinceCursor: j1.nextCursorCombinedApprox
+    });
+    const j2 = JSON.parse(o2.content) as { nextCursorCombinedApprox: number; combinedCursorStale?: boolean };
+    expect(j2.combinedCursorStale).toBe(false);
+    expect(j2.nextCursorCombinedApprox).toBe(page * 2);
+
+    await registry.execute('BashKill', { job_id: jobId });
+  }, 35_000);
+
+  it('remove_job_on_exit removes registry entry shortly after exit', async () => {
+    const { bashTool, bashListTool } = await import('../../src/tools/builtin/shell.js');
+    const registry = new ToolRegistry();
+    registry.register(bashTool);
+    registry.register(bashListTool);
+
+    const os = await import('os');
+    const bg = await registry.execute(
+      'Bash',
+      {
+        command: 'node -e "process.exit(0)"',
+        background: true,
+        remove_job_on_exit: true
+      },
+      { projectDir: os.tmpdir() }
+    );
+    expect(bg.isError).toBeFalsy();
+    const m = bg.content.match(/jobId:\s*(bash_[a-f0-9]+)/);
+    expect(m).toBeTruthy();
+    const jobId = m![1];
+
+    await new Promise((r) => setTimeout(r, 800));
+    const listed = await registry.execute('BashList', {});
+    expect(listed.content).not.toContain(jobId);
+  }, 15_000);
 });
 
 describe('Schema Conversion', () => {

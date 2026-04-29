@@ -4,7 +4,7 @@
 
 ## 安全子集
 
-- 源码中 **`isDangerous === true`** 的工具（当前主要为 **`Bash`**）可用 `getSafeBuiltinTools(skillRegistry)` 排除。
+- 源码中 **`isDangerous === true`** 的工具（当前主要为 **`Bash`**、**`BashKill`**）可用 `getSafeBuiltinTools(skillRegistry)` 排除。
 - **`getAllBuiltinTools`** 包含全部内置工具（含危险工具）。
 
 ## 按类别
@@ -22,7 +22,12 @@
 
 | Tool | 说明 | Dangerous |
 |------|------|-----------|
-| `Bash` | 执行 shell 命令 | **是** |
+| `Bash` | 执行 shell 命令（foreground 默认等待结束；`background: true` 时注册为后台任务并立即返回 `jobId`） | **是** |
+| `BashList` | 列出当前进程内的后台 bash 任务（job id、pid、运行时、日志路径等） | 否 |
+| `BashOutput` | 读取后台输出；`stream: all` 时 `sinceCursor`/`nextCursorCombinedApprox` 与 **`combinedCursorStale`** 配合使用；未知 id 返回 **`not_found`** | 否 |
+| `BashKill` | 终止后台任务（SIGTERM → 宽限期 → SIGKILL）；任务记录随后移除 | **是** |
+
+**后台任务**：`Bash` 传入 `background: true` 时使用 SDK 内进程表管理子进程，并可选用 `blockUntilMs` 在返回前短暂采集启动日志。可选 **`remove_job_on_exit: true`** 在子进程退出后立即从注册表移除（默认保留至 **`BashKill`**）。后台任务**不会**随 `Agent.stream` 的取消而自动结束，需调用 `BashKill` 或在 Node 进程退出时由 SDK 钩子清理。详见 [`bash-background-jobs.md`](./bash-background-jobs.md)。
 
 ### 搜索 (grep)
 
