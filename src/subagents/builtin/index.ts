@@ -10,8 +10,7 @@ export const BUILTIN_SUBAGENT_NAMES = [
 
 export type BuiltinSubagentName = (typeof BUILTIN_SUBAGENT_NAMES)[number];
 
-export { exploreBuiltinProfile, EXPLORE_SYSTEM_FRAGMENT, SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES } from './explore.js';
-export { subagentExploreDefaultsUnavailableMessage } from './explore.js';
+export { exploreBuiltinProfile, EXPLORE_SYSTEM_FRAGMENT } from './explore.js';
 export { generalPurposeBuiltinProfile } from './general-purpose.js';
 
 export function getBuiltinSubagentProfiles(): SubagentProfile[] {

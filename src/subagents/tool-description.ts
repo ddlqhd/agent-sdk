@@ -45,10 +45,11 @@ When NOT to use this tool:
 Usage notes:
 - Always pass a short description and a complete prompt with all required context
 - Choose **subagent_type** from the available subagents list below
-- Optional **allowed_tools** overrides the profile default tool allowlist for this invocation
+- Optional **allowed_tools** narrows tools from the parent's registry for this run (built-in **general-purpose**: all parent tools except **Agent** and **AskUserQuestion**; built-in **explore**: same pool minus **Write** / **Edit** / **Agent**, and dangerous tools are omitted unless subagent.allowDangerousTools is enabled in AgentConfig)
 - Optional **system_prompt** is merged after the profile instructions
 - Subagents do not inherit parent conversation history, only the prompt you provide
 - Subagents cannot spawn other subagents (no nested Agent calls)
+- **AskUserQuestion** is never included in a subagent tool list, even if named in **allowed_tools**
 
 ### Available subagents`;
 

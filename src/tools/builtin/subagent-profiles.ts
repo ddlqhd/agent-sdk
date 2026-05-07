@@ -1,17 +1,6 @@
-/**
- * Back-compat re-exports for built-in subagent fragments and explore defaults.
- * Prefer importing from `@ddlqhd/agent-sdk` / `../subagents/index.js`.
- */
-
 import type { SubagentProfile } from '../../subagents/types.js';
 import { resolveProfileBuiltinFragment } from '../../subagents/tool-description.js';
-import {
-  exploreBuiltinProfile,
-  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
-  subagentExploreDefaultsUnavailableMessage
-} from '../../subagents/builtin/explore.js';
-
-export { SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES, subagentExploreDefaultsUnavailableMessage };
+import { exploreBuiltinProfile } from '../../subagents/builtin/explore.js';
 
 export type SubagentType = string;
 

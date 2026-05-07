@@ -201,7 +201,7 @@ describe('Agent subagent tool integration', () => {
     expect(r.content).toContain('subagent-signal-ok');
   });
 
-  it('excludes AskUserQuestion from subagent toolset', async () => {
+  it('excludes AskUserQuestion from built-in general-purpose and explore subagent toolsets', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
@@ -209,17 +209,22 @@ describe('Agent subagent tool integration', () => {
     });
     expect(agent.getToolRegistry().getAll().some((t) => t.name === 'AskUserQuestion')).toBe(true);
 
-    const result = await agent.getToolRegistry().execute('Agent', {
-      prompt: 'child-task'
+    const gp = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'general-purpose'
     });
+    expect(gp.isError).toBeFalsy();
+    expect((gp.metadata?.toolNames as string[] | undefined) ?? []).not.toContain('AskUserQuestion');
 
-    expect(result.isError).toBeFalsy();
-    const toolNames = result.metadata?.toolNames as string[] | undefined;
-    expect(toolNames).toBeDefined();
-    expect(toolNames).not.toContain('AskUserQuestion');
+    const ex = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'explore'
+    });
+    expect(ex.isError).toBeFalsy();
+    expect((ex.metadata?.toolNames as string[] | undefined) ?? []).not.toContain('AskUserQuestion');
   });
 
-  it('excludes Skill from subagent toolset', async () => {
+  it('includes Skill in subagent toolset for general-purpose and custom profiles', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
@@ -227,14 +232,36 @@ describe('Agent subagent tool integration', () => {
     });
     expect(agent.getToolRegistry().getAll().some((t) => t.name === 'Skill')).toBe(true);
 
-    const result = await agent.getToolRegistry().execute('Agent', {
+    const gpResult = await agent.getToolRegistry().execute('Agent', {
       prompt: 'child-task'
     });
+    expect(gpResult.isError).toBeFalsy();
+    const gpNames = gpResult.metadata?.toolNames as string[] | undefined;
+    expect(gpNames).toBeDefined();
+    expect(gpNames).toContain('Skill');
 
-    expect(result.isError).toBeFalsy();
-    const toolNames = result.metadata?.toolNames as string[] | undefined;
-    expect(toolNames).toBeDefined();
-    expect(toolNames).not.toContain('Skill');
+    const customAgent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        profiles: [
+          {
+            name: 'with-skill',
+            description: 'lists Skill explicitly',
+            tools: ['Read', 'Skill']
+          }
+        ]
+      }
+    });
+
+    const customResult = await customAgent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'with-skill'
+    });
+    expect(customResult.isError).toBeFalsy();
+    const customNames = customResult.metadata?.toolNames as string[] | undefined;
+    expect(customNames?.sort()).toEqual(['Read', 'Skill'].sort());
   });
 
   it('omits Skills section from subagent default system prompt', async () => {
@@ -252,7 +279,7 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('no-skills-prompt-ok');
   });
 
-  it('uses safe tools by default for child toolset', async () => {
+  it('includes dangerous tools in general-purpose child toolset by default', async () => {
     const dangerousTool = createTool({
       name: 'DangerousExec',
       description: 'danger',
@@ -281,7 +308,7 @@ describe('Agent subagent tool integration', () => {
     expect(result.isError).toBeFalsy();
     const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
     expect(toolNames).toContain('SafeEcho');
-    expect(toolNames).not.toContain('DangerousExec');
+    expect(toolNames).toContain('DangerousExec');
     expect(toolNames).not.toContain('Agent');
   });
 
@@ -356,7 +383,7 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('override-ok');
   });
 
-  it('uses read-oriented default tools for explore when no allowlist', async () => {
+  it('explore inherits parent tools minus Write Edit Agent and hides dangerous tools by default', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
@@ -370,9 +397,15 @@ describe('Agent subagent tool integration', () => {
 
     expect(result.isError).toBeFalsy();
     const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
-    expect(new Set(toolNames)).toEqual(
-      new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
-    );
+    expect(toolNames).toContain('Read');
+    if (agent.getToolRegistry().has('Skill')) {
+      expect(toolNames).toContain('Skill');
+    }
+    expect(toolNames).not.toContain('Write');
+    expect(toolNames).not.toContain('Edit');
+    expect(toolNames).not.toContain('Agent');
+    expect(toolNames).not.toContain('AskUserQuestion');
+    expect(toolNames).not.toContain('Bash');
   });
 
   it('does not apply explore default tools when allowed_tools is explicit', async () => {
@@ -480,7 +513,7 @@ describe('Agent subagent tool integration', () => {
     expect(toolNames).toEqual(['Glob']);
   });
 
-  it('fails explore with a clear error when parent has none of the default explore tools', async () => {
+  it('succeeds for explore when parent only has non-default custom tools', async () => {
     const onlyCustom = createTool({
       name: 'OnlyCustom',
       description: 'custom',
@@ -499,9 +532,8 @@ describe('Agent subagent tool integration', () => {
       subagent_type: 'explore'
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('Explore subagent:');
-    expect(result.content).toContain('allowed_tools');
+    expect(result.isError).toBeFalsy();
+    expect((result.metadata?.toolNames as string[] | undefined) ?? []).toEqual(['OnlyCustom']);
   });
 });
 

@@ -8,11 +8,7 @@ import {
 } from '../../subagents/index.js';
 
 export type { SubagentType } from './subagent-profiles.js';
-export {
-  resolveSubagentTypeAppend,
-  subagentExploreDefaultsUnavailableMessage,
-  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES
-} from './subagent-profiles.js';
+export { resolveSubagentTypeAppend } from './subagent-profiles.js';
 
 export const subagentRequestSchema = z.object({
   prompt: z.string().min(1).describe('Task prompt for the subagent. Include all required context.'),

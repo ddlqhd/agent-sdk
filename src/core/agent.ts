@@ -40,11 +40,7 @@ import { emitSDKLog } from './logger.js';
 import { isNonBlankString } from '../utils/index.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
-import {
-  createAgentTool,
-  subagentExploreDefaultsUnavailableMessage,
-  type SubagentRequest
-} from '../tools/builtin/subagent.js';
+import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
 import { getBuiltinSubagentProfiles } from '../subagents/builtin/index.js';
 import { SubagentLoader } from '../subagents/loader.js';
 import { mergeSubagentProfiles, profilesMapToSortedList } from '../subagents/registry.js';
@@ -1718,7 +1714,7 @@ export class Agent {
     tools?: ReturnType<ToolRegistry['getAll']>;
     error?: string;
   } {
-    const disabledToolNames: readonly string[] = ['Agent', 'AskUserQuestion', 'Skill'];
+    const disabledToolNames: readonly string[] = ['Agent', 'AskUserQuestion'];
 
     const subagentConfig = this.getSubagentConfig();
     const parentTools = this.toolRegistry.getAll();
@@ -1736,7 +1732,6 @@ export class Agent {
     const explicitAllow = request.allowed_tools ?? subagentConfig.defaultAllowedTools;
 
     let selected: ToolDefinition[];
-    let usedExploreDefaults = false;
 
     if (explicitAllow !== undefined) {
       selected = explicitAllow
@@ -1747,21 +1742,18 @@ export class Agent {
         .map(name => pool.find(t => t.name === name))
         .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
     } else if (profile.defaultToolNames !== undefined && profile.defaultToolNames.length > 0) {
-      usedExploreDefaults = profile.name === 'explore';
       selected = profile.defaultToolNames
         .map(name => poolByName.get(name))
         .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    } else if (profile.name === 'general-purpose') {
+      selected = [...pool];
     } else {
       selected = pool.filter(tool => !tool.isDangerous);
     }
 
-    if (usedExploreDefaults && selected.length === 0) {
-      return { error: subagentExploreDefaultsUnavailableMessage() };
-    }
-
     selected = selected.filter(tool => !disabledToolNames.includes(tool.name));
 
-    if (!subagentConfig.allowDangerousTools) {
+    if (!subagentConfig.allowDangerousTools && profile.name !== 'general-purpose') {
       const requestedDangerous = request.allowed_tools?.some(name => byName.get(name)?.isDangerous);
       if (requestedDangerous) {
         return {

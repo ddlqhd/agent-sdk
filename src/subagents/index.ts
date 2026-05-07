@@ -28,7 +28,5 @@ export type { BuiltinSubagentName } from './builtin/index.js';
 export {
   exploreBuiltinProfile,
   generalPurposeBuiltinProfile,
-  EXPLORE_SYSTEM_FRAGMENT,
-  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
-  subagentExploreDefaultsUnavailableMessage
+  EXPLORE_SYSTEM_FRAGMENT
 } from './builtin/index.js';
