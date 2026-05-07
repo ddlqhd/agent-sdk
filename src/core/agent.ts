@@ -253,7 +253,7 @@ export class Agent {
   }
 
   /**
-   * 异步初始化（skills 和 MCP）
+   * 异步初始化：hooks / skills / MCP（大块 try）；磁盘 subagent profile 在后续独立 try 中加载。
    */
   private async initializeAsync(): Promise<void> {
     try {
@@ -274,11 +274,6 @@ export class Agent {
         this.mcpAdapter = new MCPAdapter();
         await this.initializeMCP(this.config.mcpServers);
       }
-
-      if (this.config.subagent?.enabled !== false) {
-        await this.loadSubagentProfilesFromDisk();
-        this.registerAgentToolWithProfiles();
-      }
     } catch (err) {
       // 初始化失败不应阻塞 Agent 使用，只输出警告
       const error = err instanceof Error ? err : new Error(String(err));
@@ -290,11 +285,29 @@ export class Agent {
         errorMessage: error.message
       });
     }
+
+    if (this.config.subagent?.enabled !== false) {
+      try {
+        await this.loadSubagentProfilesFromDisk();
+        this.registerAgentToolWithProfiles();
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.log('error', {
+          component: 'agent',
+          event: 'agent.initialize.subagent.error',
+          message: 'Failed to load or register subagent profiles',
+          errorName: error.name,
+          errorMessage: error.message
+        });
+      }
+    }
   }
 
   /**
-   * 等待初始化完成
-   * CLI 应在开始交互前调用此方法
+   * 等待异步初始化完成（skills、MCP、磁盘 subagent profile 等）。
+   *
+   * `run` / `stream` 会在会话准备阶段隐式 `await` 同一初始化 Promise，一般无需额外调用。
+   * 若宿主需在首帧前就与其它异步编排对齐，或直接使用底层 API 而不走 `run`/`stream`，仍可显式调用此方法。
    */
   async waitForInit(): Promise<void> {
     await this.initPromise;
@@ -486,6 +499,7 @@ export class Agent {
   }
 
   private async prepareStreamSession(options?: StreamOptions): Promise<void> {
+    await this.initPromise;
     if (options?.sessionId) {
       const isSwitchingSession = this.sessionManager.sessionId !== options.sessionId;
       if (isSwitchingSession) {
@@ -1651,7 +1665,20 @@ export class Agent {
     const cwd = this.config.cwd ?? process.cwd();
     const userBase = this.config.userBasePath ?? homedir();
     const pc = this.config.subagent?.profileConfig;
-    const loader = new SubagentLoader({ cwd });
+    const loader = new SubagentLoader({
+      cwd,
+      onLoadFileError: (path, error) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.log('warn', {
+          component: 'agent',
+          event: 'subagent.profile.load.error',
+          message: 'Failed to load subagent profile file',
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: { path }
+        });
+      }
+    });
     const layers: SubagentProfile[][] = [getBuiltinSubagentProfiles()];
     const userAgentsDir = pc?.userPath ?? join(userBase, '.claude', 'agents');
     const orderedDirs = [
@@ -1759,6 +1786,7 @@ export class Agent {
     isError?: boolean;
     metadata?: Record<string, unknown>;
   }> {
+    await this.initPromise;
     const subagentConfig = this.getSubagentConfig();
     const currentDepth = context?.agentDepth ?? this.agentDepth;
     const subagentSignal = context?.signal;
@@ -1773,7 +1801,7 @@ export class Agent {
       return { content: 'Subagent concurrency limit reached', isError: true };
     }
 
-    const normalizedType = (request.subagent_type ?? 'general-purpose').trim();
+    const normalizedType = (request.subagent_type ?? 'general-purpose').trim().toLowerCase();
     const profile = this.subagentProfileMap.get(normalizedType);
     if (!profile) {
       return {

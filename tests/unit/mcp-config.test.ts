@@ -64,6 +64,62 @@ describe('validateMCPConfig toolTimeoutMs', () => {
   });
 });
 
+describe('validateMCPConfig connectTimeoutMs', () => {
+  it('accepts missing connectTimeoutMs', () => {
+    const c: MCPConfigFile = {
+      mcpServers: {
+        a: { command: 'node', args: ['x.js'] }
+      }
+    };
+    expect(validateMCPConfig(c)).toEqual([]);
+  });
+
+  it('accepts 0', () => {
+    const c: MCPConfigFile = {
+      mcpServers: {
+        a: { command: 'node', connectTimeoutMs: 0 }
+      }
+    };
+    expect(validateMCPConfig(c)).toEqual([]);
+  });
+
+  it('accepts positive number', () => {
+    const c: MCPConfigFile = {
+      mcpServers: {
+        a: { command: 'node', connectTimeoutMs: 5000 }
+      }
+    };
+    expect(validateMCPConfig(c)).toEqual([]);
+  });
+
+  it('rejects negative', () => {
+    const c: MCPConfigFile = {
+      mcpServers: {
+        a: { command: 'node', connectTimeoutMs: -1 }
+      }
+    };
+    expect(validateMCPConfig(c).length).toBe(1);
+  });
+
+  it('rejects non-finite', () => {
+    const c = {
+      mcpServers: {
+        a: { command: 'node', connectTimeoutMs: Number.NaN }
+      }
+    } as MCPConfigFile;
+    expect(validateMCPConfig(c).length).toBe(1);
+  });
+
+  it('rejects non-number', () => {
+    const c = {
+      mcpServers: {
+        a: { command: 'node', connectTimeoutMs: '5000' as unknown as number }
+      }
+    } as MCPConfigFile;
+    expect(validateMCPConfig(c).length).toBe(1);
+  });
+});
+
 describe('loadMCPConfig toolTimeoutMs', () => {
   let configPath: string;
   beforeEach(() => {
@@ -108,5 +164,52 @@ describe('loadMCPConfig toolTimeoutMs', () => {
     );
     const { servers } = loadMCPConfig(configPath);
     expect(servers[0].toolTimeoutMs).toBeUndefined();
+  });
+});
+
+describe('loadMCPConfig connectTimeoutMs', () => {
+  let configPath: string;
+  beforeEach(() => {
+    configPath = join(
+      tmpdir(),
+      `mcp-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+  });
+  afterEach(() => {
+    if (existsSync(configPath)) unlinkSync(configPath);
+  });
+
+  it('loads connectTimeoutMs into MCPServerConfig', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          fs: {
+            command: 'npx',
+            args: ['-y', '@x/y'],
+            connectTimeoutMs: 120000
+          }
+        }
+      })
+    );
+    const { servers } = loadMCPConfig(configPath);
+    expect(servers).toHaveLength(1);
+    expect(servers[0].connectTimeoutMs).toBe(120000);
+  });
+
+  it('omits connectTimeoutMs when 0', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          fs: {
+            command: 'npx',
+            connectTimeoutMs: 0
+          }
+        }
+      })
+    );
+    const { servers } = loadMCPConfig(configPath);
+    expect(servers[0].connectTimeoutMs).toBeUndefined();
   });
 });

@@ -25,6 +25,10 @@ export interface MCPConfigFile {
        * 单次 MCP 工具调用超时（毫秒），见 {@link MCPServerConfig.toolTimeoutMs}
        */
       toolTimeoutMs?: number;
+      /**
+       * MCP 建连超时（毫秒），见 {@link MCPServerConfig.connectTimeoutMs}
+       */
+      connectTimeoutMs?: number;
     };
   };
 }
@@ -97,11 +101,18 @@ function transformConfig(config: MCPConfigFile): MCPServerConfig[] {
       serverConfig.toolTimeoutMs > 0
         ? serverConfig.toolTimeoutMs
         : undefined;
+    const connectTimeoutMs =
+      typeof serverConfig.connectTimeoutMs === 'number' &&
+      Number.isFinite(serverConfig.connectTimeoutMs) &&
+      serverConfig.connectTimeoutMs > 0
+        ? serverConfig.connectTimeoutMs
+        : undefined;
 
     const server: MCPServerConfig = {
       name,
       transport,
       ...(toolTimeoutMs !== undefined ? { toolTimeoutMs } : {}),
+      ...(connectTimeoutMs !== undefined ? { connectTimeoutMs } : {}),
       ...(transport === 'stdio'
         ? {
             command: serverConfig.command,
@@ -233,6 +244,15 @@ export function validateMCPConfig(config: MCPConfigFile): string[] {
         server.toolTimeoutMs < 0
       ) {
         errors.push(`Server "${name}": "toolTimeoutMs" must be a non-negative finite number`);
+      }
+    }
+    if (server.connectTimeoutMs !== undefined) {
+      if (
+        typeof server.connectTimeoutMs !== 'number' ||
+        !Number.isFinite(server.connectTimeoutMs) ||
+        server.connectTimeoutMs < 0
+      ) {
+        errors.push(`Server "${name}": "connectTimeoutMs" must be a non-negative finite number`);
       }
     }
   }

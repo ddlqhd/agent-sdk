@@ -7,7 +7,7 @@ export function resolveProfileBuiltinFragment(
   const custom = subagentConfig?.subagentTypePrompts?.[profile.name];
   if (custom !== undefined) {
     const trimmed = custom.trim();
-    return trimmed === '' ? undefined : custom;
+    return trimmed === '' ? undefined : trimmed;
   }
   return profile.builtinSystemFragment;
 }

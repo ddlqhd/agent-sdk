@@ -5,6 +5,8 @@ import { metadataToSubagentProfile, parseSubagentMd } from './parser.js';
 
 export interface SubagentLoaderConfig {
   cwd?: string;
+  /** When set (e.g. by Agent), replaces default `console.warn` on per-file load failures in directories. */
+  onLoadFileError?: (path: string, error: unknown) => void;
 }
 
 export class SubagentLoader {
@@ -33,7 +35,10 @@ export class SubagentLoader {
     const out: SubagentProfile[] = [];
 
     try {
-      const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+      const entries = (await fs.readdir(resolvedPath, { withFileTypes: true })).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      const reportLoadError = this.config.onLoadFileError;
       for (const entry of entries) {
         if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) {
           continue;
@@ -42,7 +47,11 @@ export class SubagentLoader {
         try {
           out.push(await this.loadFile(full));
         } catch (err) {
-          console.warn(`Failed to load subagent from ${full}:`, err);
+          if (reportLoadError) {
+            reportLoadError(full, err);
+          } else {
+            console.warn(`Failed to load subagent from ${full}:`, err);
+          }
         }
       }
     } catch {

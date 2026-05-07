@@ -579,6 +579,12 @@ export interface MCPServerConfig {
    * 省略、≤0 或非有限数：不在请求选项中传入 `timeout`，沿用 SDK 默认（见 `@modelcontextprotocol/sdk` 的 `DEFAULT_REQUEST_TIMEOUT_MSEC`）。
    */
   toolTimeoutMs?: number;
+
+  /**
+   * MCP 建连超时（毫秒），用于 `MCPAdapter.addServer`。
+   * 省略、≤0 或非有限数时，使用默认值 30000ms。
+   */
+  connectTimeoutMs?: number;
 }
 
 /**

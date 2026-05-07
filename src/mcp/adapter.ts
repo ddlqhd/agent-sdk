@@ -2,6 +2,8 @@ import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.
 import { MCPClient, type MCPTool } from './client.js';
 import { formatMcpToolName } from './mcp-tool-name.js';
 
+const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 30_000;
+
 export class MCPAdapter {
   private clients: Map<string, MCPClient> = new Map();
   private toolMap: Map<string, { client: MCPClient; toolName: string }> = new Map();
@@ -12,7 +14,21 @@ export class MCPAdapter {
     }
 
     const client = new MCPClient(config);
-    await client.connect();
+    const timeoutMs = normalizeConnectTimeoutMs(config.connectTimeoutMs);
+    const connectPromise = client.connect();
+
+    try {
+      await withTimeout(
+        connectPromise,
+        timeoutMs,
+        `MCP server "${config.name}" connect timed out after ${timeoutMs}ms`
+      );
+    } catch (error) {
+      void connectPromise
+        .then(() => client.disconnect())
+        .catch(() => undefined);
+      throw error;
+    }
 
     this.clients.set(config.name, client);
 
@@ -108,4 +124,30 @@ export class MCPAdapter {
 
 export function createMCPAdapter(): MCPAdapter {
   return new MCPAdapter();
+}
+
+function normalizeConnectTimeoutMs(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+    return raw;
+  }
+  return DEFAULT_MCP_CONNECT_TIMEOUT_MS;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    void promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }

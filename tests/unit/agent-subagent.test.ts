@@ -301,6 +301,23 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('explore-system-ok');
   });
 
+  it('matches subagent_type case-insensitively', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'Explore'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('explore-system-ok');
+    expect((result.metadata as { subagentType?: string }).subagentType).toBe('explore');
+  });
+
   it('merges explore append with request.system_prompt after type fragment', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
