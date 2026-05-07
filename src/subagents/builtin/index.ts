@@ -11,7 +11,7 @@ export const BUILTIN_SUBAGENT_NAMES = [
 export type BuiltinSubagentName = (typeof BUILTIN_SUBAGENT_NAMES)[number];
 
 export { exploreBuiltinProfile, EXPLORE_SYSTEM_FRAGMENT } from './explore.js';
-export { generalPurposeBuiltinProfile } from './general-purpose.js';
+export { generalPurposeBuiltinProfile, GENERAL_PURPOSE_SYSTEM_FRAGMENT } from './general-purpose.js';
 
 export function getBuiltinSubagentProfiles(): SubagentProfile[] {
   return [generalPurposeBuiltinProfile, exploreBuiltinProfile];

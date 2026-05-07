@@ -28,5 +28,6 @@ export type { BuiltinSubagentName } from './builtin/index.js';
 export {
   exploreBuiltinProfile,
   generalPurposeBuiltinProfile,
-  EXPLORE_SYSTEM_FRAGMENT
+  EXPLORE_SYSTEM_FRAGMENT,
+  GENERAL_PURPOSE_SYSTEM_FRAGMENT
 } from './builtin/index.js';

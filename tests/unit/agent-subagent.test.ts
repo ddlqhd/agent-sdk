@@ -4,6 +4,7 @@ import { createTool } from '../../src/tools/registry.js';
 import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
 import { z } from 'zod';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
+import { GENERAL_PURPOSE_SYSTEM_FRAGMENT } from '../../src/subagents/builtin/index.js';
 
 /** User message used only in tests that assert explore / system-prompt behavior (avoids colliding with `child-task` from parent delegation). */
 const SUBAGENT_PROBE_PROMPT = '__sdk_subagent_probe__';
@@ -51,6 +52,11 @@ function createSubagentTestModel(): ModelAdapter {
             } else {
               yield { type: 'text', content: 'explore-system-ok' };
             }
+            yield { type: 'done' };
+            return;
+          }
+          if (sysText.includes('Subagent role: general-purpose')) {
+            yield { type: 'text', content: 'general-purpose-system-ok' };
             yield { type: 'done' };
             return;
           }
@@ -534,6 +540,43 @@ describe('Agent subagent tool integration', () => {
 
     expect(result.isError).toBeFalsy();
     expect((result.metadata?.toolNames as string[] | undefined) ?? []).toEqual(['OnlyCustom']);
+  });
+
+  it('appends general-purpose profile to child system prompt', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'general-purpose'
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('general-purpose-system-ok');
+  });
+
+  it('general-purpose system fragment contains expected key phrases', () => {
+    expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('Subagent role: general-purpose');
+    expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('No re-delegation');
+    expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('Output contract');
+  });
+
+  it('built-in profile descriptions appear in default Agent tool description', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+    await agent.waitForInit();
+    const tool = agent.getToolRegistry().get('Agent');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toContain('**general-purpose**');
+    expect(tool!.description).toContain('**explore**');
+    expect(tool!.description).toContain('Multi-step execution subagent');
+    expect(tool!.description).toContain('Read-only subagent');
   });
 });
 
