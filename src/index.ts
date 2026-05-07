@@ -111,6 +111,9 @@ export {
 } from './skills/index.js';
 export type { SkillLoaderConfig } from './skills/index.js';
 
+// Subagent profiles (markdown + registry)
+export * from './subagents/index.js';
+
 // Memory
 export { MemoryManager } from './memory/index.js';
 export type { MemoryConfig } from './memory/index.js';

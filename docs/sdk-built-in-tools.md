@@ -66,4 +66,4 @@
 |------|------|-----------|
 | `Agent` | 将工作委托给子代理（独立上下文） | 否 |
 
-**Subagent 说明**：子代理默认**不**再暴露 `Agent` 工具（禁止嵌套）；并发、超时、危险工具等由 `AgentConfig.subagent` 控制。`subagent_type: explore` 时会追加只读优先的 system 片段，且在未指定 `allowed_tools` 与 `subagent.defaultAllowedTools` 时默认仅暴露 Read/Glob/Grep/WebFetch/WebSearch（以父级已注册工具为准）。详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 中 Subagent 小节。
+**Subagent 说明**：子代理默认**不**再暴露 `Agent` 工具（禁止嵌套）；并发、超时、危险工具等由 `AgentConfig.subagent` 控制。`subagent_type` 为已注册 **profile** 名（内置 `general-purpose` / `explore` 与自定义 Markdown 或 `subagent.profiles`）。`explore` 会追加只读优先的 system 片段，且在未指定 `allowed_tools` 与 `subagent.defaultAllowedTools`、且 profile 未配置 `tools` 时默认仅暴露 Read/Glob/Grep/WebFetch/WebSearch（以父级已注册工具为准）。`Agent` 工具描述列出各 profile 的 `description` 供模型选型。详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 中 Subagent 小节。

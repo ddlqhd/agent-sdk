@@ -1,14 +1,17 @@
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from '../../core/types.js';
-import { SUBAGENT_TYPES, type SubagentType } from './subagent-profiles.js';
+import {
+  buildAgentToolDescription,
+  getDefaultBuiltinProfileMap,
+  profilesMapToSortedList
+} from '../../subagents/index.js';
 
-export type { SubagentType };
+export type { SubagentType } from './subagent-profiles.js';
 export {
   resolveSubagentTypeAppend,
   subagentExploreDefaultsUnavailableMessage,
-  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
-  SUBAGENT_TYPES
+  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES
 } from './subagent-profiles.js';
 
 export const subagentRequestSchema = z.object({
@@ -18,9 +21,10 @@ export const subagentRequestSchema = z.object({
     .optional()
     .describe('Short 3-5 words task label for logs and metadata.'),
   subagent_type: z
-    .enum(SUBAGENT_TYPES)
+    .string()
+    .min(1)
     .default('general-purpose')
-    .describe('Subagent profile/type to use.'),
+    .describe('Subagent profile name from the Agent tool description (e.g. general-purpose, explore, or a custom profile).'),
   allowed_tools: z
     .array(z.string().min(1))
     .optional()
@@ -51,7 +55,13 @@ export interface SubagentRunner {
 
 export interface CreateAgentToolOptions {
   runner: SubagentRunner;
+  /** Full tool description shown to the model (include available subagent list). */
+  description?: string;
 }
+
+const defaultAgentToolDescription = buildAgentToolDescription(
+  profilesMapToSortedList(getDefaultBuiltinProfileMap())
+);
 
 /**
  * Agent tool - delegates a task to a dedicated subagent run.
@@ -60,26 +70,7 @@ export function createAgentTool(options: CreateAgentToolOptions): ToolDefinition
   return createTool({
     name: 'Agent',
     category: 'planning',
-    description: `Launch a new subagent to handle complex, multi-step tasks autonomously.
-
-The Agent tool delegates work to a dedicated subagent that runs in isolated context and returns a final result back to the parent agent.
-
-Use this tool when:
-- The task requires broader exploration or multi-step research
-- You want to keep the parent context focused and concise
-- You need a specific subagent profile (for example, explore vs general-purpose)
-
-When NOT to use this tool:
-- Reading a known file path (use Read directly)
-- Simple symbol or text lookup (use Grep/Glob directly)
-- Small scoped changes in 1-3 files that do not benefit from delegation
-
-Usage notes:
-- Always pass a short description and a complete prompt with all required context
-- Use subagent_type: **general-purpose** (default) for balanced work, or **explore** for read-focused runs (SDK appends explore instructions; if you omit allowed_tools and subagent.defaultAllowedTools, tools default to Read/Glob/Grep/WebFetch/WebSearch)
-- Optional system_prompt is merged after the type-specific fragment; override per-type text via AgentConfig.subagent.subagentTypePrompts if needed
-- Subagents do not inherit parent conversation history, only the prompt you provide
-- Subagents cannot spawn other subagents (no nested Agent calls)`,
+    description: options.description ?? defaultAgentToolDescription,
     parameters: subagentRequestSchema,
     handler: async (args, context) => {
       return options.runner(args as SubagentRequest, context);
@@ -91,10 +82,10 @@ export const agentTool = createAgentTool({
   runner: async () => ({
     content: 'Agent tool runner is not configured in this runtime',
     isError: true
-  })
+  }),
+  description: defaultAgentToolDescription
 });
 
 export function getSubagentTools(): ToolDefinition[] {
   return [agentTool];
 }
-

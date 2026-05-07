@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AgentErrorContext, AgentLifecycleCallbacks } from './callbacks.js';
+import type { SubagentProfile } from '../subagents/types.js';
 
 export type {
   AgentErrorContext,
@@ -901,10 +902,29 @@ export interface AgentConfig {
     /** 子代理默认允许工具列表（为空时自动使用安全工具） */
     defaultAllowedTools?: string[];
     /**
-     * 按 subagent 类型（general-purpose / explore）覆盖内置追加 system 片段；未设置的类型仍用内置文案。
-     * 设为空字符串表示该类型不追加片段。
+     * 从磁盘加载 `.claude/agents` / `.agent-sdk/agents`（用户与项目目录）；默认 true。
+     * 设为 false 时仅使用内置 profile 与 {@link subagent.profiles}。
      */
-    subagentTypePrompts?: Partial<Record<'general-purpose' | 'explore', string>>;
+    loadProfilesFromFiles?: boolean;
+    /**
+     * 可选覆盖默认 agents 目录；未设置时使用与 Claude Code 类似的约定路径。
+     */
+    profileConfig?: {
+      /** 是否自动从磁盘加载，默认 true；仅当 {@link loadProfilesFromFiles} 非 false 时有效 */
+      autoLoad?: boolean;
+      /** 项目级 agents 目录（完整路径）；默认 `{cwd}/.claude/agents` */
+      workspacePath?: string;
+      /** 用户级 agents 目录（完整路径）；默认 `{userBasePath}/.claude/agents` */
+      userPath?: string;
+      /** 额外要扫描的目录（完整路径），按数组顺序靠后的覆盖同名 profile */
+      additionalPaths?: string[];
+    };
+    /** 程序化注册的 subagent（合并时优先级最高：覆盖磁盘与内置同名 profile） */
+    profiles?: SubagentProfile[];
+    /**
+     * 按 subagent 名称覆盖内置追加 system 片段（例如 explore）；设为空字符串表示不追加内置片段。
+     */
+    subagentTypePrompts?: Partial<Record<string, string>>;
   };
 }
 

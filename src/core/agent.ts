@@ -11,6 +11,7 @@ import {
   type ContextManagerConfig,
   type Message,
   type ModelAdapter,
+  type ToolDefinition,
   type ToolExecutionContext,
   type ToolResult,
   type AgentErrorContext,
@@ -19,7 +20,10 @@ import {
   type SystemMessageSource,
   type UserMessageSource
 } from '../core/types.js';
+import type { SubagentProfile } from '../subagents/types.js';
 import { randomUUID } from 'crypto';
+import { homedir } from 'os';
+import { join } from 'path';
 import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
 import { SessionManager } from '../storage/session.js';
@@ -38,12 +42,16 @@ import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import {
   createAgentTool,
-  resolveSubagentTypeAppend,
   subagentExploreDefaultsUnavailableMessage,
-  SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES,
-  type SubagentRequest,
-  type SubagentType
+  type SubagentRequest
 } from '../tools/builtin/subagent.js';
+import { getBuiltinSubagentProfiles } from '../subagents/builtin/index.js';
+import { SubagentLoader } from '../subagents/loader.js';
+import { mergeSubagentProfiles, profilesMapToSortedList } from '../subagents/registry.js';
+import {
+  buildAgentToolDescription,
+  buildSubagentMergedSystemPrompt
+} from '../subagents/tool-description.js';
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { createModel } from '../models/index.js';
 import { SummarizationCompressor } from './compressor.js';
@@ -92,6 +100,7 @@ export class Agent {
   private hookDiscoverPromise: Promise<void> | null = null;
   private agentDepth = 0;
   private activeSubagentRuns = 0;
+  private subagentProfileMap: Map<string, SubagentProfile>;
 
   // Token 使用量统计
   // contextTokens: 当前上下文大小 (用于压缩判断)
@@ -130,6 +139,11 @@ export class Agent {
       userBasePath: this.config.userBasePath
     });
 
+    this.subagentProfileMap = mergeSubagentProfiles([
+      getBuiltinSubagentProfiles(),
+      this.config.subagent?.profiles ?? []
+    ]);
+
     // 初始化工具注册中心（执行策略与 AgentConfig 对齐，便于在 ToolRegistry.execute 中统一校验）
     this.toolRegistry = new ToolRegistry({
       executionPolicy: {
@@ -144,12 +158,7 @@ export class Agent {
 
     const subagentEnabled = this.config.subagent?.enabled !== false;
     if (subagentEnabled) {
-      if (this.toolRegistry.has('Agent')) {
-        this.toolRegistry.unregister('Agent');
-      }
-      this.toolRegistry.register(createAgentTool({
-        runner: (request, context) => this.runSubagent(request, context)
-      }));
+      this.registerAgentToolWithProfiles();
     } else if (this.toolRegistry.has('Agent')) {
       this.toolRegistry.unregister('Agent');
     }
@@ -264,6 +273,11 @@ export class Agent {
       if (this.config.mcpServers && this.config.mcpServers.length > 0) {
         this.mcpAdapter = new MCPAdapter();
         await this.initializeMCP(this.config.mcpServers);
+      }
+
+      if (this.config.subagent?.enabled !== false) {
+        await this.loadSubagentProfilesFromDisk();
+        this.registerAgentToolWithProfiles();
       }
     } catch (err) {
       // 初始化失败不应阻塞 Agent 使用，只输出警告
@@ -1611,6 +1625,54 @@ export class Agent {
     return events;
   }
 
+  private registerAgentToolWithProfiles(): void {
+    if (this.config.subagent?.enabled === false) {
+      return;
+    }
+    if (this.toolRegistry.has('Agent')) {
+      this.toolRegistry.unregister('Agent');
+    }
+    const profiles = profilesMapToSortedList(this.subagentProfileMap);
+    this.toolRegistry.register(
+      createAgentTool({
+        description: buildAgentToolDescription(profiles),
+        runner: (request, context) => this.runSubagent(request, context)
+      })
+    );
+  }
+
+  private async loadSubagentProfilesFromDisk(): Promise<void> {
+    if (this.config.subagent?.loadProfilesFromFiles === false) {
+      return;
+    }
+    if (this.config.subagent?.profileConfig?.autoLoad === false) {
+      return;
+    }
+    const cwd = this.config.cwd ?? process.cwd();
+    const userBase = this.config.userBasePath ?? homedir();
+    const pc = this.config.subagent?.profileConfig;
+    const loader = new SubagentLoader({ cwd });
+    const layers: SubagentProfile[][] = [getBuiltinSubagentProfiles()];
+    const userAgentsDir = pc?.userPath ?? join(userBase, '.claude', 'agents');
+    const orderedDirs = [
+      userAgentsDir,
+      join(userBase, '.agent-sdk', 'agents'),
+      pc?.workspacePath ?? join(cwd, '.claude', 'agents'),
+      join(cwd, '.agent-sdk', 'agents')
+    ];
+    if (pc?.additionalPaths?.length) {
+      orderedDirs.push(...pc.additionalPaths);
+    }
+    for (const dir of orderedDirs) {
+      const loaded = await loader.loadAllFromDir(dir);
+      if (loaded.length) {
+        layers.push(loaded);
+      }
+    }
+    layers.push(this.config.subagent?.profiles ?? []);
+    this.subagentProfileMap = mergeSubagentProfiles(layers);
+  }
+
   private getSubagentConfig() {
     return {
       enabled: this.config.subagent?.enabled !== false,
@@ -1624,7 +1686,7 @@ export class Agent {
 
   private resolveSubagentTools(
     request: SubagentRequest,
-    subagentType: SubagentType
+    profile: SubagentProfile
   ): {
     tools?: ReturnType<ToolRegistry['getAll']>;
     error?: string;
@@ -1635,21 +1697,38 @@ export class Agent {
     const parentTools = this.toolRegistry.getAll();
     const byName = new Map(parentTools.map(tool => [tool.name, tool] as const));
 
-    let requestedNames = request.allowed_tools ?? subagentConfig.defaultAllowedTools;
+    const deny = new Set(
+      (profile.disallowedTools ?? [])
+        .map((s: string) => s.trim())
+        .filter((x: string) => Boolean(x))
+    );
+    const pool =
+      deny.size > 0 ? parentTools.filter(t => !deny.has(t.name)) : [...parentTools];
 
-    let usedExploreDefaultNames = false;
-    if (requestedNames === undefined && subagentType === 'explore') {
-      requestedNames = [...SUBAGENT_EXPLORE_DEFAULT_TOOL_NAMES];
-      usedExploreDefaultNames = true;
+    const poolByName = new Map(pool.map(tool => [tool.name, tool] as const));
+    const explicitAllow = request.allowed_tools ?? subagentConfig.defaultAllowedTools;
+
+    let selected: ToolDefinition[];
+    let usedExploreDefaults = false;
+
+    if (explicitAllow !== undefined) {
+      selected = explicitAllow
+        .map(name => poolByName.get(name))
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    } else if (profile.tools !== undefined && profile.tools.length > 0) {
+      selected = profile.tools
+        .map(name => pool.find(t => t.name === name))
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    } else if (profile.defaultToolNames !== undefined && profile.defaultToolNames.length > 0) {
+      usedExploreDefaults = profile.name === 'explore';
+      selected = profile.defaultToolNames
+        .map(name => poolByName.get(name))
+        .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    } else {
+      selected = pool.filter(tool => !tool.isDangerous);
     }
 
-    let selected = requestedNames
-      ? requestedNames
-          .map(name => byName.get(name))
-          .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined)
-      : parentTools.filter(tool => !tool.isDangerous);
-
-    if (usedExploreDefaultNames && selected.length === 0) {
+    if (usedExploreDefaults && selected.length === 0) {
       return { error: subagentExploreDefaultsUnavailableMessage() };
     }
 
@@ -1694,15 +1773,23 @@ export class Agent {
       return { content: 'Subagent concurrency limit reached', isError: true };
     }
 
-    const normalizedType = request.subagent_type ?? 'general-purpose';
+    const normalizedType = (request.subagent_type ?? 'general-purpose').trim();
+    const profile = this.subagentProfileMap.get(normalizedType);
+    if (!profile) {
+      return {
+        content: `Unknown subagent_type: "${normalizedType}". Use a name from the Agent tool description.`,
+        isError: true
+      };
+    }
+
     const requestedTimeout = request.timeout_ms ?? subagentConfig.timeoutMs;
     const timeoutMs = Math.min(requestedTimeout, subagentConfig.timeoutMs);
     const maxIterations = Math.max(
       1,
-      request.max_iterations ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
+      request.max_iterations ?? profile.maxTurns ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
     );
 
-    const resolved = this.resolveSubagentTools(request, normalizedType);
+    const resolved = this.resolveSubagentTools(request, profile);
     if (!resolved.tools) {
       return {
         content: resolved.error ?? 'Unable to resolve subagent tools',
@@ -1731,12 +1818,13 @@ export class Agent {
 
     try {
       await child.waitForInit();
-      const typeAppend = resolveSubagentTypeAppend(normalizedType, this.config.subagent);
-      const mergedSystem = [typeAppend, request.system_prompt]
-        .filter((s): s is string => isNonBlankString(s))
-        .join('\n\n');
+      const mergedSystem = buildSubagentMergedSystemPrompt(
+        profile,
+        request.system_prompt,
+        this.config.subagent
+      );
       const runPromise = child.run(request.prompt, {
-        systemPrompt: mergedSystem || undefined,
+        systemPrompt: mergedSystem,
         signal: subagentSignal
       });
       const timeoutPromise = new Promise<never>((_, reject) => {

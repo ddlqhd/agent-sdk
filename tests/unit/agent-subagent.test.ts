@@ -376,6 +376,93 @@ describe('Agent subagent tool integration', () => {
     expect(toolNames).toEqual(['Read']);
   });
 
+  it('returns error for unknown subagent_type', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+    await agent.waitForInit();
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: 'task',
+      subagent_type: 'does-not-exist'
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Unknown subagent_type');
+  });
+
+  it('includes programmatic subagent profile in Agent tool description', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        profiles: [
+          {
+            name: 'audit-bot',
+            description: 'Security-focused read-only audits.',
+            tools: ['Read', 'Grep']
+          }
+        ]
+      }
+    });
+    await agent.waitForInit();
+    const tool = agent.getToolRegistry().get('Agent');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toContain('**audit-bot**');
+    expect(tool!.description).toContain('Security-focused');
+  });
+
+  it('uses profile tools when subagent_type matches programmatic profile', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        profiles: [
+          {
+            name: 'mini-read',
+            description: 'Read only.',
+            tools: ['Read']
+          }
+        ]
+      }
+    });
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'mini-read'
+    });
+    expect(result.isError).toBeFalsy();
+    const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
+    expect(toolNames).toEqual(['Read']);
+  });
+
+  it('applies disallowedTools even when allowed_tools is passed', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        profiles: [
+          {
+            name: 'restricted',
+            description: 'disallow read',
+            disallowedTools: ['Read']
+          }
+        ]
+      }
+    });
+
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_PROBE_PROMPT,
+      subagent_type: 'restricted',
+      allowed_tools: ['Read', 'Glob']
+    });
+    expect(result.isError).toBeFalsy();
+    const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
+    expect(toolNames).toEqual(['Glob']);
+  });
+
   it('fails explore with a clear error when parent has none of the default explore tools', async () => {
     const onlyCustom = createTool({
       name: 'OnlyCustom',
