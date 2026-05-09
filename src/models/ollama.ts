@@ -102,7 +102,9 @@ function uniqueOllamaToolCallId(batchMs: number, index: number): string {
  * Ollama 模型适配器 (本地模型)
  */
 export class OllamaAdapter extends BaseModelAdapter {
-  readonly name: string;
+  get name(): string {
+    return `ollama/${this.model}`;
+  }
   private baseUrl: string;
   private model: string;
   private readonly think: OllamaThinkOption | undefined;
@@ -113,9 +115,24 @@ export class OllamaAdapter extends BaseModelAdapter {
     this.model = config.model || 'qwen3.5:0.8b';
     this.think = config.think;
 
-    this.name = `ollama/${this.model}`;
-
     this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
+  }
+
+  clone(): OllamaAdapter {
+    return new OllamaAdapter({
+      baseUrl: this.baseUrl,
+      model: this.model,
+      think: this.think,
+      capabilities: this.capabilities
+    });
+  }
+
+  setModel(modelId: string): void {
+    const t = modelId.trim();
+    if (!t) {
+      throw new Error('OllamaAdapter.setModel: model id must be non-empty');
+    }
+    this.model = t;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

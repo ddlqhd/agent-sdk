@@ -19,7 +19,7 @@
 | 上下文与环境 | `contextManagement`、`includeEnvironment` |
 | 可观测 | `callbacks`、`logger`、`logLevel`、`redaction` |
 | Hook | `hookManager`、`hookConfigDir`、`loadHookSettingsFromFiles` |
-| 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`allowDangerousTools`、`defaultAllowedTools`、`loadProfilesFromFiles`、`profileConfig`、`profiles`、`subagentTypePrompts`） |
+| 子 Agent | `subagent`（`enabled`、`maxDepth`、`maxParallel`、`timeoutMs`、`defaultAllowedTools`、`loadProfilesFromFiles`、`profileConfig`、`profiles`、`subagentTypePrompts`） |
 
 未显式设置时，SDK 会合并默认 **`maxIterations: 400`**、**`streaming: true`**（可被传入配置覆盖）；常量 **`DEFAULT_MAX_ITERATIONS`** 可从包根导出。
 
@@ -99,8 +99,12 @@ interface ModelAdapter {
   capabilities?: ModelCapabilities;
   stream(params: ModelParams): AsyncIterable<StreamChunk>;
   complete(params: ModelParams): Promise<CompletionResult>;
+  clone?(): ModelAdapter;
+  setModel?(modelId: string): void;
 }
 ```
+
+内置 **OpenAI / Anthropic / Ollama** 适配器实现 **`clone` / `setModel`**：`clone()` 无参复制配置；**`setModel(id)`** 仅替换模型 id（`name` 随之变化）。子 Agent 在 `Agent` 工具中传入 **`model`** 时，对父适配器 **`clone()`** 再 **`setModel`**；若父适配器未实现二者则报错（详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) Subagent 小节）。
 
 ### `ModelCapabilities`
 

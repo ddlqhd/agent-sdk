@@ -8,8 +8,7 @@ async function main() {
     subagent: {
       enabled: true,
       maxDepth: 1,
-      maxParallel: 2,
-      allowDangerousTools: false
+      maxParallel: 2
     }
   });
 

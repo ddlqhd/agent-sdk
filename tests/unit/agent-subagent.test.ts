@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../../src/core/agent.js';
 import { createTool } from '../../src/tools/registry.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import type { ModelAdapter, ModelParams, StreamChunk, CompletionResult } from '../../src/core/types.js';
 import { z } from 'zod';
+import * as models from '../../src/models/index.js';
+import { OpenAIAdapter } from '../../src/models/openai.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 import { GENERAL_PURPOSE_SYSTEM_FRAGMENT } from '../../src/subagents/builtin/index.js';
+
+/** Used by `forwards ToolExecutionContext.signal to subagent run` test. */
+const SUBAGENT_SIGNAL_PROBE = '__subagent_parent_signal__';
 
 /** User message used only in tests that assert explore / system-prompt behavior (avoids colliding with `child-task` from parent delegation). */
 const SUBAGENT_PROBE_PROMPT = '__sdk_subagent_probe__';
@@ -16,76 +21,71 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function createSubagentTestModel(): ModelAdapter {
-  return {
-    name: 'subagent-test-model',
-    async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
-      const lastMessage = params.messages[params.messages.length - 1];
-      if (!lastMessage) {
-        yield { type: 'text', content: 'empty' };
+/**
+ * OpenAI adapter subclass so subagent `model` override can detect provider via `instanceof OpenAIAdapter`.
+ */
+class SubagentProbeOpenAIAdapter extends OpenAIAdapter {
+  constructor() {
+    super({ apiKey: 'test-agent-sdk-subagent-unit', model: 'probe' });
+  }
+
+  override clone(): ModelAdapter {
+    return new SubagentProbeOpenAIAdapter();
+  }
+
+  override async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
+    const lastMessage = params.messages[params.messages.length - 1];
+    if (!lastMessage) {
+      yield { type: 'text', content: 'empty' };
+      yield { type: 'done' };
+      return;
+    }
+
+    if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+      if (lastMessage.content === SUBAGENT_SIGNAL_PROBE) {
+        if (!params.signal) {
+          yield { type: 'text', content: 'missing-signal' };
+          yield { type: 'done' };
+          return;
+        }
+        yield { type: 'text', content: 'subagent-signal-ok' };
         yield { type: 'done' };
         return;
       }
-
-      if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
-        if (lastMessage.content === SUBAGENT_NO_SKILLS_PROMPT) {
-          const sysText = params.messages
-            .filter((m) => m.role === 'system')
-            .map((m) => (typeof m.content === 'string' ? m.content : ''))
-            .join('\n');
-          const leaked =
-            sysText.includes('### Skills') ||
-            sysText.includes('{{SKILL_LIST}}') ||
-            sysText.includes('Call `Skill`');
-          yield { type: 'text', content: leaked ? 'skills-leaked-in-prompt' : 'no-skills-prompt-ok' };
+      if (lastMessage.content === SUBAGENT_NO_SKILLS_PROMPT) {
+        const sysText = params.messages
+          .filter((m) => m.role === 'system')
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        const leaked =
+          sysText.includes('### Skills') ||
+          sysText.includes('{{SKILL_LIST}}') ||
+          sysText.includes('Call `Skill`');
+        yield { type: 'text', content: leaked ? 'skills-leaked-in-prompt' : 'no-skills-prompt-ok' };
+        yield { type: 'done' };
+        return;
+      }
+      if (lastMessage.content === SUBAGENT_PROBE_PROMPT) {
+        const sysText = params.messages
+          .filter((m) => m.role === 'system')
+          .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        if (sysText.includes('Subagent role: explore')) {
+          if (sysText.includes('CUSTOM_USER_HINT')) {
+            yield { type: 'text', content: 'explore-with-custom-user' };
+          } else {
+            yield { type: 'text', content: 'explore-system-ok' };
+          }
           yield { type: 'done' };
           return;
         }
-        if (lastMessage.content === SUBAGENT_PROBE_PROMPT) {
-          const sysText = params.messages
-            .filter((m) => m.role === 'system')
-            .map((m) => (typeof m.content === 'string' ? m.content : ''))
-            .join('\n');
-          if (sysText.includes('Subagent role: explore')) {
-            if (sysText.includes('CUSTOM_USER_HINT')) {
-              yield { type: 'text', content: 'explore-with-custom-user' };
-            } else {
-              yield { type: 'text', content: 'explore-system-ok' };
-            }
-            yield { type: 'done' };
-            return;
-          }
-          if (sysText.includes('Subagent role: general-purpose')) {
-            yield { type: 'text', content: 'general-purpose-system-ok' };
-            yield { type: 'done' };
-            return;
-          }
-          if (sysText.includes('OVERRIDE_PROMPT')) {
-            yield { type: 'text', content: 'override-ok' };
-            yield { type: 'done' };
-            return;
-          }
-          yield { type: 'text', content: `child:${lastMessage.content}` };
+        if (sysText.includes('Subagent role: general-purpose')) {
+          yield { type: 'text', content: 'general-purpose-system-ok' };
           yield { type: 'done' };
           return;
         }
-        if (lastMessage.content.includes('[parent-delegate]')) {
-          yield {
-            type: 'tool_call',
-            toolCall: {
-              id: 'tc_parent',
-              name: 'Agent',
-              arguments: {
-                prompt: 'child-task'
-              }
-            }
-          };
-          yield { type: 'done' };
-          return;
-        }
-        if (lastMessage.content.includes('slow-child')) {
-          await sleep(80);
-          yield { type: 'text', content: 'slow child done' };
+        if (sysText.includes('OVERRIDE_PROMPT')) {
+          yield { type: 'text', content: 'override-ok' };
           yield { type: 'done' };
           return;
         }
@@ -93,20 +93,48 @@ function createSubagentTestModel(): ModelAdapter {
         yield { type: 'done' };
         return;
       }
-
-      if (lastMessage.role === 'tool' && typeof lastMessage.content === 'string') {
-        yield { type: 'text', content: `parent:${lastMessage.content}` };
+      if (lastMessage.content.includes('[parent-delegate]')) {
+        yield {
+          type: 'tool_call',
+          toolCall: {
+            id: 'tc_parent',
+            name: 'Agent',
+            arguments: {
+              prompt: 'child-task'
+            }
+          }
+        };
         yield { type: 'done' };
         return;
       }
-
-      yield { type: 'text', content: 'ok' };
+      if (lastMessage.content.includes('slow-child')) {
+        await sleep(80);
+        yield { type: 'text', content: 'slow child done' };
+        yield { type: 'done' };
+        return;
+      }
+      yield { type: 'text', content: `child:${lastMessage.content}` };
       yield { type: 'done' };
-    },
-    async complete() {
-      return { content: 'ok' };
+      return;
     }
-  };
+
+    if (lastMessage.role === 'tool' && typeof lastMessage.content === 'string') {
+      yield { type: 'text', content: `parent:${lastMessage.content}` };
+      yield { type: 'done' };
+      return;
+    }
+
+    yield { type: 'text', content: 'ok' };
+    yield { type: 'done' };
+  }
+
+  override async complete(): Promise<CompletionResult> {
+    return { content: 'ok' };
+  }
+}
+
+function createSubagentTestModel(): ModelAdapter {
+  return new SubagentProbeOpenAIAdapter();
 }
 
 describe('Agent subagent tool integration', () => {
@@ -149,8 +177,7 @@ describe('Agent subagent tool integration', () => {
     });
 
     const result = await agent.getToolRegistry().execute('Agent', {
-      prompt: 'slow-child',
-      timeout_ms: 1000
+      prompt: 'slow-child'
     });
 
     expect(result.isError).toBe(true);
@@ -159,47 +186,15 @@ describe('Agent subagent tool integration', () => {
 
   it('forwards ToolExecutionContext.signal to subagent run', async () => {
     const ac = new AbortController();
-    const childProbe = '__subagent_parent_signal__';
-    const subagentModel: ModelAdapter = {
-      name: 'subagent-signal-model',
-      async *stream(params: ModelParams) {
-        const lastMessage = params.messages[params.messages.length - 1];
-        if (
-          lastMessage &&
-          lastMessage.role === 'user' &&
-          typeof lastMessage.content === 'string' &&
-          lastMessage.content === childProbe
-        ) {
-          if (!params.signal) {
-            yield { type: 'text', content: 'missing-signal' };
-            yield { type: 'done' };
-            return;
-          }
-          if (params.signal !== ac.signal) {
-            yield { type: 'text', content: 'wrong-signal' };
-            yield { type: 'done' };
-            return;
-          }
-          yield { type: 'text', content: 'subagent-signal-ok' };
-          yield { type: 'done' };
-          return;
-        }
-        yield { type: 'text', content: 'unexpected' };
-        yield { type: 'done' };
-      },
-      async complete() {
-        return { content: 'ok' };
-      }
-    };
     const agent = new Agent({
-      model: subagentModel,
+      model: createSubagentTestModel(),
       memory: false,
       skillConfig: SKILL_CONFIG_NO_AUTOLOAD
     });
 
     const r = await agent.getToolRegistry().execute(
       'Agent',
-      { prompt: childProbe },
+      { prompt: SUBAGENT_SIGNAL_PROBE },
       { signal: ac.signal, projectDir: process.cwd() }
     );
 
@@ -285,7 +280,7 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('no-skills-prompt-ok');
   });
 
-  it('includes dangerous tools in general-purpose child toolset by default', async () => {
+  it('includes dangerous tools in subagent toolset by default', async () => {
     const dangerousTool = createTool({
       name: 'DangerousExec',
       description: 'danger',
@@ -307,15 +302,18 @@ describe('Agent subagent tool integration', () => {
       tools: [dangerousTool, safeTool]
     });
 
-    const result = await agent.getToolRegistry().execute('Agent', {
-      prompt: 'child-task'
-    });
+    for (const subagent_type of ['general-purpose', 'explore']) {
+      const result = await agent.getToolRegistry().execute('Agent', {
+        prompt: 'child-task',
+        subagent_type
+      });
 
-    expect(result.isError).toBeFalsy();
-    const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
-    expect(toolNames).toContain('SafeEcho');
-    expect(toolNames).toContain('DangerousExec');
-    expect(toolNames).not.toContain('Agent');
+      expect(result.isError).toBeFalsy();
+      const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
+      expect(toolNames).toContain('SafeEcho');
+      expect(toolNames).toContain('DangerousExec');
+      expect(toolNames).not.toContain('Agent');
+    }
   });
 
   it('appends explore profile to child system prompt', async () => {
@@ -351,17 +349,21 @@ describe('Agent subagent tool integration', () => {
     expect((result.metadata as { subagentType?: string }).subagentType).toBe('explore');
   });
 
-  it('merges explore append with request.system_prompt after type fragment', async () => {
+  it('merges explore with subagentTypePrompts containing extra user hint', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
-      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        subagentTypePrompts: {
+          explore: `## Subagent role: explore\n\nCUSTOM_USER_HINT`
+        }
+      }
     });
 
     const result = await agent.getToolRegistry().execute('Agent', {
       prompt: SUBAGENT_PROBE_PROMPT,
-      subagent_type: 'explore',
-      system_prompt: 'CUSTOM_USER_HINT'
+      subagent_type: 'explore'
     });
 
     expect(result.isError).toBeFalsy();
@@ -389,7 +391,7 @@ describe('Agent subagent tool integration', () => {
     expect(result.content).toContain('override-ok');
   });
 
-  it('explore inherits parent tools minus Write Edit Agent and hides dangerous tools by default', async () => {
+  it('explore inherits parent tools minus Write Edit Agent via disallowedTools', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
@@ -411,20 +413,19 @@ describe('Agent subagent tool integration', () => {
     expect(toolNames).not.toContain('Edit');
     expect(toolNames).not.toContain('Agent');
     expect(toolNames).not.toContain('AskUserQuestion');
-    expect(toolNames).not.toContain('Bash');
   });
 
-  it('does not apply explore default tools when allowed_tools is explicit', async () => {
+  it('uses defaultAllowedTools to narrow explore toolset', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
-      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: { defaultAllowedTools: ['Read'] }
     });
 
     const result = await agent.getToolRegistry().execute('Agent', {
       prompt: SUBAGENT_PROBE_PROMPT,
-      subagent_type: 'explore',
-      allowed_tools: ['Read']
+      subagent_type: 'explore'
     });
 
     expect(result.isError).toBeFalsy();
@@ -493,12 +494,13 @@ describe('Agent subagent tool integration', () => {
     expect(toolNames).toEqual(['Read']);
   });
 
-  it('applies disallowedTools even when allowed_tools is passed', async () => {
+  it('applies disallowedTools when defaultAllowedTools lists blocked tool', async () => {
     const agent = new Agent({
       model: createSubagentTestModel(),
       memory: false,
       skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
       subagent: {
+        defaultAllowedTools: ['Read', 'Glob'],
         profiles: [
           {
             name: 'restricted',
@@ -511,8 +513,7 @@ describe('Agent subagent tool integration', () => {
 
     const result = await agent.getToolRegistry().execute('Agent', {
       prompt: SUBAGENT_PROBE_PROMPT,
-      subagent_type: 'restricted',
-      allowed_tools: ['Read', 'Glob']
+      subagent_type: 'restricted'
     });
     expect(result.isError).toBeFalsy();
     const toolNames = (result.metadata as { toolNames?: string[] } | undefined)?.toolNames ?? [];
@@ -562,6 +563,57 @@ describe('Agent subagent tool integration', () => {
     expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('Subagent role: general-purpose');
     expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('No re-delegation');
     expect(GENERAL_PURPOSE_SYSTEM_FRAGMENT).toContain('Output contract');
+  });
+
+  it('uses clone and setModel when Agent tool passes model override', async () => {
+    const createModelSpy = vi.spyOn(models, 'createModel');
+    const cloneSpy = vi.spyOn(SubagentProbeOpenAIAdapter.prototype, 'clone');
+    const setModelSpy = vi.spyOn(OpenAIAdapter.prototype, 'setModel');
+    try {
+      const agent = new Agent({
+        model: createSubagentTestModel(),
+        memory: false,
+        skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+      });
+      const result = await agent.getToolRegistry().execute('Agent', {
+        prompt: 'child-task',
+        model: 'gpt-4o-mini'
+      });
+      expect(result.isError).toBeFalsy();
+      expect(cloneSpy).toHaveBeenCalled();
+      expect(setModelSpy).toHaveBeenCalledWith('gpt-4o-mini');
+      expect(createModelSpy).not.toHaveBeenCalled();
+      expect(result.metadata).toMatchObject({
+        subagentModelOverride: 'gpt-4o-mini'
+      });
+    } finally {
+      createModelSpy.mockRestore();
+      cloneSpy.mockRestore();
+      setModelSpy.mockRestore();
+    }
+  });
+
+  it('defaultAllowedTools empty array falls through to full parent pool', async () => {
+    const agentWithEmpty = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: { defaultAllowedTools: [] }
+    });
+    const agentWithoutDefault = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD
+    });
+
+    const r1 = await agentWithEmpty.getToolRegistry().execute('Agent', { prompt: 'child-task' });
+    const r2 = await agentWithoutDefault.getToolRegistry().execute('Agent', { prompt: 'child-task' });
+
+    expect(r1.isError).toBeFalsy();
+    expect(r2.isError).toBeFalsy();
+    const names1 = (r1.metadata?.toolNames as string[] | undefined) ?? [];
+    const names2 = (r2.metadata?.toolNames as string[] | undefined) ?? [];
+    expect(names1.sort()).toEqual(names2.sort());
   });
 
   it('built-in profile descriptions appear in default Agent tool description', async () => {

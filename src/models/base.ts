@@ -56,10 +56,11 @@ export function mergeTokenUsage(...usages: (TokenUsage | undefined)[]): TokenUsa
 }
 
 /**
- * 基础模型适配器抽象类
+ * 基础模型适配器抽象类。具体提供商适配器应实现 {@link ModelAdapter.clone} / {@link ModelAdapter.setModel}
+ * 以便子 Agent 等在换模时保留与父级一致的密钥与高级配置（见内置 OpenAI / Anthropic / Ollama）。
  */
 export abstract class BaseModelAdapter implements ModelAdapter {
-  abstract readonly name: string;
+  abstract get name(): string;
 
   /** 模型能力描述 */
   capabilities?: ModelCapabilities;

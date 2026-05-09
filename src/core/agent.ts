@@ -41,6 +41,7 @@ import { isNonBlankString } from '../utils/index.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
 import { createAgentTool, type SubagentRequest } from '../tools/builtin/subagent.js';
+import { createModel } from '../models/index.js';
 import { getBuiltinSubagentProfiles } from '../subagents/builtin/index.js';
 import { SubagentLoader } from '../subagents/loader.js';
 import { mergeSubagentProfiles, profilesMapToSortedList } from '../subagents/registry.js';
@@ -49,7 +50,6 @@ import {
   buildSubagentMergedSystemPrompt
 } from '../subagents/tool-description.js';
 import { mergeMcpStdioEnv } from './process-env-merge.js';
-import { createModel } from '../models/index.js';
 import { SummarizationCompressor } from './compressor.js';
 import { TOOL_USER_ABORTED_MESSAGE } from './abort-constants.js';
 
@@ -1702,15 +1702,11 @@ export class Agent {
       maxDepth: this.config.subagent?.maxDepth ?? 1,
       maxParallel: this.config.subagent?.maxParallel ?? 5,
       timeoutMs: this.config.subagent?.timeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS,
-      allowDangerousTools: this.config.subagent?.allowDangerousTools ?? false,
       defaultAllowedTools: this.config.subagent?.defaultAllowedTools
     };
   }
 
-  private resolveSubagentTools(
-    request: SubagentRequest,
-    profile: SubagentProfile
-  ): {
+  private resolveSubagentTools(profile: SubagentProfile): {
     tools?: ReturnType<ToolRegistry['getAll']>;
     error?: string;
   } {
@@ -1718,7 +1714,6 @@ export class Agent {
 
     const subagentConfig = this.getSubagentConfig();
     const parentTools = this.toolRegistry.getAll();
-    const byName = new Map(parentTools.map(tool => [tool.name, tool] as const));
 
     const deny = new Set(
       (profile.disallowedTools ?? [])
@@ -1729,12 +1724,15 @@ export class Agent {
       deny.size > 0 ? parentTools.filter(t => !deny.has(t.name)) : [...parentTools];
 
     const poolByName = new Map(pool.map(tool => [tool.name, tool] as const));
-    const explicitAllow = request.allowed_tools ?? subagentConfig.defaultAllowedTools;
+    const configDefault =
+      subagentConfig.defaultAllowedTools && subagentConfig.defaultAllowedTools.length > 0
+        ? subagentConfig.defaultAllowedTools
+        : undefined;
 
     let selected: ToolDefinition[];
 
-    if (explicitAllow !== undefined) {
-      selected = explicitAllow
+    if (configDefault !== undefined) {
+      selected = configDefault
         .map(name => poolByName.get(name))
         .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
     } else if (profile.tools !== undefined && profile.tools.length > 0) {
@@ -1745,29 +1743,39 @@ export class Agent {
       selected = profile.defaultToolNames
         .map(name => poolByName.get(name))
         .filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
-    } else if (profile.name === 'general-purpose') {
-      selected = [...pool];
     } else {
-      selected = pool.filter(tool => !tool.isDangerous);
+      selected = [...pool];
     }
 
     selected = selected.filter(tool => !disabledToolNames.includes(tool.name));
-
-    if (!subagentConfig.allowDangerousTools && profile.name !== 'general-purpose') {
-      const requestedDangerous = request.allowed_tools?.some(name => byName.get(name)?.isDangerous);
-      if (requestedDangerous) {
-        return {
-          error: 'Subagent dangerous tools are disabled by configuration'
-        };
-      }
-      selected = selected.filter(tool => !tool.isDangerous);
-    }
 
     if (selected.length === 0) {
       return { error: 'No tools available for subagent after filtering' };
     }
 
     return { tools: selected };
+  }
+
+  /**
+   * Subagent **model** tool argument: only the model id (e.g. `gpt-4o-mini`).
+   * Requires the parent `ModelAdapter` to implement **`clone`** and **`setModel`** (built-in OpenAI / Anthropic / Ollama adapters do).
+   */
+  private resolveSubagentChildModel(overrideModelId: string | undefined): ModelAdapter {
+    if (overrideModelId === undefined || overrideModelId.trim() === '') {
+      return this.config.model as ModelAdapter;
+    }
+    const parent = this.config.model as ModelAdapter;
+    const id = overrideModelId.trim();
+
+    if (typeof parent.clone === 'function' && typeof parent.setModel === 'function') {
+      const child = parent.clone();
+      child.setModel!(id);
+      return child;
+    }
+
+    throw new Error(
+      'Subagent model override requires the parent ModelAdapter to implement clone() and setModel().'
+    );
   }
 
   private async runSubagent(
@@ -1802,14 +1810,13 @@ export class Agent {
       };
     }
 
-    const requestedTimeout = request.timeout_ms ?? subagentConfig.timeoutMs;
-    const timeoutMs = Math.min(requestedTimeout, subagentConfig.timeoutMs);
+    const timeoutMs = subagentConfig.timeoutMs;
     const maxIterations = Math.max(
       1,
-      request.max_iterations ?? profile.maxTurns ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
+      profile.maxTurns ?? this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS
     );
 
-    const resolved = this.resolveSubagentTools(request, profile);
+    const resolved = this.resolveSubagentTools(profile);
     if (!resolved.tools) {
       return {
         content: resolved.error ?? 'Unable to resolve subagent tools',
@@ -1817,8 +1824,19 @@ export class Agent {
       };
     }
 
+    let childModel: ModelAdapter;
+    try {
+      childModel = this.resolveSubagentChildModel(request.model);
+    } catch (err) {
+      return {
+        content: err instanceof Error ? err.message : String(err),
+        isError: true
+      };
+    }
+
     const childConfig: AgentConfig = {
       ...this.config,
+      model: childModel,
       hookManager: this.config.hookManager ?? this.toolRegistry.getHookManager() ?? undefined,
       exclusiveTools: resolved.tools,
       tools: undefined,
@@ -1838,11 +1856,7 @@ export class Agent {
 
     try {
       await child.waitForInit();
-      const mergedSystem = buildSubagentMergedSystemPrompt(
-        profile,
-        request.system_prompt,
-        this.config.subagent
-      );
+      const mergedSystem = buildSubagentMergedSystemPrompt(profile, this.config.subagent);
       const runPromise = child.run(request.prompt, {
         systemPrompt: mergedSystem,
         signal: subagentSignal
@@ -1862,7 +1876,8 @@ export class Agent {
           durationMs: Date.now() - startedAt,
           usage: result.usage,
           toolNames: resolved.tools.map(tool => tool.name),
-          description: request.description
+          description: request.description,
+          ...(request.model !== undefined ? { subagentModelOverride: request.model } : {})
         }
       };
     } catch (error) {

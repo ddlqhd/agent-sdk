@@ -226,7 +226,9 @@ export interface AnthropicConfig {
  * Anthropic 模型适配器
  */
 export class AnthropicAdapter extends BaseModelAdapter {
-  readonly name: string;
+  get name(): string {
+    return `anthropic/${this.model}`;
+  }
   private apiKey: string;
   private baseUrl: string;
   private model: string;
@@ -249,9 +251,28 @@ export class AnthropicAdapter extends BaseModelAdapter {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
     }
 
-    this.name = `anthropic/${this.model}`;
-
     this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
+  }
+
+  clone(): AnthropicAdapter {
+    return new AnthropicAdapter({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      version: this.version,
+      metadata: this.requestMetadata,
+      fetchRetry: this.fetchRetry,
+      thinking: this.thinkingOption,
+      capabilities: this.capabilities
+    });
+  }
+
+  setModel(modelId: string): void {
+    const t = modelId.trim();
+    if (!t) {
+      throw new Error('AnthropicAdapter.setModel: model id must be non-empty');
+    }
+    this.model = t;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

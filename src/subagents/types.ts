@@ -29,7 +29,7 @@ export interface SubagentProfile extends SubagentReservedFields {
   /** Denylist applied before allowlist resolution (Claude `disallowedTools`). */
   disallowedTools?: string[];
   /**
-   * When caller does not pass allowed_tools / defaultAllowedTools and profile has no `tools`,
+   * When profile has no **`tools`** and **`AgentConfig.subagent.defaultAllowedTools`** is unset or empty,
    * use these names (e.g. built-in explore defaults).
    */
   defaultToolNames?: string[];

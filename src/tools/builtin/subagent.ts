@@ -21,26 +21,13 @@ export const subagentRequestSchema = z.object({
     .min(1)
     .default('general-purpose')
     .describe('Subagent profile name from the Agent tool description (e.g. general-purpose, explore, or a custom profile).'),
-  allowed_tools: z
-    .array(z.string().min(1))
-    .optional()
-    .describe('Optional allowlist of tool names for the subagent.'),
-  max_iterations: z
-    .number()
-    .int()
+  model: z
+    .string()
     .min(1)
     .optional()
-    .describe('Maximum reasoning iterations for the subagent.'),
-  timeout_ms: z
-    .number()
-    .int()
-    .min(1000)
-    .optional()
-    .describe('Timeout for this subagent run in milliseconds.'),
-  system_prompt: z
-    .string()
-    .optional()
-    .describe('Optional system prompt appended for the subagent run.')
+    .describe(
+      'Optional model id for this subagent run (e.g. gpt-4o-mini). Uses the same provider adapter type as the parent Agent (OpenAI / Anthropic / Ollama).'
+    )
 });
 
 export type SubagentRequest = z.infer<typeof subagentRequestSchema>;

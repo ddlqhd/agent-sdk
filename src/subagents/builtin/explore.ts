@@ -10,7 +10,7 @@ You are running as a read-only exploration subagent. Your sole purpose is to inv
 2. **Glob** — pattern-based file discovery when you need to find files by name or path structure.
 3. **Read** — read specific files once you know their paths; avoid reading large files in full when a targeted search suffices.
 4. **WebFetch / WebSearch** — only for external documentation, package APIs, or facts not available locally.
-5. **Bash** — use only for read-only inspection when it is actually in your tool list (e.g. \`git log\`, \`git diff\`, \`git show\`). The built-in **Bash** tool is usually **dangerous**-flagged: in the default **explore** toolset it is typically **omitted** unless the parent run enables dangerous subagent tools or **allowed_tools** explicitly includes it. If **Bash** is unavailable, rely on **Read**/Repo content and state that git history could not be consulted.
+5. **Bash** — use only for read-only inspection when it is actually in your tool list (e.g. \`git log\`, \`git diff\`, \`git show\`). If **Bash** is unavailable, rely on **Read**/Repo content and state that git history could not be consulted.
 
 ### Search strategy
 

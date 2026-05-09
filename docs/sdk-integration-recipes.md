@@ -449,7 +449,8 @@ const agent = new Agent({
 
 - **`enabled`**：是否暴露 `Agent` 工具（默认 `true`）
 - **`maxDepth`**：嵌套深度上限（默认 `1`，子代理内默认不再暴露 `Agent` 以防嵌套）
-- **`maxParallel`**、**`timeoutMs`**、**`allowDangerousTools`**、**`defaultAllowedTools`**：并发、超时与子代理侧工具策略
+- **`maxParallel`**、**`timeoutMs`**：并发与超时控制
+- **`defaultAllowedTools`**：若非空，作为子代理工具集的默认白名单（在父级注册表上解析）；**未设置或空数组**均视为无默认白名单，子代理按 `resolveSubagentTools` 回落规则继承父级工具池（经 profile `disallowedTools` 过滤），不按 `isDangerous` 过滤
 - **`loadProfilesFromFiles`**：是否从上述目录加载 Markdown profile（默认 `true`）
 - **`profileConfig`**：`userPath`、`workspacePath`（项目 agents 目录完整路径）、`additionalPaths`、`autoLoad` 等
 - **`profiles`**：程序化 `SubagentProfile[]`，覆盖同名磁盘/built-in 项
@@ -457,7 +458,7 @@ const agent = new Agent({
 
 Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、`description`、`tools`、`disallowedTools`、`model`、`permissionMode`、`maxTurns`、`skills`、`mcpServers`、`hooks`、`memory`、`background`、`initialPrompt` 等）。其中 **`tools` / `disallowedTools`** 参与子代理工具集解析；其余字段首期多为解析保留，后续逐步接运行时。
 
-工具参数 **`subagent_type`**：指向已注册 profile 名。两个内置 profile 均注入系统提示片段：`general-purpose` 片段强调任务理解、分步执行与结果汇报，不允许再委托子代理；`explore` 片段强调只读边界、工具优先级与证据引用格式。若在调用中**未**指定 `allowed_tools` 且配置里**未**设置 `defaultAllowedTools`，且 profile 未配置 **`tools`**，则 `explore` 仍默认仅暴露 **Read、Glob、Grep、WebFetch、WebSearch**（以父级已注册工具为准）；**`general-purpose`** 在同样条件下使用父级经 **denylist** 后的**全部**工具（**包含** `isDangerous` 工具，与 `resolveSubagentTools` 一致）。若 `explore` 默认列表在父级一个都匹配不上，会返回明确错误。子代理 system 由 profile 的内置片段（若有）+ 文件正文/`prompt` + 工具参数 **`system_prompt`** 顺序合并。
+工具参数 **`subagent_type`**：指向已注册 profile 名。两个内置 profile 均注入系统提示片段：`general-purpose` 片段强调任务理解、分步执行与结果汇报，不允许再委托子代理；`explore` 片段强调只读边界、工具优先级与证据引用格式。若配置里**未**设置 `defaultAllowedTools`（或为空），且 profile 未配置 **`tools`** / **`defaultToolNames`**，则两种内置 profile 均使用父级经 **denylist** 后的**全部**工具（`explore` 的 denylist 含 `Write`、`Edit`、`Agent`）。子代理追加 system 由 profile 的内置片段（若有）+ 文件正文/`prompt` + `subagent.subagentTypePrompts` 合并；**不再**通过 `Agent` 工具参数追加 system。
 
 ### 工具调用参数（`SubagentRequest`）
 
@@ -468,30 +469,28 @@ Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、
 | **`prompt`** | 子任务描述（必填） |
 | **`description`** | 短标签，用于日志与返回 **metadata** |
 | **`subagent_type`** | profile 名称字符串（默认 `general-purpose`）。须为当前已加载 profile 之一，否则返回错误。 |
-| **`allowed_tools`** | 可选，按**注册名**白名单；若省略则使用 `AgentConfig.subagent.defaultAllowedTools`，再否则使用 profile 的 **`tools`** / **`defaultToolNames`** / 内置 explore 默认 / **`general-purpose` 的全集**（含危险工具，见下文） |
-| **`max_iterations`** | 子运行轮次上限；默认继承父 `AgentConfig.maxIterations`，并可与 profile 的 **`maxTurns`** 比较取链式覆盖（请求参数优先） |
-| **`timeout_ms`** | 单次委托超时；实际上限为 `min(请求值, subagent.timeoutMs)` |
-| **`system_prompt`** | 接在 profile 说明之后合并为子 `run` 的追加 `systemPrompt` |
+| **`model`** | 可选，仅模型 id 字符串（如 `gpt-4o-mini`）。父级 `ModelAdapter` 须实现 **`clone` / `setModel`**（内置三家适配器均已实现）；子运行先 **clone** 再 **setModel**。若未实现则报错。省略则子代理与父 Agent 使用同一模型。 |
+
+子代理运行的 **`maxIterations`** 由 profile 的 **`maxTurns`** 与父 **`AgentConfig.maxIterations`** 链式决定，**不能**通过 `Agent` 工具参数单独覆盖。
 
 ### 子 Agent 实际可用的工具
 
 解析规则（与源码 `resolveSubagentTools` 一致）：
 
-1. 从父级全量工具出发，若 profile 定义 **`disallowedTools`**，先从候选池移除这些工具。
-2. 若调用中指定 **`allowed_tools`**：按**父级注册表**解析名称（最高优先级）。
-3. 否则若配置 **`defaultAllowedTools`**：同上。
-4. 否则若 profile 定义 **`tools`**：在（经 denylist 后的）池内解析。
-5. 否则若 profile 定义 **`defaultToolNames`**（内置 `explore`）：按名称从**父级**解析；若一个都匹配不上且为 `explore`，返回与旧版一致的错误提示。
-6. 否则若 profile 为 **`general-purpose`**：使用经 **denylist** 后的完整候选池（**保留** `isDangerous` 工具；不受下面第 9 步对非 `general-purpose` 的危险工具剔除影响）。
-7. 否则（如 **`explore`** 且无 `tools` / `defaultToolNames`）：使用池中全部**非** `isDangerous` 的工具。
-8. 始终移除 **`Agent`**、**`AskUserQuestion`**（子代理不嵌套、不交互提问）。
-9. 若 **`allowDangerousTools`** 为 `false` **且** profile **不是** `general-purpose`：从候选集中去掉危险工具；若 **`allowed_tools`** 显式包含危险工具则直接报错。
-10. 子 `Agent` 使用 **`exclusiveTools`** 指向上述解析结果，**不**再合并 `AgentConfig.tools`；**不**继承父级 **MCP**（`mcpServers` 清空）。
-11. 子级 **`subagent.enabled`** 置为 **`false`**，故子会话内**不会**注册 `Agent` 工具（嵌套深度由 `maxDepth` 与 `ToolExecutionContext.agentDepth` 共同约束）。
+1. 从父级全量工具出发，若 profile 定义 **`disallowedTools`**，先从候选池移除这些工具（内置 `explore` 的 denylist 含 `Write`、`Edit`、`Agent`）。
+2. 若配置 **`defaultAllowedTools`** 为非空数组：按**父级注册表**解析名称（最高优先级）。
+3. 否则若 profile 定义 **`tools`**：在（经 denylist 后的）池内解析。
+4. 否则若 profile 定义 **`defaultToolNames`**：按名称从**父级**解析。
+5. 否则：使用经 **denylist** 后的完整候选池（含所有工具，不区分 `isDangerous`）。
+6. 始终移除 **`Agent`**、**`AskUserQuestion`**（子代理不嵌套、不交互提问）。
+7. 子 `Agent` 使用 **`exclusiveTools`** 指向上述解析结果，**不**再合并 `AgentConfig.tools`；**不**继承父级 **MCP**（`mcpServers` 清空）。
+8. 子级 **`subagent.enabled`** 置为 **`false`**，故子会话内**不会**注册 `Agent` 工具（嵌套深度由 `maxDepth` 与 `ToolExecutionContext.agentDepth` 共同约束）。
+
+子代理单次运行的**超时**仅由 **`AgentConfig.subagent.timeoutMs`** 决定（不再支持在工具参数中覆盖）。
 
 ### 返回与 metadata
 
-成功时工具结果可带 **`metadata`**（如 `sessionId`、`subagentType`、`durationMs`、`usage`、`toolNames`、`description`），便于观测与计费；失败路径亦可能含部分字段。
+成功时工具结果可带 **`metadata`**（如 `sessionId`、`subagentType`、`durationMs`、`usage`、`toolNames`、`description`；若请求中传了 **`model`** 则 **`subagentModelOverride`** 为传入的模型 id 字符串），便于观测与计费；失败路径亦可能含部分字段。
 
 示例见 **`examples/subagent-demo.ts`**（[`sdk-examples-index.md`](./sdk-examples-index.md)）。
 

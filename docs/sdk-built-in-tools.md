@@ -66,4 +66,4 @@
 |------|------|-----------|
 | `Agent` | 将工作委托给子代理（独立上下文） | 否 |
 
-**Subagent 说明**：子代理默认**不**再暴露 `Agent` 工具（禁止嵌套）；并发、超时、危险工具等由 `AgentConfig.subagent` 控制。`subagent_type` 为已注册 **profile** 名（内置 `general-purpose` / `explore` 与自定义 Markdown 或 `subagent.profiles`）。两个内置 profile 均附带系统提示片段（`builtinSystemFragment`）：`general-purpose` 强调任务理解、分步执行与结果汇报，适合需要工具执行或代码改动的复杂任务；`explore` 强调只读边界与证据驱动搜索，在未指定 `allowed_tools` 时默认仅暴露 Read/Glob/Grep/WebFetch/WebSearch（以父级已注册工具为准）。`Agent` 工具描述列出各 profile 的 `description` 供模型选型。详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 中 Subagent 小节。
+**Subagent 说明**：子代理默认**不**再暴露 `Agent` 工具（禁止嵌套）；并发、超时与子代理工具策略由 `AgentConfig.subagent` 与 profile（`tools` / `disallowedTools` / `defaultToolNames`）控制。`subagent_type` 为已注册 **profile** 名（内置 `general-purpose` / `explore` 与自定义 Markdown 或 `subagent.profiles`）。两个内置 profile 均附带系统提示片段（`builtinSystemFragment`）：`general-purpose` 强调任务理解、分步执行与结果汇报；`explore` 强调只读边界与证据驱动搜索。`Agent` 工具可选传入 **`model`**（仅模型 id；子运行与父级使用同一 OpenAI / Anthropic / Ollama 适配器族）。`Agent` 工具描述列出各 profile 的 `description` 供模型选型。详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 中 Subagent 小节。

@@ -29,7 +29,9 @@ export interface OpenAIConfig {
  * OpenAI 模型适配器
  */
 export class OpenAIAdapter extends BaseModelAdapter {
-  readonly name: string;
+  get name(): string {
+    return `openai/${this.model}`;
+  }
   private apiKey: string;
   private baseUrl: string;
   private model: string;
@@ -46,9 +48,25 @@ export class OpenAIAdapter extends BaseModelAdapter {
       throw new Error('OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass apiKey in config.');
     }
 
-    this.name = `openai/${this.model}`;
-
     this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
+  }
+
+  clone(): OpenAIAdapter {
+    return new OpenAIAdapter({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      organization: this.organization,
+      capabilities: this.capabilities
+    });
+  }
+
+  setModel(modelId: string): void {
+    const t = modelId.trim();
+    if (!t) {
+      throw new Error('OpenAIAdapter.setModel: model id must be non-empty');
+    }
+    this.model = t;
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

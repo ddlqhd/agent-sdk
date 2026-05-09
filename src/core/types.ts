@@ -302,6 +302,17 @@ export interface ModelAdapter {
 
   /** 完整生成 */
   complete(params: ModelParams): Promise<CompletionResult>;
+
+  /**
+   * 复制当前适配器的连接与行为配置，返回新实例（含相同 model id）。
+   * 内置 OpenAI / Anthropic / Ollama 适配器已实现；自定义适配器可选实现。
+   */
+  clone?(): ModelAdapter;
+
+  /**
+   * 替换当前实例使用的模型 id（并更新 {@link name}）；通常在 {@link clone} 之后用于子 Agent 等场景。
+   */
+  setModel?(modelId: string): void;
 }
 
 // ==================== Tool 类型 ====================
@@ -903,9 +914,11 @@ export interface AgentConfig {
     maxParallel?: number;
     /** 子代理默认超时（毫秒），默认 1800000（30 分钟） */
     timeoutMs?: number;
-    /** 是否允许子代理使用危险工具，默认 false */
-    allowDangerousTools?: boolean;
-    /** 子代理默认允许工具列表（为空时自动使用安全工具） */
+    /**
+     * 子代理默认工具白名单：若配置为非空，则子代理工具集优先按此列表在父级注册表中解析（仍受 profile `disallowedTools` 等规则约束）。
+     * 未设置或设为空数组时，均不通过本字段收紧工具集——子代理按 `resolveSubagentTools` 的后续规则
+     * 继承父级工具池（经 profile `disallowedTools` 过滤）；**不**按 `isDangerous` 过滤。
+     */
     defaultAllowedTools?: string[];
     /**
      * 从磁盘加载 `.claude/agents` / `.agent-sdk/agents`（用户与项目目录）；默认 true。
