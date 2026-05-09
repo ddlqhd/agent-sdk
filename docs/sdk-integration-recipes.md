@@ -456,9 +456,11 @@ const agent = new Agent({
 - **`profiles`**：程序化 `SubagentProfile[]`，覆盖同名磁盘/built-in 项
 - **`subagentTypePrompts`**：按 `subagent_type`（任意 profile 名称）覆盖**内置片段**（影响带 `builtinSystemFragment` 的类型，内置 `general-purpose` 与 `explore` 均有）；设为空字符串表示不追加该内置片段
 
-Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、`description`、`tools`、`disallowedTools`、`model`、`permissionMode`、`maxTurns`、`skills`、`mcpServers`、`hooks`、`memory`、`background`、`initialPrompt` 等）。其中 **`tools` / `disallowedTools`** 参与子代理工具集解析；其余字段首期多为解析保留，后续逐步接运行时。
+Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、`description`、`tools`、`disallowedTools`、`model`、`permissionMode`、`maxTurns`、`skills`、`mcpServers`、`hooks`、`memory`、`background`、`initialPrompt` 等）。**不再**将 YAML **`prompt`** 键并入 system：专长子代理说明请写在 **Markdown 正文**（进入 profile 的 **`promptBody`**，与内置片段等合并为 system）。**`initialPrompt`** 在每次子运行时拼在 **`Agent` 工具参数 `prompt` 之前**（中间空行分隔），合成**单条** user 消息。其中 **`tools` / `disallowedTools`** 参与子代理工具集解析；其余字段多为解析保留或逐步接运行时（**`maxTurns`** 已参与子运行的 **`maxIterations`** 回落）。
 
-工具参数 **`subagent_type`**：指向已注册 profile 名。两个内置 profile 均注入系统提示片段：`general-purpose` 片段强调任务理解、分步执行与结果汇报，不允许再委托子代理；`explore` 片段强调只读边界、工具优先级与证据引用格式。若配置里**未**设置 `defaultAllowedTools`（或为空），且 profile 未配置 **`tools`** / **`defaultToolNames`**，则两种内置 profile 均使用父级经 **denylist** 后的**全部**工具（`explore` 的 denylist 含 `Write`、`Edit`、`Agent`）。子代理追加 system 由 profile 的内置片段（若有）+ 文件正文/`prompt` + `subagent.subagentTypePrompts` 合并；**不再**通过 `Agent` 工具参数追加 system。
+工具参数 **`subagent_type`**：指向已注册 profile 名。两个内置 profile 均注入系统提示片段：`general-purpose` 片段强调任务理解、分步执行与结果汇报，不允许再委托子代理；`explore` 片段强调只读边界、工具优先级与证据引用格式。若配置里**未**设置 `defaultAllowedTools`（或为空），且 profile 未配置 **`tools`** / **`defaultToolNames`**，则两种内置 profile 均使用父级经 **denylist** 后的**全部**工具（`explore` 的 denylist 含 `Write`、`Edit`、`Agent`）。子代理 system 由 profile 的内置片段（若有）+ **Markdown 正文** + **`subagent.subagentTypePrompts`**（覆盖内置片段）合并；**不再**通过 `Agent` 工具参数追加 system。子代理首条 **user** 为 **`initialPrompt`（若有）与工具 `prompt` 合成的单条消息**。
+
+已从 Claude Code 风格 YAML **`prompt`** 迁移的用户：将该段移到 **Markdown 正文**（作为 system）；若本意是每次委托前的固定用户上下文，请改用 **`initialPrompt`**。
 
 ### 工具调用参数（`SubagentRequest`）
 
@@ -466,7 +468,7 @@ Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、
 
 | 字段 | 说明 |
 |------|------|
-| **`prompt`** | 子任务描述（必填） |
+| **`prompt`** | 子任务描述（必填）。若 profile 含 **`initialPrompt`**，运行时会先拼接该前缀（中间空行分隔）再拼接本字段，作为子 Agent 的**首条 user** 全文 |
 | **`description`** | 短标签，用于日志与返回 **metadata** |
 | **`subagent_type`** | profile 名称字符串（默认 `general-purpose`）。须为当前已加载 profile 之一，否则返回错误。 |
 | **`model`** | 可选，仅模型 id 字符串（如 `gpt-4o-mini`）。父级 `ModelAdapter` 须实现 **`clone` / `setModel`**（内置三家适配器均已实现）；子运行先 **clone** 再 **setModel**。若未实现则报错。省略则子代理与父 Agent 使用同一模型。 |

@@ -1857,7 +1857,8 @@ export class Agent {
     try {
       await child.waitForInit();
       const mergedSystem = buildSubagentMergedSystemPrompt(profile, this.config.subagent);
-      const runPromise = child.run(request.prompt, {
+      const userPrompt = [profile.initialPrompt?.trim(), request.prompt.trim()].filter(Boolean).join('\n\n');
+      const runPromise = child.run(userPrompt, {
         systemPrompt: mergedSystem,
         signal: subagentSignal
       });

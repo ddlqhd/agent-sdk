@@ -17,6 +17,9 @@ const SUBAGENT_PROBE_PROMPT = '__sdk_subagent_probe__';
 /** Asserts subagent default system prompt omits Skills section (loadSkills: false). */
 const SUBAGENT_NO_SKILLS_PROMPT = '__sdk_subagent_no_skills_probe__';
 
+const SUBAGENT_INITIAL_BLOCK = '__sdk_subagent_initial_block__';
+const SUBAGENT_AFTER_INITIAL_PROBE = '__sdk_subagent_after_initial__';
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -62,6 +65,11 @@ class SubagentProbeOpenAIAdapter extends OpenAIAdapter {
           sysText.includes('{{SKILL_LIST}}') ||
           sysText.includes('Call `Skill`');
         yield { type: 'text', content: leaked ? 'skills-leaked-in-prompt' : 'no-skills-prompt-ok' };
+        yield { type: 'done' };
+        return;
+      }
+      if (lastMessage.content === `${SUBAGENT_INITIAL_BLOCK}\n\n${SUBAGENT_AFTER_INITIAL_PROBE}`) {
+        yield { type: 'text', content: 'initial-user-merge-ok' };
         yield { type: 'done' };
         return;
       }
@@ -468,6 +476,30 @@ describe('Agent subagent tool integration', () => {
     expect(tool).toBeDefined();
     expect(tool!.description).toContain('**audit-bot**');
     expect(tool!.description).toContain('Security-focused');
+  });
+
+  it('prepends profile initialPrompt to Agent tool prompt as one user message', async () => {
+    const agent = new Agent({
+      model: createSubagentTestModel(),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      subagent: {
+        profiles: [
+          {
+            name: 'with-initial',
+            description: 'Profile with fixed initial user prefix.',
+            initialPrompt: SUBAGENT_INITIAL_BLOCK,
+            tools: ['Read']
+          }
+        ]
+      }
+    });
+    const result = await agent.getToolRegistry().execute('Agent', {
+      prompt: SUBAGENT_AFTER_INITIAL_PROBE,
+      subagent_type: 'with-initial'
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain('initial-user-merge-ok');
   });
 
   it('uses profile tools when subagent_type matches programmatic profile', async () => {

@@ -16,20 +16,23 @@ You are a reviewer.`;
     expect(profile.promptBody).toContain('You are a reviewer');
   });
 
-  it('parses disallowedTools and merges prompt frontmatter with body', () => {
+  it('parses disallowedTools; promptBody is markdown body only (ignores legacy prompt key in YAML)', () => {
     const raw = `---
 name: x
 description: Test
 disallowedTools: Write, Bash
-prompt: First line from frontmatter.
+prompt: Ignored frontmatter prompt line.
 ---
+
+First line from body.
 
 Body line.`;
     const { metadata, content } = parseSubagentMd(raw);
     const profile = metadataToSubagentProfile(metadata, content, '/tmp/x.md');
     expect(profile.disallowedTools).toEqual(['Write', 'Bash']);
-    expect(profile.promptBody).toContain('First line from frontmatter');
+    expect(profile.promptBody).toContain('First line from body');
     expect(profile.promptBody).toContain('Body line');
+    expect(profile.promptBody).not.toContain('Ignored frontmatter prompt line');
   });
 
   it('only parses frontmatter at file start', () => {
@@ -46,14 +49,14 @@ Body line.`;
     expect(content).toContain('name: should-not-parse');
   });
 
-  it('parses multi-line prompt blocks from frontmatter', () => {
+  it('uses multi-line markdown body as promptBody', () => {
     const raw = `---
 name: blocky
 description: Test
-prompt: |
-  First line.
-  Second line.
 ---
+
+First line.
+Second line.
 
 Body line.`;
     const { metadata, content } = parseSubagentMd(raw);

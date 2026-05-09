@@ -80,13 +80,7 @@ export function metadataToSubagentProfile(
       ? metadata.description.trim()
       : '';
 
-  const promptFromFrontmatter =
-    typeof metadata.prompt === 'string' && metadata.prompt.trim() ? metadata.prompt.trim() : undefined;
-
-  const promptBody =
-    promptFromFrontmatter !== undefined
-      ? [promptFromFrontmatter, body].filter(Boolean).join('\n\n').trim() || undefined
-      : body.trim() || undefined;
+  const promptBody = body.trim() || undefined;
 
   const tools = toStringList(metadata.tools);
   const disallowedTools = toStringList(metadata.disallowedTools);

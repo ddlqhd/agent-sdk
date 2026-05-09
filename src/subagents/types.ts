@@ -4,7 +4,10 @@
 
 export type SubagentProfileSource = 'builtin' | 'file' | 'config';
 
-/** Reserved / parsed for future use; not all fields affect runtime yet. */
+/**
+ * Optional frontmatter/programmatic fields shared with Claude Code–style agent markdown.
+ * **`maxTurns`** and **`initialPrompt`** affect subagent runs today; the rest are parsed/stored for compatibility or future runtime wiring.
+ */
 export interface SubagentReservedFields {
   model?: string;
   permissionMode?: string;
@@ -14,13 +17,17 @@ export interface SubagentReservedFields {
   hooks?: unknown;
   memory?: string;
   background?: boolean;
+  /**
+   * Prepended to the Agent tool `prompt` for the subagent run as one user message
+   * (`initialPrompt` + blank lines + tool prompt).
+   */
   initialPrompt?: string;
 }
 
 export interface SubagentProfile extends SubagentReservedFields {
   name: string;
   description: string;
-  /** Markdown body or CLI `prompt` — specialist system instructions. */
+  /** Markdown file body after frontmatter — merged into system with builtin fragments and prompts config. */
   promptBody?: string;
   /** TS-built-in fragment only (e.g. explore). */
   builtinSystemFragment?: string;
