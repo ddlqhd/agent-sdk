@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { MCPServerConfig } from '../core/types.js';
+import type { MCPServerConfig, SDKLogSink } from '../core/types.js';
+import { emitSDKLog } from '../core/logger.js';
 
 /**
  * MCP 配置文件格式 (Claude Desktop 兼容)
@@ -170,11 +171,13 @@ function loadSingleConfig(filePath: string): MCPServerConfig[] {
  * @param configPath 可选的配置文件路径，如未提供则自动加载用户目录和工作目录配置
  * @param startDir 搜索起始目录，默认为当前工作目录
  * @param userBasePath 用户级基础路径，默认 ~ (homedir)
+ * @param sdkLog 可选宿主日志；未传时失败仍输出到 `console.error`（便于 CLI）
  */
 export function loadMCPConfig(
   configPath?: string,
   startDir: string = process.cwd(),
-  userBasePath?: string
+  userBasePath?: string,
+  sdkLog?: SDKLogSink
 ): MCPConfigLoadResult {
   // 显式指定路径 -> 单文件加载
   if (configPath) {
@@ -186,7 +189,26 @@ export function loadMCPConfig(
       const servers = loadSingleConfig(configPath);
       return { servers, configPath };
     } catch (error) {
-      console.error(`Failed to load MCP config from ${configPath}:`, error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (sdkLog) {
+        emitSDKLog({
+          logger: sdkLog.logger,
+          logLevel: sdkLog.logLevel,
+          redaction: sdkLog.redaction,
+          level: 'error',
+          event: {
+            component: 'mcp',
+            event: 'mcp.config.load.error',
+            message: 'Failed to load MCP JSON config',
+            cwd: startDir,
+            errorName: err.name,
+            errorMessage: err.message,
+            metadata: { path: configPath }
+          }
+        });
+      } else {
+        console.error(`Failed to load MCP config from ${configPath}:`, error);
+      }
       return { servers: [] };
     }
   }
@@ -206,7 +228,26 @@ export function loadMCPConfig(
         mergedServers.set(server.name, server);
       }
     } catch (error) {
-      console.error(`Failed to load MCP config from ${path}:`, error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (sdkLog) {
+        emitSDKLog({
+          logger: sdkLog.logger,
+          logLevel: sdkLog.logLevel,
+          redaction: sdkLog.redaction,
+          level: 'error',
+          event: {
+            component: 'mcp',
+            event: 'mcp.config.load.error',
+            message: 'Failed to merge MCP JSON config fragment',
+            cwd: startDir,
+            errorName: err.name,
+            errorMessage: err.message,
+            metadata: { path }
+          }
+        });
+      } else {
+        console.error(`Failed to load MCP config from ${path}:`, error);
+      }
     }
   }
 

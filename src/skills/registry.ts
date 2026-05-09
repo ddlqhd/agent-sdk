@@ -2,7 +2,8 @@ import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import type { SkillDefinition, SkillConfig } from '../core/types.js';
+import type { SkillConfig, SkillDefinition, SDKLogSink } from '../core/types.js';
+import { emitSDKLog } from '../core/logger.js';
 import { SkillLoader, type SkillLoaderConfig } from './loader.js';
 
 /**
@@ -15,9 +16,11 @@ export class SkillRegistry {
   private workspaceRoot: string;
   private userBasePath: string;
   private skillConfig?: SkillConfig;
+  private readonly sdkLog?: SDKLogSink;
 
   constructor(config?: SkillLoaderConfig & { userBasePath?: string }) {
     this.loader = new SkillLoader(config);
+    this.sdkLog = config?.sdkLog;
     this.workspaceRoot = config?.cwd || process.cwd();
     this.userBasePath = config?.userBasePath || homedir();
   }
@@ -50,7 +53,30 @@ export class SkillRegistry {
       try {
         this.register(skill);
       } catch (error) {
-        console.warn(`Failed to register skill "${skill.metadata.name}":`, error);
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (this.sdkLog) {
+          emitSDKLog({
+            logger: this.sdkLog.logger,
+            logLevel: this.sdkLog.logLevel,
+            redaction: this.sdkLog.redaction,
+            level: 'warn',
+            event: {
+              component: 'skill',
+              event: 'skill.register.error',
+              message: 'Failed to register loaded skill definition',
+              operation: 'skill_load',
+              cwd: this.workspaceRoot,
+              errorName: err.name,
+              errorMessage: err.message,
+              metadata: {
+                skillName: skill.metadata.name,
+                ...(skill.path ? { path: skill.path } : {})
+              }
+            }
+          });
+        } else {
+          console.warn(`Failed to register skill "${skill.metadata.name}":`, error);
+        }
       }
     }
   }
@@ -300,10 +326,47 @@ ${modelSkillsText}`);
           await this.loadAll(dirPath);
           const loaded = this.skills.size - beforeCount;
           if (loaded > 0) {
-            console.log(`Loaded ${loaded} skill(s) from: ${dirPath}`);
+            if (this.sdkLog) {
+              emitSDKLog({
+                logger: this.sdkLog.logger,
+                logLevel: this.sdkLog.logLevel,
+                redaction: this.sdkLog.redaction,
+                level: 'info',
+                event: {
+                  component: 'skill',
+                  event: 'skill.load.directory.done',
+                  message: 'Loaded skill entries from scan directory',
+                  operation: 'skill_load',
+                  cwd: this.workspaceRoot,
+                  metadata: { dirPath, loadedCount: loaded }
+                }
+              });
+            } else {
+              console.log(`Loaded ${loaded} skill(s) from: ${dirPath}`);
+            }
           }
         } catch (err) {
-          console.error(`Failed to load skills from "${dirPath}":`, err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          if (this.sdkLog) {
+            emitSDKLog({
+              logger: this.sdkLog.logger,
+              logLevel: this.sdkLog.logLevel,
+              redaction: this.sdkLog.redaction,
+              level: 'warn',
+              event: {
+                component: 'skill',
+                event: 'skill.load.directory.error',
+                message: 'Failed to load skills directory',
+                operation: 'skill_load',
+                cwd: this.workspaceRoot,
+                errorName: error.name,
+                errorMessage: error.message,
+                metadata: { dirPath }
+              }
+            });
+          } else {
+            console.error(`Failed to load skills from "${dirPath}":`, err);
+          }
         }
       }
     }
@@ -314,13 +377,50 @@ ${modelSkillsText}`);
       try {
         await this.load(path);
       } catch (err) {
-        console.error(`Failed to load skill from "${path}":`, err);
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (this.sdkLog) {
+          emitSDKLog({
+            logger: this.sdkLog.logger,
+            logLevel: this.sdkLog.logLevel,
+            redaction: this.sdkLog.redaction,
+            level: 'warn',
+            event: {
+              component: 'skill',
+              event: 'skill.load.path.error',
+              message: 'Failed to load configured skill path',
+              operation: 'skill_load',
+              cwd: this.workspaceRoot,
+              errorName: error.name,
+              errorMessage: error.message,
+              metadata: { path }
+            }
+          });
+        } else {
+          console.error(`Failed to load skill from "${path}":`, err);
+        }
       }
     }
 
     // 3. 输出汇总
     if (this.skills.size > 0) {
-      console.log(`Skills initialized: ${this.getNames().join(', ')}`);
+      if (this.sdkLog) {
+        emitSDKLog({
+          logger: this.sdkLog.logger,
+          logLevel: this.sdkLog.logLevel,
+          redaction: this.sdkLog.redaction,
+          level: 'info',
+          event: {
+            component: 'skill',
+            event: 'skill.initialized.summary',
+            message: 'Skills registry initialized',
+            operation: 'skill_load',
+            cwd: this.workspaceRoot,
+            metadata: { names: this.getNames() }
+          }
+        });
+      } else {
+        console.log(`Skills initialized: ${this.getNames().join(', ')}`);
+      }
     }
   }
 }

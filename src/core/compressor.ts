@@ -78,6 +78,12 @@ export interface SummarizationCompressorOptions {
   sessionId?: string;
   /** 动态读取当前会话 ID */
   sessionIdProvider?: () => string | undefined;
+  /** {@link AgentConfig.cwd}：仅路径元信息 */
+  cwd?: string;
+  /** {@link AgentConfig.agentName}，日志默认对齐 Agent */
+  agentName?: string;
+  /** 单次 run ID（与外层 Agent 对齐） */
+  runIdProvider?: () => string | undefined;
 }
 
 /**
@@ -95,6 +101,20 @@ export class SummarizationCompressor implements Compressor {
 
   private getSessionId(): string | undefined {
     return this.options.sessionIdProvider?.() ?? this.options.sessionId;
+  }
+
+  private compressorLogExtras(): {
+    sessionId?: string;
+    cwd?: string;
+    runId?: string;
+    agentName?: string;
+  } {
+    return {
+      sessionId: this.getSessionId(),
+      cwd: this.options.cwd,
+      runId: this.options.runIdProvider?.(),
+      agentName: this.options.agentName
+    };
   }
 
   private stringifyToolArguments(argumentsValue: unknown): string {
@@ -331,13 +351,14 @@ export class SummarizationCompressor implements Compressor {
     emitSDKLog({
       logger: this.options.logger,
       logLevel: this.options.logLevel,
+      redaction: this.options.redaction,
       level: 'info',
       event: {
         component: 'memory',
         event: 'context.compress.start',
         message: 'Starting context compression',
         operation: 'compress',
-        sessionId,
+        ...this.compressorLogExtras(),
         metadata: {
           compressor: this.name,
           messageCount: messages.length,
@@ -355,13 +376,14 @@ export class SummarizationCompressor implements Compressor {
       emitSDKLog({
         logger: this.options.logger,
         logLevel: this.options.logLevel,
+        redaction: this.options.redaction,
         level: 'debug',
         event: {
           component: 'memory',
           event: 'context.compress.skipped',
           message: 'Skipped compression because there are not enough messages',
           operation: 'compress',
-          sessionId,
+          ...this.compressorLogExtras(),
           durationMs: Date.now() - startedAt,
           metadata: {
             compressor: this.name,
@@ -395,13 +417,14 @@ export class SummarizationCompressor implements Compressor {
       emitSDKLog({
         logger: this.options.logger,
         logLevel: this.options.logLevel,
+        redaction: this.options.redaction,
         level: 'info',
         event: {
           component: 'memory',
           event: 'context.compress.end',
           message: 'Context compression completed',
           operation: 'compress',
-          sessionId,
+          ...this.compressorLogExtras(),
           durationMs: Date.now() - startedAt,
           metadata: {
             compressor: this.name,
@@ -417,13 +440,14 @@ export class SummarizationCompressor implements Compressor {
       emitSDKLog({
         logger: this.options.logger,
         logLevel: this.options.logLevel,
+        redaction: this.options.redaction,
         level: 'error',
         event: {
           component: 'memory',
           event: 'context.compress.error',
           message: 'Context compression failed',
           operation: 'compress',
-          sessionId,
+          ...this.compressorLogExtras(),
           durationMs: Date.now() - startedAt,
           errorName: err.name,
           errorMessage: err.message,
@@ -445,7 +469,11 @@ export class SummarizationCompressor implements Compressor {
         logger: this.options.logger,
         logLevel: this.options.logLevel,
         redaction: this.options.redaction,
-        sessionId
+        sessionId,
+        ...(this.options.agentName !== undefined ? { agentName: this.options.agentName } : {}),
+        ...(this.options.runIdProvider !== undefined
+          ? { runId: this.options.runIdProvider() }
+          : {})
       });
 
       const text =

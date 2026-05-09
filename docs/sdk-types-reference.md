@@ -11,7 +11,7 @@
 | 分组 | 字段 |
 |------|------|
 | 必选 | `model` |
-| 系统与生成 | `systemPrompt`、`temperature`、`maxTokens`、`streaming`、`maxIterations`、`sessionId` |
+| 系统与生成 | `systemPrompt`、`temperature`、`maxTokens`、`streaming`、`maxIterations`、`sessionId`、`agentName` |
 | 工具与权限 | `tools`、`allowedTools`、`disallowedTools`、`canUseTool`、`exclusiveTools` |
 | 交互 | `askUserQuestion` |
 | Skills / MCP / Memory | `skills`、`skillConfig`、`mcpServers`、`memory`、`memoryConfig` |
@@ -27,7 +27,7 @@
 
 - **`callbacks.onEvent`**：与 `Agent.stream()` 产出的每个 `StreamEvent` 同步（含 `start` / `text_delta` / `tool_result` / `end` 等）。
 - **`callbacks.lifecycle.onModelEvent`**：仅模型适配器侧子集（见源码 `MODEL_STREAM_EVENT_TYPES` / `isModelStreamEventType`）。**与 `onEvent` 的关系**：模型来源的事件会进入 `onEvent`，其中子集会再进入 `onModelEvent`，二者可能重复；通常只需订阅 **`onEvent`（全量）** 或 **`lifecycle`（结构化）** 之一，或自行按 `event.type` 去重。
-- **`callbacks.lifecycle`**：结构化观察点（会话、消息装配、模型请求、工具执行、落盘等），**仅通知、不改变执行结果**。拦截工具调用请使用 `hookManager` / `hookConfigDir` / `loadHookSettingsFromFiles`（见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）。
+- **`callbacks.lifecycle`**：结构化观察点（会话、消息装配、模型请求、工具执行、落盘等），**仅通知、不改变执行结果**。如需**稳定、可过滤的运维日志**，请使用 **`AgentConfig.logger` / `LogEvent`**；两者可并存。拦截工具调用请使用 `hookManager` / `hookConfigDir` / `loadHookSettingsFromFiles`（见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）。
 - **`callbacks.lifecycle.hooks`**：由 `Agent` 注入到 `ToolRegistry`，用于观察 Hook 管道（`onHookStart` / `onHookDecision` 等），不替代 `HookManager`。
 - **`onError`**：可选第二参数 `AgentErrorContext`，用于区分 `run` / `model` / `tool` 等阶段。
 
@@ -148,32 +148,61 @@ interface SDKLogger {
 
 interface LogEvent {
   source: 'agent-sdk';
-  component: 'agent' | 'model' | 'streaming' | 'tooling' | 'memory';
+  component:
+    | 'agent'
+    | 'model'
+    | 'streaming'
+    | 'tooling'
+    | 'memory'
+    | 'skill'
+    | 'session'
+    | 'mcp'
+    | 'hooks';
   event: string;
   message?: string;
   provider?: string;
   model?: string;
-  operation?: 'stream' | 'complete' | 'compress' | 'tool_call';
+  operation?: 'stream' | 'complete' | 'compress' | 'tool_call' | 'persist' | 'skill_load';
+  /** 单次 `stream()` / `run()` 关联 ID；由 Agent 自动注入 */
+  runId?: string;
+  /** `AgentConfig.agentName`，未设置时不一定出现；默认逻辑名在运行时多为 `'Agent'` */
+  agentName?: string;
+  finishReason?: 'complete' | 'aborted' | 'error' | 'max_iterations';
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
   sessionId?: string;
+  cwd?: string;
   iteration?: number;
   requestId?: string;
   clientRequestId?: string;
   statusCode?: number;
   durationMs?: number;
+  httpAttempt?: number;
+  httpMaxAttempts?: number;
   toolName?: string;
   toolCallId?: string;
   errorName?: string;
   errorMessage?: string;
   metadata?: Record<string, unknown>;
 }
+
+/** 可选：将同一组 `logger` / `logLevel` / `redaction` 传给非 Agent 模块（如 `loadMCPConfig` 第四参） */
+interface SDKLogSink {
+  logger?: SDKLogger;
+  logLevel?: SDKLogLevel;
+  redaction?: LogRedactionConfig;
+}
 ```
 
 常见事件：
 
-- `agent.run.start` / `agent.run.end`
-- `model.request.start` / `model.request.end` / `model.request.error`
+- `agent.run.start` / `agent.run.end` / `agent.run.aborted` / `agent.run.error`
+- `model.request.start` / `model.request.end` / `model.request.error` / `model.request.aborted`、`model.stream.parse_error`
 - `tool.call.start` / `tool.call.end` / `tool.call.error`
-- `context.compress.start` / `context.compress.end`
+- `context.compress.*`（`memory`）
+- `session.persist.complete`（`debug`）、`session.persist.error`
+- `skill.*`（磁盘扫描、注册失败等）
+- `mcp.connect.*`、`mcp.config.load.error`
+- Hook 管线：`hook.decision`、`hook.command.*`、`hook.async.*`、`hook.function.*`
 
 ### `LogRedactionConfig`
 
@@ -186,7 +215,7 @@ interface LogRedactionConfig {
 }
 ```
 
-默认策略是**只记录元信息，不记录 prompt/body 全文**。下列环境变量在运行时由 SDK 读取，用于在未在 `AgentConfig.redaction` / `AgentConfig.logLevel` 中显式指定时提供默认值（**已设置的代码配置优先**）。
+默认策略是**只记录元信息，不记录 prompt/body 全文**。每条 `LogEvent.metadata` 经 `emitSDKLog` 时会按当前 `redaction` 与同名环境变量先做**脱敏与截断**后再交给 `SDKLogger`。**已设置的代码配置优先**于环境变量。
 
 | 环境变量 | 作用 | 默认 / 解析规则 |
 |----------|------|-------------------|
@@ -212,6 +241,9 @@ interface ModelParams {
   includeRawStreamEvents?: boolean;
   /** 会话 id：`Agent` 在每次 `stream`/`complete` 调用中会自动填入当前 `SessionManager` 的会话 */
   sessionId?: string;
+  /** 由 Agent 在每次回合注入，写入模型层的结构化日志以便与 `Agent` 对齐 */
+  runId?: string;
+  agentName?: string;
   logger?: SDKLogger;
   logLevel?: SDKLogLevel;
   redaction?: LogRedactionConfig;

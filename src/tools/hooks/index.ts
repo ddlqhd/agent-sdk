@@ -1,3 +1,5 @@
+export type { HookManagerSdkLogContext } from './sdk-log-context.js';
+
 export type {
   CommandHookConfig,
   FunctionHook,

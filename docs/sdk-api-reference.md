@@ -144,7 +144,7 @@
 
 - `MCPClient` / `createMCPClient(config)`（`config` 为 `MCPServerConfig`，见 core types）
 - `MCPAdapter` / `createMCPAdapter()`
-- `loadMCPConfig(configPath?, startDir?, userBasePath?)`
+- `loadMCPConfig(configPath?, startDir?, userBasePath?, sdkLog?)`（第四参可将宿主 `SDKLogSink` 接入 `mcp.config.load.error`；省略时仍沿用 `console.error` 以保持 CLI 行为）
 - `validateMCPConfig(config)`
 - `formatMcpToolName(serverName, toolName)` / `isMcpPrefixedToolName(name)`：生成或与 Agent 内 **MCP 工具注册名** 一致的字符串（白名单、迁移脚本、与 `disallowedTools` 条目对齐时可用）
 - 类型（MCP 连接请统一使用根包 `MCPServerConfig`）：`MCPTool` `MCPResource` `MCPPrompt` `PromptMessage` `MCPConfigFile` `MCPConfigLoadResult`

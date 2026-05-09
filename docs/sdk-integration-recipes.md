@@ -119,6 +119,7 @@ console.log(next.content);
 import { Agent, createOpenAI, loadMCPConfig } from '@ddlqhd/agent-sdk';
 
 const { servers } = loadMCPConfig(undefined, process.cwd(), process.env.HOME);
+// 若要将 JSON 解析失败记入宿主日志，可传第四参：loadMCPConfig(path, cwd, userBase, { logger, logLevel, redaction })
 
 const agent = new Agent({
   model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY }),
@@ -295,6 +296,8 @@ const agent = new Agent({
 - 每条日志都带固定 `source: 'agent-sdk'`，便于在宿主日志平台过滤。
 - 文本前缀统一为 **`[agent-sdk][component][event]`**，便于控制台或文件直读。
 - 默认只记录元信息；不会默认输出 prompt/body 全文。
+- 每条 **`LogEvent.metadata`** 在交给 `SDKLogger` 之前会按 **`AgentConfig.redaction`**（及本节下方环境变量）做**脱敏与截断**。
+- **`AgentConfig.agentName`**：写入 `LogEvent.agentName`（及模型侧透传字段），便于多 Agent 场景按名称过滤；省略时由 Agent 使用默认逻辑名。
 - **未传入自定义 `logger`**、且当前有效日志级别**不是** `silent` 时，SDK 会使用内置实现把日志写到 **`console`**（`debug`→`console.debug`，`info`/`warn`/`error` 同理），并在有 `metadata` 时作为第二参数输出。若希望完全不在控制台出现 SDK 日志，请设置 `logLevel: 'silent'`（或环境变量 `AGENT_SDK_LOG_LEVEL=silent`），或始终传入自己的 `logger` 将输出只交给宿主系统。
 
 常用配置：
@@ -311,6 +314,12 @@ const agent = new Agent({
   }
 });
 ```
+
+### 与 `callbacks` / Hooks 分工
+
+- **结构化日志（`logger`）**：运维向的稳定字段（`source` / `component` / `event`）；适合落盘、pino/Datadog 等。
+- **`callbacks.lifecycle`**：UI / 审计 / metrics 的类型化观测点（不改变执行语义）。
+- **Hooks**：可拦截或改写工具调用（详见 [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)）；钩子进程/脚本异常会通过 `hooks` 相关 `LogEvent` 输出。
 
 ### SDK 日志相关环境变量（详细说明）
 
@@ -339,14 +348,15 @@ const agent = new Agent({
 
 **安全提示**：开启 `AGENT_SDK_LOG_BODIES` 或 `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` 可能使日志中出现对话或工具参数片段；生产环境请结合脱敏策略与日志留存策略使用。
 
-默认会覆盖这些高价值节点：
+默认会覆盖这些高价值节点（节选；完整 `component`/事件命名见 [`sdk-types-reference.md`](./sdk-types-reference.md)「`SDKLogger` / `LogEvent`」）：
 
-- `agent.run.start` / `agent.run.end`
-- `model.request.start` / `model.request.end` / `model.request.error`
-- `tool.call.start` / `tool.call.end` / `tool.call.error`
-- `context.compress.start` / `context.compress.end`
+- `agent.run.*`、`agent.iteration.*`
+- `model.request.*`、`model.stream.parse_error`
+- `tool.call.*`、`hook.decision` 及 `hook.command.*` / `hook.async.*` / `hook.function.*`
+- `context.compress.*`
+- `session.persist.*`、`skill.*`、`mcp.connect.*`、`mcp.config.load.error`
 
-**Anthropic 与 HTTP 重试**：使用 `createAnthropic` 且未关闭 `fetchRetry` 时，`model.request.start` 的 `metadata` 含 `httpMaxAttempts`；成功或最终失败的 `model.request.end` / `model.request.error` 还含 **`httpAttempt`**（本次结果来自第几次 HTTP 尝试，从 1 起）与 **`httpMaxAttempts`**，便于区分重试前后的日志。
+**Anthropic 与 HTTP 重试**：使用 `createAnthropic` 且未关闭 `fetchRetry` 时，`model.request.start` 的 `metadata` 可含 `httpMaxAttempts`；成功或最终失败的日志还会在 **`LogEvent` 顶层字段**带出 **`httpAttempt`** / **`httpMaxAttempts`**（若适用），同时在 `agent-sdk` 内置控制台格式中显示，便于对齐重试行为。
 
 ## 11. System prompt 策略
 

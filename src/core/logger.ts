@@ -183,10 +183,15 @@ export function formatSDKLog(event: LogEvent): string {
 
   if (event.provider) details.push(`provider=${event.provider}`);
   if (event.model) details.push(`model=${event.model}`);
+  if (event.runId) details.push(`runId=${event.runId}`);
+  if (event.agentName) details.push(`agentName=${event.agentName}`);
+  if (event.finishReason) details.push(`finishReason=${event.finishReason}`);
   if (event.sessionId) details.push(`sessionId=${event.sessionId}`);
   if (event.iteration !== undefined) details.push(`iteration=${event.iteration}`);
   if (event.statusCode !== undefined) details.push(`statusCode=${event.statusCode}`);
   if (event.durationMs !== undefined) details.push(`durationMs=${event.durationMs}`);
+  if (event.httpAttempt !== undefined) details.push(`httpAttempt=${event.httpAttempt}`);
+  if (event.httpMaxAttempts !== undefined) details.push(`httpMaxAttempts=${event.httpMaxAttempts}`);
   if (event.toolName) details.push(`tool=${event.toolName}`);
   if (event.requestId) details.push(`requestId=${event.requestId}`);
   if (event.clientRequestId) details.push(`clientRequestId=${event.clientRequestId}`);
@@ -249,10 +254,13 @@ export function createConsoleSDKLogger(): SDKLogger {
 /**
  * 发出一条 SDK 日志。若未传入 `logger` 且当前级别允许输出，则使用内置的 {@link createConsoleSDKLogger}
  * 写到 `console`（级别对应 `console.debug` / `info` / `warn` / `error`）。
+ *
+ * `metadata` 会先经 {@link sanitizeForLogging}（由 `redaction` 与环境变量推导）再输出。
  */
 export function emitSDKLog(args: {
   logger?: SDKLogger;
   logLevel?: SDKLogLevel;
+  redaction?: LogRedactionConfig;
   level: Exclude<SDKLogLevel, 'silent'>;
   event: Omit<LogEvent, 'source'>;
 }): void {
@@ -261,9 +269,16 @@ export function emitSDKLog(args: {
   }
 
   const logger = args.logger ?? createConsoleSDKLogger();
+  const effectiveRedaction = resolveLogRedaction(args.redaction);
+  const sanitizedMetadata =
+    args.event.metadata === undefined || args.event.metadata === null
+      ? undefined
+      : (sanitizeForLogging(args.event.metadata, effectiveRedaction) as Record<string, unknown>);
+
   const payload: LogEvent = {
     source: 'agent-sdk',
-    ...args.event
+    ...args.event,
+    ...(sanitizedMetadata !== undefined ? { metadata: sanitizedMetadata } : {})
   };
 
   logger[args.level]?.(payload);

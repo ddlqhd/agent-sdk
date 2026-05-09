@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import { emitSDKLog } from '../../core/logger.js';
+import type { LogEvent } from '../../core/types.js';
 import { loadHooksSettingsFromProject, loadHooksSettingsFromUser } from './loader.js';
 import { matchTool, matchesHookIfClause } from './hook-if.js';
 import { parsePreToolUseCommandOutput } from './parse-output.js';
@@ -12,6 +14,7 @@ import type {
   HookResult,
   HooksSettings
 } from './types.js';
+import type { HookManagerSdkLogContext } from './sdk-log-context.js';
 
 /** 扁平化的文件 command hook（含 matcher） */
 export interface FlatCommandHookEntry {
@@ -192,6 +195,7 @@ export class HookManager {
   private functionHooks = new Map<string, FunctionHook>();
   private projectHooks: HooksSettings = this.emptySettings();
   private userHooks: HooksSettings = this.emptySettings();
+  private sdkLogContext?: HookManagerSdkLogContext;
 
   private emptySettings(): HooksSettings {
     return {
@@ -212,6 +216,31 @@ export class HookManager {
       this.projectHooks.disableAllHooks,
       this.userHooks.disableAllHooks
     );
+  }
+
+  setSdkLogContext(ctx: HookManagerSdkLogContext | undefined): void {
+    this.sdkLogContext = ctx;
+  }
+
+  /**
+   * Structured hook-pipeline diagnostics (replaces ad-hoc stderr when a host logger is wired).
+   */
+  private emitHookLog(
+    level: 'warn' | 'error',
+    partial: Omit<LogEvent, 'source' | 'component'>
+  ): void {
+    emitSDKLog({
+      logger: this.sdkLogContext?.logger,
+      logLevel: this.sdkLogContext?.logLevel,
+      redaction: this.sdkLogContext?.redaction,
+      level,
+      event: {
+        component: 'hooks',
+        ...partial,
+        cwd: partial.cwd ?? this.sdkLogContext?.cwd,
+        sessionId: partial.sessionId ?? this.sdkLogContext?.sessionId
+      }
+    });
   }
 
   private shouldRunHooks(): boolean {
@@ -251,19 +280,48 @@ export class HookManager {
             reason: parseReasonFromStderr(stderr) ?? 'Hook blocked tool execution'
           };
         }
-        console.error(
-          `[HookManager] PreToolUse command exited with code ${code}: ${stderr || cmd.command}`
-        );
+        this.emitHookLog('error', {
+          event: 'hook.command.exit_unexpected_pre',
+          message: 'PreToolUse hook command exited with unexpected code',
+          toolName: context.toolName,
+          toolCallId: context.toolCallId,
+          metadata: {
+            command: cmd.command,
+            exitCode: code,
+            phase: 'pre'
+          },
+          ...(stderr?.trim()
+            ? { errorMessage: parseReasonFromStderr(stderr) ?? stderr.slice(0, 800) }
+            : {})
+        });
         return {
           allowed: false,
           reason: parseReasonFromStderr(stderr) ?? `Hook process exited with code ${code}`
         };
       }
       if (code !== 0 && code !== null) {
-        console.error(`[HookManager] Post* hook non-zero exit (${code}): ${stderr || cmd.command}`);
+        this.emitHookLog('warn', {
+          event: 'hook.command.non_zero_exit',
+          message: 'Post hook command exited with non-zero code',
+          toolName: context.toolName,
+          toolCallId: context.toolCallId,
+          metadata: { command: cmd.command, exitCode: code, phase: phase === 'post' ? 'post' : 'unknown' },
+          ...(stderr?.trim()
+            ? { errorMessage: parseReasonFromStderr(stderr) ?? stderr.slice(0, 800) }
+            : {})
+        });
       }
     } catch (err) {
-      console.error(`[HookManager] Command hook failed: ${cmd.command}`, err);
+      const caught = err instanceof Error ? err : new Error(String(err));
+      this.emitHookLog('error', {
+        event: 'hook.command.failed',
+        message: 'Hook command invocation failed',
+        toolName: context.toolName,
+        toolCallId: context.toolCallId,
+        errorName: caught.name,
+        errorMessage: caught.message,
+        metadata: { command: cmd.command, phase }
+      });
       if (phase === 'pre') {
         return {
           allowed: false,
@@ -280,11 +338,29 @@ export class HookManager {
     void runSpawnWithStdin(cmd.command, env, stdinBody, timeoutSec)
       .then(({ code, stderr }) => {
         if (code !== 0 && code !== null) {
-          console.error(`[HookManager] async hook exit (${code}): ${stderr || cmd.command}`);
+          this.emitHookLog('warn', {
+            event: 'hook.async.command.non_zero_exit',
+            message: 'Async hook command exited with non-zero code',
+            toolName: context.toolName,
+            toolCallId: context.toolCallId,
+            metadata: { command: cmd.command, exitCode: code },
+            ...(stderr?.trim()
+              ? { errorMessage: parseReasonFromStderr(stderr) ?? stderr.slice(0, 800) }
+              : {})
+          });
         }
       })
       .catch(err => {
-        console.error(`[HookManager] async hook error: ${cmd.command}`, err);
+        const caught = err instanceof Error ? err : new Error(String(err));
+        this.emitHookLog('error', {
+          event: 'hook.async.command.failed',
+          message: 'Async hook command invocation failed',
+          toolName: context.toolName,
+          toolCallId: context.toolCallId,
+          errorName: caught.name,
+          errorMessage: caught.message,
+          metadata: { command: cmd.command }
+        });
       });
   }
 
@@ -296,7 +372,16 @@ export class HookManager {
     try {
       return await hook.handler(context);
     } catch (err) {
-      console.error(`[HookManager] Function hook "${hook.id}" threw`, err);
+      const caught = err instanceof Error ? err : new Error(String(err));
+      this.emitHookLog('error', {
+        event: 'hook.function.failed',
+        message: 'Function hook handler threw',
+        toolName: context.toolName,
+        toolCallId: context.toolCallId,
+        errorName: caught.name,
+        errorMessage: caught.message,
+        metadata: { hookId: hook.id, phase }
+      });
       if (phase === 'pre') {
         return {
           allowed: false,

@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { AgentErrorContext, AgentLifecycleCallbacks } from './callbacks.js';
+import type {
+  AgentErrorContext,
+  AgentLifecycleCallbacks,
+  AgentRunEndReason
+} from './callbacks.js';
 import type { SubagentProfile } from '../subagents/types.js';
 
 export type {
@@ -91,15 +95,37 @@ export type SDKLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export interface LogEvent {
   /** 固定来源标识，便于宿主应用统一过滤 */
   source: 'agent-sdk';
-  component: 'agent' | 'model' | 'streaming' | 'tooling' | 'memory';
+  component:
+    | 'agent'
+    | 'model'
+    | 'streaming'
+    | 'tooling'
+    | 'memory'
+    | 'skill'
+    | 'session'
+    | 'mcp'
+    | 'hooks';
   event: string;
   message?: string;
 
   provider?: string;
   model?: string;
-  operation?: 'stream' | 'complete' | 'compress' | 'tool_call';
+  operation?: 'stream' | 'complete' | 'compress' | 'tool_call' | 'persist' | 'skill_load';
+
+  /** 单次 `stream()` / `run()` 对齐用 ID */
+  runId?: string;
+  /** 宿主配置的逻辑名 {@link AgentConfig.agentName}，默认 `'Agent'` */
+  agentName?: string;
+  finishReason?: AgentRunEndReason;
+  /** Token 用量摘要（不写全量消息） */
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
 
   sessionId?: string;
+  cwd?: string;
   iteration?: number;
   toolName?: string;
   toolCallId?: string;
@@ -108,6 +134,9 @@ export interface LogEvent {
   clientRequestId?: string;
   statusCode?: number;
   durationMs?: number;
+  /** HTTP 重试时当前尝试序号（从 1 计） */
+  httpAttempt?: number;
+  httpMaxAttempts?: number;
 
   errorName?: string;
   errorMessage?: string;
@@ -137,6 +166,15 @@ export interface LogRedactionConfig {
   maxBodyChars?: number;
   /** 额外需要脱敏的键名（大小写不敏感） */
   redactKeys?: string[];
+}
+
+/**
+ * Agent / 宿主注入的日志配置（不传 `logger` 时环境变量仍可控制控制台回退）。
+ */
+export interface SDKLogSink {
+  logger?: SDKLogger;
+  logLevel?: SDKLogLevel;
+  redaction?: LogRedactionConfig;
 }
 
 /**
@@ -197,6 +235,10 @@ export interface ModelParams {
   logLevel?: SDKLogLevel;
   /** 当前请求使用的日志脱敏策略。 */
   redaction?: LogRedactionConfig;
+  /** 单次 run 关联 ID；由 Agent 在流式/非流式回合中注入。 */
+  runId?: string;
+  /** {@link AgentConfig.agentName} 透传，便于模型层日志关联 */
+  agentName?: string;
 }
 
 /**
@@ -859,6 +901,11 @@ export interface AgentConfig {
 
   /** 会话 ID (用于恢复会话) */
   sessionId?: string;
+
+  /**
+   * 结构化日志中的逻辑名称（`LogEvent.agentName`），便于多 Agent 场景筛选；未设置时运行时默认 `'Agent'`。
+   */
+  agentName?: string;
 
   /** 回调函数 */
   callbacks?: AgentCallbacks;

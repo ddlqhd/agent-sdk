@@ -97,6 +97,8 @@ export class Agent {
   private agentDepth = 0;
   private activeSubagentRuns = 0;
   private subagentProfileMap: Map<string, SubagentProfile>;
+  /** Set for the lifetime of each `stream()` / `run()` turn for log correlation */
+  private currentRunId?: string;
 
   // Token 使用量统计
   // contextTokens: 当前上下文大小 (用于压缩判断)
@@ -132,13 +134,24 @@ export class Agent {
     // 初始化 Skill 注册中心
     this.skillRegistry = createSkillRegistry({
       cwd: this.config.cwd,
-      userBasePath: this.config.userBasePath
+      userBasePath: this.config.userBasePath,
+      sdkLog: {
+        logger: this.config.logger,
+        logLevel: this.config.logLevel,
+        redaction: this.config.redaction
+      }
     });
 
     this.subagentProfileMap = mergeSubagentProfiles([
       getBuiltinSubagentProfiles(),
       this.config.subagent?.profiles ?? []
     ]);
+
+    // 初始化会话管理器（存储在用户目录下）——早于 ToolRegistry：供 sdk 日志上下文解析 sessionId
+    this.sessionManager = new SessionManager({
+      type: this.config.storage?.type || 'jsonl',
+      basePath: getSessionStoragePath(this.config.userBasePath)
+    });
 
     // 初始化工具注册中心（执行策略与 AgentConfig 对齐，便于在 ToolRegistry.execute 中统一校验）
     this.toolRegistry = new ToolRegistry({
@@ -147,7 +160,16 @@ export class Agent {
         allowedTools: this.config.allowedTools,
         canUseTool: this.config.canUseTool
       },
-      hookObserver: this.config.callbacks?.lifecycle?.hooks
+      hookObserver: this.config.callbacks?.lifecycle?.hooks,
+      sdkLogBinder: () => ({
+        logger: this.config.logger,
+        logLevel: this.config.logLevel,
+        redaction: this.config.redaction,
+        sessionId: this.sessionManager.sessionId ?? undefined,
+        runId: this.currentRunId,
+        agentName: this.config.agentName ?? 'Agent',
+        cwd: this.config.cwd ?? process.cwd()
+      })
     });
 
     this.registerInitialTools();
@@ -173,13 +195,7 @@ export class Agent {
       }
     }
 
-    // 初始化会话管理器（存储在用户目录下）
-    this.sessionManager = new SessionManager({
-      type: this.config.storage?.type || 'jsonl',
-      basePath: getSessionStoragePath(this.config.userBasePath)
-    });
-
-    // 初始化 ContextManager
+    // 初始化 ContextManager（需 sessionManager 已就绪）
     if (this.config.contextManagement !== false) {
       const cmConfig: ContextManagerConfig = this.config.contextManagement === true
         ? {}
@@ -189,7 +205,10 @@ export class Agent {
         logger: this.config.logger,
         logLevel: this.config.logLevel,
         redaction: this.config.redaction,
-        sessionIdProvider: () => this.sessionManager.sessionId ?? undefined
+        sessionIdProvider: () => this.sessionManager.sessionId ?? undefined,
+        cwd: this.config.cwd ?? process.cwd(),
+        agentName: this.config.agentName ?? 'Agent',
+        runIdProvider: () => this.currentRunId
       });
       this.contextManager = new ContextManager(this.config.model!, {
         ...cmConfig,
@@ -197,8 +216,23 @@ export class Agent {
       });
     }
 
+    this.attachSdkLogToHooks();
+
     // 启动异步初始化，保存 Promise 供外部等待
     this.initPromise = this.initializeAsync();
+  }
+
+  private attachSdkLogToHooks(): void {
+    const hm = this.toolRegistry.getHookManager() as HookManager | null;
+    if (hm && typeof hm.setSdkLogContext === 'function') {
+      hm.setSdkLogContext({
+        logger: this.config.logger,
+        logLevel: this.config.logLevel,
+        redaction: this.config.redaction,
+        cwd: this.config.cwd ?? process.cwd(),
+        sessionId: this.sessionManager.sessionId ?? undefined
+      });
+    }
   }
 
   private log(
@@ -208,8 +242,15 @@ export class Agent {
     emitSDKLog({
       logger: this.config.logger,
       logLevel: this.config.logLevel,
+      redaction: this.config.redaction,
       level,
-      event
+      event: {
+        sessionId: this.sessionManager.sessionId ?? undefined,
+        runId: this.currentRunId,
+        agentName: this.config.agentName ?? 'Agent',
+        cwd: this.config.cwd ?? process.cwd(),
+        ...event
+      }
     });
   }
 
@@ -321,7 +362,7 @@ export class Agent {
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.log('error', {
-          component: 'tooling',
+          component: 'mcp',
           event: 'mcp.connect.error',
           message: `Failed to connect MCP server "${serverConfig.name}"`,
           errorName: error.name,
@@ -513,6 +554,7 @@ export class Agent {
       this.sessionManager.createSession();
       this.notifySessionCreate();
     }
+    this.attachSdkLogToHooks();
   }
 
   private notifySessionResume(sessionId: string, messageCount: number): void {
@@ -552,7 +594,12 @@ export class Agent {
         const memoryManager = new MemoryManager(
           this.config.cwd,
           this.config.memoryConfig,
-          this.config.userBasePath
+          this.config.userBasePath,
+          {
+            logger: this.config.logger,
+            logLevel: this.config.logLevel,
+            redaction: this.config.redaction
+          }
         );
         const memoryContent = memoryManager.loadMemory();
         if (memoryContent) {
@@ -631,15 +678,24 @@ export class Agent {
             messageCount: this.messages.length
           });
         });
+        this.log('debug', {
+          component: 'session',
+          event: 'session.persist.complete',
+          message: 'Session messages persisted for interrupted run',
+          operation: 'persist',
+          ...(iterationForContext !== undefined ? { iteration: iterationForContext } : {}),
+          metadata: { phase: 'abort', messageCount: this.messages.length }
+        });
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         this.log('warn', {
-          component: 'agent',
-          event: 'agent.persistence.error',
+          component: 'session',
+          event: 'session.persist.error',
           message: 'Failed to persist messages during aborted run',
-          sessionId: this.sessionManager.sessionId ?? undefined,
+          operation: 'persist',
           errorName: err.name,
-          errorMessage: err.message
+          errorMessage: err.message,
+          metadata: { phase: 'abort' }
         });
       }
     };
@@ -821,7 +877,9 @@ export class Agent {
       sessionId: this.sessionManager.sessionId ?? undefined,
       logger: this.config.logger,
       logLevel: this.config.logLevel,
-      redaction: this.config.redaction
+      redaction: this.config.redaction,
+      runId: this.currentRunId,
+      agentName: this.config.agentName ?? 'Agent'
     };
   }
 
@@ -1057,7 +1115,28 @@ export class Agent {
     iteration: number,
     maxIterations: number
   ): AsyncGenerator<StreamEvent, void, undefined> {
-    await this.sessionManager.saveMessages(this.messages);
+    try {
+      await this.sessionManager.saveMessages(this.messages);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('warn', {
+        component: 'session',
+        event: 'session.persist.error',
+        message: 'Failed to persist session messages on successful run completion',
+        operation: 'persist',
+        errorName: err.name,
+        errorMessage: err.message,
+        metadata: { phase: 'complete_success' }
+      });
+      throw err;
+    }
+    this.log('debug', {
+      component: 'session',
+      event: 'session.persist.complete',
+      message: 'Session messages persisted',
+      operation: 'persist',
+      metadata: { messageCount: this.messages.length, phase: 'complete_success' }
+    });
     this.safeLifecycleVoid(() => {
       this.config.callbacks?.lifecycle?.onMessagePersist?.({
         ...this.baseRunContext(),
@@ -1090,12 +1169,14 @@ export class Agent {
       message: finishedByIterationCap
         ? 'Agent turn stopped at max iterations'
         : 'Agent turn completed',
-      sessionId: this.sessionManager.sessionId ?? undefined,
-      metadata: {
-        iterations: sessionIterations,
+      finishReason: finishedByIterationCap ? 'max_iterations' : 'complete',
+      usage: {
         promptTokens: totalUsage.promptTokens,
         completionTokens: totalUsage.completionTokens,
         totalTokens: totalUsage.totalTokens
+      },
+      metadata: {
+        iterations: sessionIterations
       }
     });
   }
@@ -1110,8 +1191,8 @@ export class Agent {
       component: 'agent',
       event: 'agent.run.aborted',
       message: 'Agent turn aborted before model request',
-      sessionId: this.sessionManager.sessionId ?? undefined,
-      iteration
+      iteration,
+      finishReason: 'aborted'
     });
     this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage: totalUsage });
     this.notifyRunAbort(iteration);
@@ -1136,7 +1217,7 @@ export class Agent {
         component: 'agent',
         event: 'agent.run.aborted',
         message: 'Agent turn aborted',
-        sessionId: this.sessionManager.sessionId ?? undefined
+        finishReason: 'aborted'
       });
       this.emitRunEnd({ reason: 'aborted', iterations: 0 });
       this.notifyRunAbort();
@@ -1153,7 +1234,7 @@ export class Agent {
       component: 'agent',
       event: 'agent.run.error',
       message: 'Agent turn failed',
-      sessionId: this.sessionManager.sessionId ?? undefined,
+      finishReason: 'error',
       errorName: err.name,
       errorMessage: err.message
     });
@@ -1171,100 +1252,106 @@ export class Agent {
    * 流式执行
    */
   async *stream(input: string, options?: StreamOptions): AsyncIterable<StreamEvent> {
-    const signal = options?.signal;
-
-    await this.prepareStreamSession(options);
-    this.appendInitialSystemMessages(options);
-    const { processedInput } = await this.appendUserMessageFromProcessedInput(input);
-
-    this.logRunStart(input, processedInput, options);
-    this.notifyRunStart(input, processedInput, options);
-
-    yield this.streamOut({ type: 'start', timestamp: Date.now() });
-    const persistOnAbortIfNeeded = this.createAbortPersistController();
-
+    this.currentRunId = randomUUID();
     try {
-      const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
-      let totalUsage: TokenUsage = {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0
-      };
+      const signal = options?.signal;
 
-      let iteration = 0;
-      for (; iteration < maxIterations; iteration++) {
-        if (signal?.aborted) {
-          yield* this.yieldEarlyAbortBeforeModel({ iteration, totalUsage, persistOnAbortIfNeeded });
-          return;
-        }
+      await this.prepareStreamSession(options);
+      this.appendInitialSystemMessages(options);
+      const { processedInput } = await this.appendUserMessageFromProcessedInput(input);
 
-        this.logIterationStart(iteration);
-        this.notifyIterationStart(iteration);
+      this.logRunStart(input, processedInput, options);
+      this.notifyRunStart(input, processedInput, options);
 
-        yield* this.yieldContextCompressionEvents(iteration);
+      yield this.streamOut({ type: 'start', timestamp: Date.now() });
+      const persistOnAbortIfNeeded = this.createAbortPersistController();
 
-        this.notifyModelRequestStart(iteration, options);
+      try {
+        const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
+        let totalUsage: TokenUsage = {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0
+        };
 
-        const modelParams = this.buildModelParamsForStream(options, signal);
-        const state = this.createEmptyModelStreamState();
-        const outcome = { kind: 'ok' as 'ok' | 'aborted' | 'fatal' };
+        let iteration = 0;
+        for (; iteration < maxIterations; iteration++) {
+          if (signal?.aborted) {
+            yield* this.yieldEarlyAbortBeforeModel({ iteration, totalUsage, persistOnAbortIfNeeded });
+            return;
+          }
 
-        for await (const ev of this.yieldModelAdapterStreamThroughFlush({
-          modelParams,
-          iteration,
-          signal,
-          totalUsage,
-          persistOnAbortIfNeeded,
-          outcome,
-          state
-        })) {
-          yield ev;
-        }
+          this.logIterationStart(iteration);
+          this.notifyIterationStart(iteration);
 
-        if (outcome.kind === 'aborted') {
-          return;
-        }
-        if (outcome.kind === 'fatal') {
-          return;
-        }
+          yield* this.yieldContextCompressionEvents(iteration);
 
-        this.notifyModelRequestEnd(iteration);
+          this.notifyModelRequestStart(iteration, options);
 
-        const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
-          assistantContent: state.assistantContent,
-          thinkingContent: state.thinkingContent,
-          thinkingSignature: state.thinkingSignature,
-          toolCalls: state.toolCalls,
-          interruptPath: false
-        })!;
+          const modelParams = this.buildModelParamsForStream(options, signal);
+          const state = this.createEmptyModelStreamState();
+          const outcome = { kind: 'ok' as 'ok' | 'aborted' | 'fatal' };
 
-        this.messages.push(assistantMessage);
-        this.notifyAssistantMessage(assistantMessage, iteration);
+          for await (const ev of this.yieldModelAdapterStreamThroughFlush({
+            modelParams,
+            iteration,
+            signal,
+            totalUsage,
+            persistOnAbortIfNeeded,
+            outcome,
+            state
+          })) {
+            yield ev;
+          }
 
-        if (!state.hasToolCalls) {
+          if (outcome.kind === 'aborted') {
+            return;
+          }
+          if (outcome.kind === 'fatal') {
+            return;
+          }
+
+          this.notifyModelRequestEnd(iteration);
+
+          const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
+            assistantContent: state.assistantContent,
+            thinkingContent: state.thinkingContent,
+            thinkingSignature: state.thinkingSignature,
+            toolCalls: state.toolCalls,
+            interruptPath: false
+          })!;
+
+          this.messages.push(assistantMessage);
+          this.notifyAssistantMessage(assistantMessage, iteration);
+
+          if (!state.hasToolCalls) {
+            this.logIterationEnd(iteration, {
+              hadToolCalls: false,
+              assistantContentLength: state.assistantContent.length
+            });
+            this.notifyIterationEnd(iteration, false);
+            break;
+          }
+
+          const toolResults = await this.executeTools(state.toolCalls, iteration, signal);
+
+          yield* this.yieldToolExecutionPipeline(toolResults, iteration);
+
           this.logIterationEnd(iteration, {
-            hadToolCalls: false,
-            assistantContentLength: state.assistantContent.length
+            hadToolCalls: true,
+            toolCallCount: state.toolCalls.length,
+            toolResultCount: toolResults.length
           });
-          this.notifyIterationEnd(iteration, false);
-          break;
+          this.notifyIterationEnd(iteration, true);
         }
 
-        const toolResults = await this.executeTools(state.toolCalls, iteration, signal);
-
-        yield* this.yieldToolExecutionPipeline(toolResults, iteration);
-
-        this.logIterationEnd(iteration, {
-          hadToolCalls: true,
-          toolCallCount: state.toolCalls.length,
-          toolResultCount: toolResults.length
-        });
-        this.notifyIterationEnd(iteration, true);
+        yield* this.yieldSuccessfulRunTermination(totalUsage, iteration, maxIterations);
+      } catch (error) {
+        yield* this.yieldStreamCatchError(error, persistOnAbortIfNeeded);
       }
-
-      yield* this.yieldSuccessfulRunTermination(totalUsage, iteration, maxIterations);
-    } catch (error) {
-      yield* this.yieldStreamCatchError(error, persistOnAbortIfNeeded);
+    } finally {
+      this.currentRunId = undefined;
+      this.attachSdkLogToHooks();
     }
   }
 
@@ -1418,6 +1505,16 @@ export class Agent {
    * 连接 MCP 服务器
    */
   async connectMCP(config: MCPServerConfig): Promise<void> {
+    this.log('info', {
+      component: 'mcp',
+      event: 'mcp.connect.start',
+      message: `Connecting MCP server "${config.name}"`,
+      metadata: {
+        serverName: config.name,
+        transport: config.transport
+      }
+    });
+
     if (!this.mcpAdapter) {
       this.mcpAdapter = new MCPAdapter();
     }
@@ -1437,6 +1534,7 @@ export class Agent {
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     const serverPrefix = formatMcpToolName(config.name, '');
+    let toolsRegistered = 0;
     for (const tool of mcpTools) {
       if (!tool.name.startsWith(serverPrefix)) {
         continue;
@@ -1445,7 +1543,19 @@ export class Agent {
         continue;
       }
       this.toolRegistry.register(tool);
+      toolsRegistered += 1;
     }
+
+    this.log('info', {
+      component: 'mcp',
+      event: 'mcp.connect.end',
+      message: `MCP server "${config.name}" connected`,
+      metadata: {
+        serverName: config.name,
+        transport: resolved.transport,
+        toolsRegistered
+      }
+    });
   }
 
   /**
@@ -1464,6 +1574,12 @@ export class Agent {
 
     // 断开服务器连接
     await this.mcpAdapter.removeServer(name);
+    this.log('debug', {
+      component: 'mcp',
+      event: 'mcp.disconnect.end',
+      message: `Disconnected MCP server "${name}"`,
+      metadata: { serverName: name }
+    });
   }
 
   /**
@@ -1581,7 +1697,28 @@ export class Agent {
     this.sessionUsage = this.contextManager.resetUsage();
 
     // 保存压缩后的会话
-    await this.sessionManager.saveMessages(this.messages);
+    try {
+      await this.sessionManager.saveMessages(this.messages);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('warn', {
+        component: 'session',
+        event: 'session.persist.error',
+        message: 'Failed to persist messages after manual context compression',
+        operation: 'persist',
+        errorName: err.name,
+        errorMessage: err.message,
+        metadata: { phase: 'manual_compress' }
+      });
+      throw err;
+    }
+    this.log('debug', {
+      component: 'session',
+      event: 'session.persist.complete',
+      message: 'Session messages persisted after manual compression',
+      operation: 'persist',
+      metadata: { phase: 'manual_compress', messageCount: this.messages.length }
+    });
 
     return {
       messageCount: this.messages.length,
@@ -1969,7 +2106,11 @@ export class Agent {
             toolCallId: tc.id,
             projectDir: this.config.cwd || process.cwd(),
             agentDepth: this.agentDepth,
-            signal
+            signal,
+            iteration,
+            sessionId: this.sessionManager.sessionId ?? undefined,
+            runId: this.currentRunId,
+            agentName: this.config.agentName ?? 'Agent'
           });
           const durationMs = Date.now() - startedAt;
           const isError = Boolean(result.isError);

@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join, resolve } from 'path';
-import type { SkillDefinition } from '../core/types.js';
+import type { SDKLogSink, SkillDefinition } from '../core/types.js';
+import { emitSDKLog } from '../core/logger.js';
 import { parseSkillMd, inferMetadataFromPath } from './parser.js';
 
 /**
@@ -13,6 +14,8 @@ export interface SkillLoaderConfig {
   userBasePath?: string;
   /** 文件过滤 */
   filter?: (path: string) => boolean;
+  /** 结构化加载失败日志（宿主 logger） */
+  sdkLog?: SDKLogSink;
 }
 
 /**
@@ -137,7 +140,27 @@ export class SkillLoader {
             skills.push(skill);
           }
         } catch (error) {
-          console.warn(`Failed to load skill from ${entryPath}:`, error);
+          const err = error instanceof Error ? error : new Error(String(error));
+          if (this.config.sdkLog) {
+            emitSDKLog({
+              logger: this.config.sdkLog.logger,
+              logLevel: this.config.sdkLog.logLevel,
+              redaction: this.config.sdkLog.redaction,
+              level: 'warn',
+              event: {
+                component: 'skill',
+                event: 'skill.load.entry.error',
+                message: 'Failed to load skill entry from disk',
+                operation: 'skill_load',
+                cwd: this.config.cwd,
+                errorName: err.name,
+                errorMessage: err.message,
+                metadata: { path: entryPath }
+              }
+            });
+          } else {
+            console.warn(`Failed to load skill from ${entryPath}:`, error);
+          }
         }
       }
     } catch {

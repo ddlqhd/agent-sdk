@@ -12,13 +12,44 @@ export interface ModelRequestLogContext {
   model: string;
   path: string;
   operation: 'stream' | 'complete';
-  params?: Pick<ModelParams, 'logger' | 'logLevel' | 'redaction' | 'sessionId'>;
+  params?: Pick<
+    ModelParams,
+    'logger' | 'logLevel' | 'redaction' | 'sessionId' | 'runId' | 'agentName'
+  >;
   iteration?: number;
 }
 
 export interface ModelRequestLogState {
   clientRequestId: string;
   startedAt: number;
+}
+
+function peelHttpRetry(meta?: Record<string, unknown>): {
+  httpAttempt?: number;
+  httpMaxAttempts?: number;
+  remainder: Record<string, unknown>;
+} {
+  if (meta == null) {
+    return { remainder: {} };
+  }
+  const clone = { ...meta };
+  const httpAttemptRaw = clone.httpAttempt;
+  const httpMaxAttemptsRaw = clone.httpMaxAttempts;
+  delete clone.httpAttempt;
+  delete clone.httpMaxAttempts;
+  const httpAttempt =
+    typeof httpAttemptRaw === 'number' && Number.isFinite(httpAttemptRaw)
+      ? httpAttemptRaw
+      : undefined;
+  const httpMaxAttempts =
+    typeof httpMaxAttemptsRaw === 'number' && Number.isFinite(httpMaxAttemptsRaw)
+      ? httpMaxAttemptsRaw
+      : undefined;
+  return {
+    httpAttempt,
+    httpMaxAttempts,
+    remainder: clone
+  };
 }
 
 function countMessages(body: unknown): number | undefined {
@@ -62,9 +93,11 @@ export function logModelRequestStart(
     startedAt: Date.now()
   };
 
+  const peeled = peelHttpRetry(extraMetadata);
   emitSDKLog({
     logger: context.params?.logger,
     logLevel: context.params?.logLevel,
+    redaction: context.params?.redaction,
     level: 'info',
     event: {
       component: 'model',
@@ -74,12 +107,16 @@ export function logModelRequestStart(
       model: context.model,
       operation: context.operation,
       sessionId: context.params?.sessionId,
+      runId: context.params?.runId,
+      agentName: context.params?.agentName,
       iteration: context.iteration,
       clientRequestId: state.clientRequestId,
+      ...(peeled.httpAttempt !== undefined ? { httpAttempt: peeled.httpAttempt } : {}),
+      ...(peeled.httpMaxAttempts !== undefined ? { httpMaxAttempts: peeled.httpMaxAttempts } : {}),
       metadata: {
         path: context.path,
         ...buildRequestMetadata(body, context.params),
-        ...extraMetadata
+        ...peeled.remainder
       }
     }
   });
@@ -93,9 +130,11 @@ export function logModelRequestEnd(
   response: Response,
   extraMetadata?: Record<string, unknown>
 ): void {
+  const peeled = peelHttpRetry(extraMetadata);
   emitSDKLog({
     logger: context.params?.logger,
     logLevel: context.params?.logLevel,
+    redaction: context.params?.redaction,
     level: response.ok ? 'info' : 'warn',
     event: {
       component: 'model',
@@ -105,14 +144,18 @@ export function logModelRequestEnd(
       model: context.model,
       operation: context.operation,
       sessionId: context.params?.sessionId,
+      runId: context.params?.runId,
+      agentName: context.params?.agentName,
       iteration: context.iteration,
       clientRequestId: state.clientRequestId,
       requestId: extractProviderRequestId(response.headers),
       statusCode: response.status,
       durationMs: Date.now() - state.startedAt,
+      ...(peeled.httpAttempt !== undefined ? { httpAttempt: peeled.httpAttempt } : {}),
+      ...(peeled.httpMaxAttempts !== undefined ? { httpMaxAttempts: peeled.httpMaxAttempts } : {}),
       metadata: {
         path: context.path,
-        ...extraMetadata
+        ...peeled.remainder
       }
     }
   });
@@ -125,9 +168,11 @@ export function logModelRequestFailure(
   extraMetadata?: Record<string, unknown>
 ): void {
   const err = error instanceof Error ? error : new Error(String(error));
+  const peeled = peelHttpRetry(extraMetadata);
   emitSDKLog({
     logger: context.params?.logger,
     logLevel: context.params?.logLevel,
+    redaction: context.params?.redaction,
     level: err.name === 'AbortError' ? 'info' : 'error',
     event: {
       component: 'model',
@@ -137,14 +182,18 @@ export function logModelRequestFailure(
       model: context.model,
       operation: context.operation,
       sessionId: context.params?.sessionId,
+      runId: context.params?.runId,
+      agentName: context.params?.agentName,
       iteration: context.iteration,
       clientRequestId: state.clientRequestId,
       durationMs: Date.now() - state.startedAt,
       errorName: err.name,
       errorMessage: err.message,
+      ...(peeled.httpAttempt !== undefined ? { httpAttempt: peeled.httpAttempt } : {}),
+      ...(peeled.httpMaxAttempts !== undefined ? { httpMaxAttempts: peeled.httpMaxAttempts } : {}),
       metadata: {
         path: context.path,
-        ...extraMetadata
+        ...peeled.remainder
       }
     }
   });
@@ -160,6 +209,7 @@ export function logModelStreamParseError(
   emitSDKLog({
     logger: context.params?.logger,
     logLevel: context.params?.logLevel,
+    redaction: context.params?.redaction,
     level: 'warn',
     event: {
       component: 'streaming',
@@ -169,6 +219,8 @@ export function logModelStreamParseError(
       model: context.model,
       operation: context.operation,
       sessionId: context.params?.sessionId,
+      runId: context.params?.runId,
+      agentName: context.params?.agentName,
       iteration: context.iteration,
       errorName: err.name,
       errorMessage: err.message,
