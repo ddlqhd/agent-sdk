@@ -11,6 +11,7 @@ import {
   terminateJob
 } from '../shell/process-manager.js';
 import type { BashJobRecord } from '../shell/process-manager.js';
+import { buildShellInvocation } from '../shell/invocation.js';
 
 installProcessExitCleanup();
 
@@ -182,10 +183,11 @@ async function runForegroundBash(opts: ForegroundOpts): Promise<{ content: strin
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const child = spawn(command, [], {
-      shell: shellPath,
+    const invocation = buildShellInvocation(command, shellPath);
+    const child = spawn(invocation.file, invocation.args, {
       cwd: cwd ?? projectDir,
-      env: { ...process.env }
+      env: { ...process.env },
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments
     });
 
     const onAbort = (): void => {

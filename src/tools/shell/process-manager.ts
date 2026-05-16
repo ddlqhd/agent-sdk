@@ -7,6 +7,8 @@ import { join } from 'path';
 
 import type { Readable } from 'stream';
 
+import { buildShellInvocation } from './invocation.js';
+
 const DEFAULT_MAX_RING_CHARS = 2 * 1024 * 1024;
 
 /** Single stream ring buffer with absolute logical indexing */
@@ -197,10 +199,11 @@ export async function spawnBackgroundJob(options: BashSpawnOptions): Promise<Bas
     }
   };
 
-  const child = spawn(options.command, [], {
-    shell: options.shellPath,
+  const invocation = buildShellInvocation(options.command, options.shellPath);
+  const child = spawn(invocation.file, invocation.args, {
     cwd: options.cwd,
-    env: options.env ?? { ...process.env }
+    env: options.env ?? { ...process.env },
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments
   });
 
   job.child = child;
