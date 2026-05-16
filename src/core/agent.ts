@@ -36,7 +36,7 @@ import { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from './prompts.
 import { MemoryManager } from '../memory/manager.js';
 import { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 import { MCPAdapter } from '../mcp/adapter.js';
-import { formatMcpToolName, isMcpPrefixedToolName } from '../mcp/mcp-tool-name.js';
+import { formatMcpToolName, isMcpPrefixedToolName, validateMcpNameSegment } from '../mcp/mcp-tool-name.js';
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
 import { invokeUserSkill, processUserInputForSkills } from '../skills/user-invocation.js';
 import { ContextManager, runIterationCompaction } from './context-manager.js';
@@ -56,6 +56,8 @@ import {
 import { mergeMcpStdioEnv } from './process-env-merge.js';
 import { SummarizationCompressor } from './compressor.js';
 import { TOOL_USER_ABORTED_MESSAGE } from './abort-constants.js';
+import { loadMCPConfig } from '../config/mcp-config.js';
+import type { MCPConfigLoadError } from '../config/mcp-config.js';
 
 /** Aggregates model stream output for one agent iteration (text, thinking, tool calls, fatal error). */
 interface ModelStreamState {
@@ -358,9 +360,45 @@ export class Agent {
   }
 
   /**
+   * 从 `loadMCPConfigFromFiles` 配置中读取文件服务器列表。
+   * 返回文件中的 server 列表（显式 `mcpServers` 同名时优先）以及文件加载错误。
+   */
+  private resolveFileBasedMcpServers(): {
+    fileServers: MCPServerConfig[];
+    configErrors: MCPConfigLoadError[];
+  } {
+    const opt = this.config.loadMCPConfigFromFiles;
+    if (!opt) {
+      return { fileServers: [], configErrors: [] };
+    }
+
+    const sdkLog = {
+      logger: this.config.logger,
+      logLevel: this.config.logLevel,
+      redaction: this.config.redaction
+    };
+
+    const configPath = typeof opt === 'object' ? opt.configPath : undefined;
+    const result = loadMCPConfig(
+      configPath,
+      this.config.cwd ?? process.cwd(),
+      this.config.userBasePath,
+      sdkLog
+    );
+
+    return {
+      fileServers: result.servers,
+      configErrors: result.errors ?? []
+    };
+  }
+
+  /**
    * 连接配置的 MCP 服务器并注册工具；与 hooks/skills 初始化互相独立。
    * 各 server 并行建连（输入顺序保持不变）。
    * 同名时只初始化**第一个**配置，其余条目跳过（不建连、不计入 `failed`），避免 MCPAdapter 竞态。
+   *
+   * 合并规则（当 `loadMCPConfigFromFiles` 启用时）：
+   * 显式 `mcpServers` 中的条目优先；文件中同名 server 被忽略。
    */
   private async runMcpInitialization(): Promise<MCPInitializationSummary> {
     const empty: MCPInitializationSummary = {
@@ -370,15 +408,28 @@ export class Agent {
       failed: 0,
       skippedDuplicates: 0
     };
-    const serversConfig = this.config.mcpServers;
-    if (!serversConfig?.length) {
-      return empty;
+
+    // Resolve file-based servers (opt-in only)
+    const { fileServers, configErrors } = this.resolveFileBasedMcpServers();
+
+    // Merge: explicit entries take precedence; file entries fill in any names not already present
+    const explicitServers = this.config.mcpServers ?? [];
+    const explicitNames = new Set(explicitServers.map(s => s.name));
+    const mergedServers: MCPServerConfig[] = [
+      ...explicitServers,
+      ...fileServers.filter(s => !explicitNames.has(s.name))
+    ];
+
+    if (!mergedServers.length) {
+      return configErrors.length
+        ? { ...empty, configErrors }
+        : empty;
     }
 
     this.mcpAdapter = new MCPAdapter();
     const firstIndexByName = new Map<string, number>();
-    for (let i = 0; i < serversConfig.length; i++) {
-      const name = serversConfig[i]!.name;
+    for (let i = 0; i < mergedServers.length; i++) {
+      const name = mergedServers[i]!.name;
       if (!firstIndexByName.has(name)) {
         firstIndexByName.set(name, i);
       }
@@ -389,7 +440,7 @@ export class Agent {
     let skippedDuplicates = 0;
 
     const serverResults = await Promise.all(
-      serversConfig.map((serverConfig, index) => {
+      mergedServers.map((serverConfig, index) => {
         if (firstIndexByName.get(serverConfig.name) !== index) {
           skippedDuplicates += 1;
           return Promise.resolve(this.duplicateMcpServerResult(serverConfig));
@@ -410,7 +461,8 @@ export class Agent {
       servers: serverResults,
       connected,
       failed,
-      skippedDuplicates
+      skippedDuplicates,
+      ...(configErrors.length ? { configErrors } : {})
     };
   }
 
@@ -1608,6 +1660,12 @@ export class Agent {
    * @returns 已注册到 Agent 工具表的 MCP 工具数量
    */
   async connectMCP(config: MCPServerConfig): Promise<number> {
+    // Validate server name before attempting connection
+    const serverNameErr = validateMcpNameSegment(config.name, 'serverName');
+    if (serverNameErr) {
+      throw new Error(serverNameErr);
+    }
+
     this.log('info', {
       component: 'mcp',
       event: 'mcp.connect.start',
@@ -1637,7 +1695,10 @@ export class Agent {
 
     const mcpTools = this.mcpAdapter.getToolDefinitions();
     const serverPrefix = formatMcpToolName(config.name, '');
-    let toolsRegistered = 0;
+
+    // Collect tools for this server, validating tool names before any registration.
+    // If any pre-check fails, roll back the server from the adapter.
+    const toolsToRegister: typeof mcpTools = [];
     for (const tool of mcpTools) {
       if (!tool.name.startsWith(serverPrefix)) {
         continue;
@@ -1645,9 +1706,49 @@ export class Agent {
       if (this.toolRegistry.isDisallowed(tool.name)) {
         continue;
       }
-      this.toolRegistry.register(tool);
-      toolsRegistered += 1;
+      // Extract the raw tool name segment from the prefixed name
+      const rawToolName = tool.name.slice(serverPrefix.length);
+      const toolNameErr = validateMcpNameSegment(rawToolName, 'toolName');
+      if (toolNameErr) {
+        this.log('warn', {
+          component: 'mcp',
+          event: 'mcp.tool.name_invalid',
+          message: toolNameErr,
+          metadata: { serverName: config.name, toolName: rawToolName }
+        });
+        continue;
+      }
+      if (this.toolRegistry.has(tool.name)) {
+        // Skip tools that are already registered (e.g. from a previous connectMCP call)
+        this.log('warn', {
+          component: 'mcp',
+          event: 'mcp.tool.already_registered',
+          message: `MCP tool "${tool.name}" is already registered; skipping`,
+          metadata: { serverName: config.name, toolName: rawToolName }
+        });
+        continue;
+      }
+      toolsToRegister.push(tool);
     }
+
+    // Transactional registration: register all at once, rolling back on failure.
+    const registered: string[] = [];
+    try {
+      for (const tool of toolsToRegister) {
+        this.toolRegistry.register(tool);
+        registered.push(tool.name);
+      }
+    } catch (regErr) {
+      // Roll back already-registered tools for this server
+      for (const name of registered) {
+        this.toolRegistry.unregister(name);
+      }
+      // Roll back the server from the adapter
+      await this.mcpAdapter.removeServer(config.name).catch(() => undefined);
+      throw regErr;
+    }
+
+    const toolsRegistered = registered.length;
 
     this.log('info', {
       component: 'mcp',

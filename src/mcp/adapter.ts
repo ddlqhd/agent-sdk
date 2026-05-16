@@ -24,9 +24,14 @@ export class MCPAdapter {
         `MCP server "${config.name}" connect timed out after ${timeoutMs}ms`
       );
     } catch (error) {
+      // Eagerly clean up: if the underlying connect eventually succeeds, disconnect
+      // immediately so the subprocess/socket is not left dangling indefinitely.
       void connectPromise
         .then(() => client.disconnect())
         .catch(() => undefined);
+      // Also attempt a best-effort disconnect right now in case the transport
+      // has already opened (e.g. stdio process spawned but handshake hung).
+      void client.disconnect().catch(() => undefined);
       throw error;
     }
 

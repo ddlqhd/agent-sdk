@@ -86,6 +86,28 @@ function reportMCPConfigLoad(result: MCPConfigLoadResult): void {
   }
 }
 
+function reportMCPInitResult(mcp: import('../../core/types.js').MCPInitializationSummary): void {
+  if (!mcp.enabled) return;
+
+  for (const err of mcp.configErrors ?? []) {
+    console.warn(chalk.yellow(`MCP config: ${err.message}`));
+  }
+
+  for (const srv of mcp.servers) {
+    if (!srv.connected) {
+      if (srv.errorName === 'DuplicateMcpServerName') {
+        console.warn(chalk.yellow(`MCP: skipped duplicate server "${srv.name}"`));
+      } else {
+        console.warn(
+          chalk.yellow(`MCP: failed to connect "${srv.name}": ${srv.errorMessage ?? srv.errorName ?? 'unknown error'}`)
+        );
+      }
+    } else if (srv.toolsRegistered === 0) {
+      console.warn(chalk.yellow(`MCP: server "${srv.name}" connected but registered 0 tools`));
+    }
+  }
+}
+
 /**
  * 交互式对话命令
  */
@@ -120,7 +142,8 @@ export function createChatCommand(): Command {
       });
 
       // 等待 Agent 初始化完成（skill 加载、MCP 连接等）
-      await agent.waitForInit();
+      const initResult = await agent.waitForInit();
+      reportMCPInitResult(initResult.mcp);
       const model = agent.getModel();
 
       // 显示已加载的 skills
@@ -318,7 +341,8 @@ export function createRunCommand(): Command {
         });
 
         // 等待 Agent 初始化完成
-        await agent.waitForInit();
+        const initResult = await agent.waitForInit();
+        reportMCPInitResult(initResult.mcp);
 
         try {
           if (options.output === 'json') {

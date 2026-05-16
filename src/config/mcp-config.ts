@@ -37,7 +37,11 @@ export interface MCPConfigFile {
 /**
  * MCP 配置加载错误（非致命；`loadMCPConfig` 不抛错）
  */
-export type MCPConfigLoadErrorKind = 'path_not_found' | 'parse_error' | 'validation_error';
+export type MCPConfigLoadErrorKind =
+  | 'path_not_found'
+  | 'parse_error'
+  | 'validation_error'
+  | 'missing_env_var';
 
 export interface MCPConfigLoadError {
   kind: MCPConfigLoadErrorKind;
@@ -64,39 +68,43 @@ export interface MCPConfigLoadResult {
 }
 
 /**
- * 展开环境变量
- * 支持 ${VAR} 和 $VAR 格式
+ * 展开单个字符串中的环境变量，同时将未定义的变量名收集到 `missing` 集合中。
+ * 保留原有行为：未定义的变量展开为空字符串。
  */
-function expandEnvVars(value: string): string {
-  // 匹配 ${VAR} 格式
+function expandEnvVars(value: string, missing: Set<string>): string {
   let result = value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-    return process.env[varName] || '';
+    if (!(varName in process.env)) {
+      missing.add(varName as string);
+    }
+    return process.env[varName as string] ?? '';
   });
 
-  // 匹配 $VAR 格式
   result = result.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, varName) => {
-    return process.env[varName] || '';
+    if (!(varName in process.env)) {
+      missing.add(varName as string);
+    }
+    return process.env[varName as string] ?? '';
   });
 
   return result;
 }
 
 /**
- * 递归展开对象中的环境变量
+ * 递归展开对象中的环境变量，将未定义的变量名收集到 `missing` 集合中。
  */
-function expandEnvVarsInObject(obj: unknown): unknown {
+function expandEnvVarsInObject(obj: unknown, missing: Set<string>): unknown {
   if (typeof obj === 'string') {
-    return expandEnvVars(obj);
+    return expandEnvVars(obj, missing);
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => expandEnvVarsInObject(item));
+    return obj.map(item => expandEnvVarsInObject(item, missing));
   }
 
   if (obj && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      result[key] = expandEnvVarsInObject(value);
+      result[key] = expandEnvVarsInObject(value, missing);
     }
     return result;
   }
@@ -215,7 +223,36 @@ function tryLoadConfigFile(
   try {
     const content = readFileSync(filePath, 'utf-8');
     const rawConfig = JSON.parse(content) as unknown;
-    const expandedConfig = expandEnvVarsInObject(rawConfig) as MCPConfigFile;
+    const missingEnvVars = new Set<string>();
+    const expandedConfig = expandEnvVarsInObject(rawConfig, missingEnvVars) as MCPConfigFile;
+
+    if (missingEnvVars.size > 0) {
+      const varList = Array.from(missingEnvVars).sort();
+      const err: MCPConfigLoadError = {
+        kind: 'missing_env_var',
+        path: filePath,
+        message: `MCP config references undefined environment variable(s): ${varList.join(', ')} (expanded to empty string)`,
+        validationMessages: varList
+      };
+      errors.push(err);
+      if (sdkLog) {
+        emitSDKLog({
+          logger: sdkLog.logger,
+          logLevel: sdkLog.logLevel,
+          redaction: sdkLog.redaction,
+          level: 'warn',
+          event: {
+            component: 'mcp',
+            event: 'mcp.config.env.missing',
+            message: err.message,
+            cwd: startDir,
+            errorName: 'MissingEnvVar',
+            errorMessage: err.message,
+            metadata: { path: filePath, kind: 'missing_env_var', variables: varList }
+          }
+        });
+      }
+    }
 
     if (!expandedConfig.mcpServers || typeof expandedConfig.mcpServers !== 'object') {
       const msgs = ['mcpServers must be an object'];

@@ -268,6 +268,66 @@ describe('loadMCPConfig errors and validation', () => {
   });
 });
 
+describe('loadMCPConfig missing environment variables', () => {
+  let configPath: string;
+  beforeEach(() => {
+    configPath = join(
+      tmpdir(),
+      `mcp-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+  });
+  afterEach(() => {
+    if (existsSync(configPath)) unlinkSync(configPath);
+  });
+
+  it('reports missing_env_var error when config references an undefined variable', () => {
+    const uniqueVar = `MCP_TEST_MISSING_VAR_${Date.now()}`;
+    // Ensure the variable is definitely not set
+    delete process.env[uniqueVar];
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          myserver: {
+            command: 'npx',
+            env: { TOKEN: `\${${uniqueVar}}` }
+          }
+        }
+      })
+    );
+
+    const r = loadMCPConfig(configPath);
+    expect(r.servers).toHaveLength(1);
+    const missingErr = r.errors?.find(e => e.kind === 'missing_env_var');
+    expect(missingErr).toBeDefined();
+    expect(missingErr?.validationMessages).toContain(uniqueVar);
+  });
+
+  it('does not report missing_env_var for variables that are defined', () => {
+    process.env['MCP_TEST_PRESENT_VAR'] = 'hello';
+    try {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            myserver: {
+              command: 'node',
+              env: { TOKEN: '${MCP_TEST_PRESENT_VAR}' }
+            }
+          }
+        })
+      );
+
+      const r = loadMCPConfig(configPath);
+      expect(r.errors?.some(e => e.kind === 'missing_env_var')).toBeFalsy();
+      expect(r.servers[0].env?.TOKEN).toBe('hello');
+    } finally {
+      delete process.env['MCP_TEST_PRESENT_VAR'];
+    }
+  });
+});
+
 describe('loadMCPConfig merge skips bad user fragment', () => {
   it('merges workspace servers when user file is invalid JSON', () => {
     const fakeHome = join(tmpdir(), `fakehome-${Date.now()}`);

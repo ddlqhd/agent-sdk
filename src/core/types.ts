@@ -658,7 +658,7 @@ export interface MCPServerInitializationResult {
  * Summary of MCP initialization from {@link Agent.waitForInit}.
  */
 export interface MCPInitializationSummary {
-  /** True when `AgentConfig.mcpServers` was non-empty. */
+  /** True when any MCP servers were configured (via `AgentConfig.mcpServers` or `loadMCPConfigFromFiles`). */
   enabled: boolean;
   servers: MCPServerInitializationResult[];
   /** Count of successfully connected servers (one per unique `name`; first config wins when names repeat). */
@@ -670,6 +670,12 @@ export interface MCPInitializationSummary {
    * The first occurrence is still initialized; later duplicates are not started.
    */
   skippedDuplicates: number;
+  /**
+   * Non-fatal errors from loading `mcp_config.json` files (path not found, parse errors, validation
+   * errors, or missing environment variable references). Populated only when `loadMCPConfigFromFiles`
+   * is enabled. Each entry has `kind`, `path`, and `message`.
+   */
+  configErrors?: import('../config/mcp-config.js').MCPConfigLoadError[];
 }
 
 /**
@@ -925,6 +931,18 @@ export interface AgentConfig {
 
   /** MCP 服务器配置 */
   mcpServers?: MCPServerConfig[];
+
+  /**
+   * Opt-in automatic loading of `mcp_config.json` from disk.
+   *
+   * - `false` (default): no automatic loading; pass `mcpServers` explicitly.
+   * - `true`: automatically discover `{userBasePath}/.claude/mcp_config.json` and
+   *   `{cwd}/.claude/mcp_config.json`, merging them with explicit `mcpServers`
+   *   (explicit entries take precedence over file entries with the same `name`).
+   * - `{ configPath: string }`: load a single config file at the given path, then
+   *   merge with explicit `mcpServers` (explicit entries take precedence).
+   */
+  loadMCPConfigFromFiles?: boolean | { configPath: string };
 
   /**
    * 对当前进程环境的补充与覆盖（合并到 stdio MCP 子进程；键与 `process.env` 冲突时以本字段为准）。

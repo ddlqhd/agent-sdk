@@ -92,12 +92,30 @@ describe('MCPAdapter.addServer connect timeout', () => {
       connectTimeoutMs: 10
     });
     await expect(task).rejects.toThrow('MCP server "late-server" connect timed out after 10ms');
-    expect(disconnectMock).not.toHaveBeenCalled();
 
     deferred.resolve();
     await Promise.resolve();
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
+    // Should have been called at least once: either eagerly on timeout or after promise resolves
+    expect(disconnectMock).toHaveBeenCalled();
+  });
+
+  it('calls disconnect eagerly after timeout even when connect never resolves', async () => {
+    vi.useRealTimers();
+    // connect promise never resolves
+    connectMock.mockImplementation(() => new Promise<void>(() => undefined));
+    const adapter = new MCPAdapter();
+
+    const task = adapter.addServer({
+      name: 'hung-server',
+      transport: 'stdio',
+      command: 'node',
+      connectTimeoutMs: 10
+    });
+    await expect(task).rejects.toThrow('hung-server');
+
+    // The eager disconnect should have been called even though connect is still pending
     expect(disconnectMock).toHaveBeenCalledTimes(1);
   });
 });

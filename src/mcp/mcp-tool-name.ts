@@ -15,3 +15,24 @@ export function isMcpPrefixedToolName(name: string): boolean {
   }
   return name.slice('mcp__'.length).includes('__');
 }
+
+/**
+ * Validates a server name or tool name segment used in the MCP tool naming convention.
+ *
+ * Returns an error message if the segment is invalid, or `null` if it is valid.
+ * A segment is invalid when it:
+ * - is empty or blank
+ * - contains `__` (double underscore), which would make the composite name ambiguous
+ */
+export function validateMcpNameSegment(
+  segment: string,
+  role: 'serverName' | 'toolName'
+): string | null {
+  if (!segment || !segment.trim()) {
+    return `MCP ${role} must not be empty`;
+  }
+  if (segment.includes('__')) {
+    return `MCP ${role} "${segment}" must not contain "__" (double underscore) as it makes the tool name ambiguous`;
+  }
+  return null;
+}
