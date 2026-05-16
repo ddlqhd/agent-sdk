@@ -1,4 +1,5 @@
 import { inspect } from 'util';
+import { coerceLogEventEpochMs, formatStructuredLogWallClock } from './log-timestamp.js';
 import type { LogEvent, LogRedactionConfig, SDKLogLevel, SDKLogger } from './types.js';
 
 const TRUTHY = /^(1|true|yes)$/i;
@@ -177,8 +178,20 @@ export function sanitizeForLogging(
   return String(value);
 }
 
+function timestampForConsole(event: LogEvent): string | undefined {
+  if (event.timestamp === undefined) {
+    return undefined;
+  }
+  if (typeof event.timestamp === 'string') {
+    return event.timestamp;
+  }
+  return formatStructuredLogWallClock(event.timestamp);
+}
+
 export function formatSDKLog(event: LogEvent): string {
-  const prefix = `[agent-sdk][${event.component}][${event.event}]`;
+  const ts = timestampForConsole(event);
+  const timePrefix = ts !== undefined ? `[${ts}] ` : '';
+  const prefix = `${timePrefix}[agent-sdk][${event.component}][${event.event}]`;
   const details: string[] = [];
 
   if (event.provider) details.push(`provider=${event.provider}`);
@@ -256,6 +269,7 @@ export function createConsoleSDKLogger(): SDKLogger {
  * 写到 `console`（级别对应 `console.debug` / `info` / `warn` / `error`）。
  *
  * `metadata` 会先经 {@link sanitizeForLogging}（由 `redaction` 与环境变量推导）再输出。
+ * 每条记录的 {@link LogEvent.timestamp} 为本地化墙钟字符串（毫秒精度 + 偏移或 `Z`），由 {@link formatStructuredLogWallClock} 规则生成；可被调用方预先传入数字毫秒或可被 `Date.parse` 解析的字符串并在此统一格式化。
  */
 export function emitSDKLog(args: {
   logger?: SDKLogger;
@@ -275,10 +289,14 @@ export function emitSDKLog(args: {
       ? undefined
       : (sanitizeForLogging(args.event.metadata, effectiveRedaction) as Record<string, unknown>);
 
+  const epochMs = coerceLogEventEpochMs(args.event.timestamp);
+  const timestamp = formatStructuredLogWallClock(epochMs);
+
   const payload: LogEvent = {
     source: 'agent-sdk',
     ...args.event,
-    ...(sanitizedMetadata !== undefined ? { metadata: sanitizedMetadata } : {})
+    ...(sanitizedMetadata !== undefined ? { metadata: sanitizedMetadata } : {}),
+    timestamp
   };
 
   logger[args.level]?.(payload);

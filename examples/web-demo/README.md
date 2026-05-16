@@ -42,6 +42,10 @@ Open `http://127.0.0.1:5173`, click **Apply configuration**, then chat.
 | `OPENAI_API_KEY`    | Provider: OpenAI   |
 | `ANTHROPIC_API_KEY` | Provider: Anthropic |
 | `OLLAMA_BASE_URL`   | Optional; default `http://127.0.0.1:11434` |
+| `AGENT_SDK_LOG_LEVEL` | Optional; SDK log level (`debug`/`info`/`warn`/`error`/`silent`). Default: `info`. |
+| `AGENT_SDK_LOG_FILE`  | Optional; override JSONL log path. Default: `examples/web-demo/.logs/agent-sdk-<date>.log`. |
+
+The server prints the resolved log file path on startup, e.g. `[web-demo] SDK logs: <path> (level=info)`. Set `AGENT_SDK_LOG_LEVEL=silent` to disable file logging entirely.
 
 ## Capabilities surfaced in the UI
 

@@ -48,6 +48,36 @@ describe('SDK logging helpers', () => {
     expect(formatted).toContain('sessionId=sess-1');
   });
 
+  it('includes wall-clock time prefix when event has formatted timestamp string', () => {
+    const formatted = formatSDKLog({
+      source: 'agent-sdk',
+      timestamp: '2026-05-16 20:34:56.789 +08:00',
+      component: 'agent',
+      event: 'agent.run.start'
+    });
+
+    expect(formatted).toMatch(/^\[[\dTZ: +-.]+\]/);
+    expect(formatted).toContain('[agent-sdk][agent][agent.run.start]');
+  });
+
+  it('includes formatted wall-clock prefix when timestamp is millis (UTC via env)', () => {
+    process.env.AGENT_SDK_LOG_TZ = 'UTC';
+
+    try {
+      const formatted = formatSDKLog({
+        source: 'agent-sdk',
+        timestamp: Date.UTC(2026, 4, 16, 12, 34, 56, 0),
+        component: 'agent',
+        event: 'agent.run.start'
+      });
+
+      expect(formatted).toContain('[2026-05-16 12:34:56.000 Z]');
+      expect(formatted).toContain('[agent-sdk][agent][agent.run.start]');
+    } finally {
+      delete process.env.AGENT_SDK_LOG_TZ;
+    }
+  });
+
   it('redacts sensitive headers, messages, and tool arguments by default', () => {
     const redaction = resolveLogRedaction();
     const sanitized = sanitizeForLogging({
@@ -135,6 +165,8 @@ describe('SDK logging integration', () => {
     const result = await agent.run('hello');
 
     expect(result.content).toBe('done');
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs.every((event) => typeof event.timestamp === 'string')).toBe(true);
     expect(logs.some(event => event.event === 'agent.run.start')).toBe(true);
     expect(logs.some(event => event.event === 'agent.iteration.start')).toBe(true);
     expect(logs.some(event => event.event === 'tool.call.start')).toBe(true);

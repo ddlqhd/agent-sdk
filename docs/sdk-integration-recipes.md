@@ -315,6 +315,36 @@ const agent = new Agent({
 });
 ```
 
+### 内置文件 JSONL Logger
+
+如果只需要把 SDK 日志写到本地文件（每行一个 `LogEvent` JSON，便于 `jq` / pino / Datadog 摄取），可直接使用 SDK 提供的 `createFileJSONLLogger`：
+
+```ts
+import { Agent, createFileJSONLLogger } from '@ddlqhd/agent-sdk';
+
+const logger = createFileJSONLLogger({
+  filePath: '/var/log/agent-sdk/agent-sdk.log'
+});
+
+const agent = new Agent({
+  model,
+  logger,
+  logLevel: 'info'
+});
+
+// ... 进程退出前
+await agent.destroy();
+await logger.close(); // flush & close write stream
+```
+
+行为：
+
+- 父目录不存在时自动 `mkdir -p`。
+- 4 个级别都通过同一个 append 模式 `WriteStream` 落盘；写入失败仅 `console.error` 一次兜底，不抛错。
+- `close()` 等待 `'finish'` 事件后返回，且对重复调用幂等。
+
+CLI（`agent-sdk chat` / `run`）默认即使用此 logger，文件路径为 `<userBasePath>/.claude/logs/agent-sdk-YYYY-MM-DD.log`，可用 `--log-file <path>` 或环境变量 `AGENT_SDK_LOG_FILE` 覆盖。
+
 ### 与 `callbacks` / Hooks 分工
 
 - **结构化日志（`logger`）**：运维向的稳定字段（`source` / `component` / `event`）；适合落盘、pino/Datadog 等。
@@ -331,6 +361,7 @@ const agent = new Agent({
 | `AGENT_SDK_LOG_BODIES` | 为 `true` 时，在模型请求的日志元数据里允许包含**经脱敏处理后的请求体摘要**（如 `messages` 等）；为 `false` 或未设置时，不在日志里附带完整请求体结构。 |
 | `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` | 为 `true` 时，在脱敏后的结构化数据里允许包含**工具调用的参数**；否则相关字段会显示为占位符（如 `REDACTED_TOOL_ARGUMENTS`）。 |
 | `AGENT_SDK_LOG_MAX_BODY_CHARS` | 非负整数，限制单条字符串字段在日志中保留的最大字符数；超出部分截断并标注。未设置时默认 **4000**。 |
+| `AGENT_SDK_LOG_FILE` | 仅由本仓库的 **CLI** 与 **web-demo** 读取，用于覆盖默认 JSONL 文件路径（CLI 还可用 `--log-file` 进一步覆盖）。SDK 库本身不会读取此变量；自定义宿主请显式调用 `createFileJSONLLogger({ filePath })`。 |
 
 **`AGENT_SDK_LOG_LEVEL` 取值**（大小写不敏感，首尾空格会被忽略）：
 

@@ -8,3 +8,5 @@ export type { Compressor, CompressionResult, CompressionStats, SummarizationComp
 export { getEnvironmentInfo, formatEnvironmentSection } from './environment.js';
 export type { EnvironmentInfo } from './environment.js';
 export { createConsoleSDKLogger, formatSDKLog } from './logger.js';
+export { createFileJSONLLogger } from './file-logger.js';
+export type { FileJSONLLogger, FileJSONLLoggerOptions } from './file-logger.js';

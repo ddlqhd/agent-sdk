@@ -10,7 +10,12 @@ import {
   pauseKeypressListener
 } from '../utils/keypress.js';
 import type { AgentModelConfig, CLIConfig } from '../../core/types.js';
-import { DEFAULT_CLI_AGENT_LOG_LEVEL, describeCliLogLevelOption, parseCliLogLevel } from '../utils/sdk-log.js';
+import {
+  DEFAULT_CLI_AGENT_LOG_LEVEL,
+  describeCliLogLevelOption,
+  parseCliLogLevel,
+  createCliFileLogger
+} from '../utils/sdk-log.js';
 import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
@@ -48,7 +53,11 @@ function addModelOptions(cmd: Command): Command {
       'Ollama only: `think` param (true|false|low|medium|high; bare flag => true)',
       (v: string | undefined) => parseOllamaThinkCli(v)
     )
-    .option('--log-level <level>', describeCliLogLevelOption(), parseCliLogLevel);
+    .option('--log-level <level>', describeCliLogLevelOption(), parseCliLogLevel)
+    .option(
+      '--log-file <path>',
+      'JSONL log file path (default: <userBase>/.claude/logs/agent-sdk-<date>.log; AGENT_SDK_LOG_FILE overrides)'
+    );
 }
 
 function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
@@ -131,6 +140,8 @@ export function createChatCommand(): Command {
       reportMCPConfigLoad(mcpResult);
 
       const cwd = options.cwd || process.cwd();
+      const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
+      const fileLogger = createCliFileLogger(effectiveLogLevel, options.logFile, options.userBasePath);
       const agent = new Agent({
         modelConfig: modelConfigFromOptions(options),
         cwd,
@@ -140,7 +151,8 @@ export function createChatCommand(): Command {
         maxTokens: options.maxTokens,
         mcpServers: mcpResult.servers,
         userBasePath: options.userBasePath,
-        logLevel: options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL,
+        logLevel: effectiveLogLevel,
+        ...(fileLogger ? { logger: fileLogger } : {}),
         askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
       });
 
@@ -156,6 +168,9 @@ export function createChatCommand(): Command {
       console.log(chalk.cyan('🤖 Agent SDK Chat'));
       console.log(chalk.gray(`Model: ${model.name}`));
       console.log(chalk.gray(`Sessions: ${getSessionStoragePath(options.userBasePath)}`));
+      if (fileLogger) {
+        console.log(chalk.gray(`Logs: ${fileLogger.filePath}`));
+      }
       if (skills.length > 0) {
         console.log(chalk.gray(`Skills: ${skills.map(s => `/${s.name}`).join(', ')}`));
       }
@@ -298,6 +313,9 @@ export function createChatCommand(): Command {
         }
       } finally {
         await agent.destroy();
+        if (fileLogger) {
+          await fileLogger.close();
+        }
         rl.close();
       }
     } catch (err) {
@@ -331,6 +349,8 @@ export function createRunCommand(): Command {
         reportMCPConfigLoad(mcpResult);
 
         const cwd = options.cwd || process.cwd();
+        const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
+        const fileLogger = createCliFileLogger(effectiveLogLevel, options.logFile, options.userBasePath);
         const agent = new Agent({
           modelConfig: modelConfigFromOptions(options),
           cwd,
@@ -340,7 +360,8 @@ export function createRunCommand(): Command {
           maxTokens: options.maxTokens,
           mcpServers: mcpResult.servers,
           userBasePath: options.userBasePath,
-          logLevel: options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL,
+          logLevel: effectiveLogLevel,
+          ...(fileLogger ? { logger: fileLogger } : {}),
           askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
         });
 
@@ -370,6 +391,9 @@ export function createRunCommand(): Command {
         } finally {
           // 清理资源
           await agent.destroy();
+          if (fileLogger) {
+            await fileLogger.close();
+          }
         }
       } catch (err) {
         console.error(chalk.red(`Error: ${err instanceof Error ? err.message : err}`));

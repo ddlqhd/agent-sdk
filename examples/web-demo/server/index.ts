@@ -15,7 +15,12 @@ import type {
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
 import { chatPreview, truncateForLog } from '../shared/log-utils.js';
-import { buildAgent, type BuildAgentOptions } from './agent-factory.js';
+import {
+  buildAgent,
+  closeSharedAgentLogger,
+  getSharedAgentLogger,
+  type BuildAgentOptions
+} from './agent-factory.js';
 import { CLIENT_DIST, WEB_DEMO_ROOT } from './paths.js';
 import { serializeStreamEvent } from './serialize-event.js';
 
@@ -463,4 +468,30 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(
     `[web-demo] listening on http://127.0.0.1:${PORT}${PROD ? ' (serving static)' : ' (WebSocket /ws only)'}`
   );
+  const logInfo = getSharedAgentLogger();
+  if (logInfo.filePath) {
+    console.log(`[web-demo] SDK logs: ${logInfo.filePath} (level=${logInfo.level})`);
+  } else {
+    console.log(`[web-demo] SDK logs: disabled (AGENT_SDK_LOG_LEVEL=${logInfo.level})`);
+  }
+});
+
+let shuttingDown = false;
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[web-demo] received ${signal}, shutting down`);
+  try {
+    await closeSharedAgentLogger();
+  } catch (err) {
+    console.error('[web-demo] error closing SDK logger:', err);
+  }
+  process.exit(0);
+}
+
+process.once('SIGINT', () => {
+  void gracefulShutdown('SIGINT');
+});
+process.once('SIGTERM', () => {
+  void gracefulShutdown('SIGTERM');
 });

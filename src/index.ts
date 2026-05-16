@@ -15,6 +15,8 @@ export { mergeProcessEnv, mergeMcpStdioEnv } from './core/process-env-merge.js';
 export { TOOL_USER_ABORTED_MESSAGE } from './core/abort-constants.js';
 export { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from './core/prompts.js';
 export { createConsoleSDKLogger, formatSDKLog } from './core/logger.js';
+export { createFileJSONLLogger } from './core/file-logger.js';
+export type { FileJSONLLogger, FileJSONLLoggerOptions } from './core/file-logger.js';
 
 // Models
 export {

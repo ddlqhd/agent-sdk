@@ -3,20 +3,87 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   Agent,
+  createFileJSONLLogger,
   createModel,
   loadMCPConfig,
   validateMCPConfig,
   type AskUserQuestionResolver,
+  type FileJSONLLogger,
   type MCPConfigFile,
-  type MCPServerConfig
+  type MCPServerConfig,
+  type SDKLogLevel
 } from '@ddlqhd/agent-sdk';
 import type { ModelProvider } from '../shared/ws-protocol.js';
 import { truncateForLog } from '../shared/log-utils.js';
 import { describeMissingKey, getOllamaBaseUrl, requireProviderEnv } from './env.js';
 import { demoCalculatorTool } from './demo-calculator.js';
-import { DEMO_FIXTURES, SDK_ROOT, WEB_DEMO_ROOT } from './paths.js';
+import { DEMO_FIXTURES, SDK_ROOT, WEB_DEMO_LOG_DIR, WEB_DEMO_ROOT } from './paths.js';
 
 const LOG_PREFIX = '[web-demo]';
+
+const VALID_LOG_LEVELS: SDKLogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];
+
+function resolveSharedLogLevel(): SDKLogLevel {
+  const raw = process.env.AGENT_SDK_LOG_LEVEL?.trim().toLowerCase();
+  if (raw && (VALID_LOG_LEVELS as string[]).includes(raw)) {
+    return raw as SDKLogLevel;
+  }
+  return 'info';
+}
+
+function todayStamp(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function resolveSharedLogFile(): string {
+  const fromEnv = process.env.AGENT_SDK_LOG_FILE?.trim();
+  if (fromEnv) return fromEnv;
+  return join(WEB_DEMO_LOG_DIR, `agent-sdk-${todayStamp()}.log`);
+}
+
+let sharedLogger: FileJSONLLogger | null = null;
+let sharedLoggerInitialized = false;
+
+interface SharedLoggerInfo {
+  logger: FileJSONLLogger | null;
+  level: SDKLogLevel;
+  filePath: string | null;
+}
+
+/**
+ * Lazily create a process-wide JSONL logger for SDK events. Returns `null` for the logger when
+ * `AGENT_SDK_LOG_LEVEL=silent`. The level and file path are always reported so callers can log
+ * the chosen settings.
+ */
+export function getSharedAgentLogger(): SharedLoggerInfo {
+  const level = resolveSharedLogLevel();
+  if (level === 'silent') {
+    return { logger: null, level, filePath: null };
+  }
+  if (!sharedLoggerInitialized) {
+    sharedLoggerInitialized = true;
+    sharedLogger = createFileJSONLLogger({ filePath: resolveSharedLogFile() });
+  }
+  return {
+    logger: sharedLogger,
+    level,
+    filePath: sharedLogger?.filePath ?? null
+  };
+}
+
+/** Flush + close the shared SDK logger. Idempotent and safe to call during shutdown. */
+export async function closeSharedAgentLogger(): Promise<void> {
+  const current = sharedLogger;
+  sharedLogger = null;
+  sharedLoggerInitialized = false;
+  if (current) {
+    await current.close();
+  }
+}
 
 export interface BuildAgentOptions {
   provider: ModelProvider;
@@ -125,6 +192,7 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
     );
   }
 
+  const sharedLog = getSharedAgentLogger();
   const agent = new Agent({
     model,
     cwd,
@@ -142,7 +210,9 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
     includeEnvironment: true,
     askUserQuestion: config.askUserQuestion,
     tools: [demoCalculatorTool],
-    disallowedTools: config.safeToolsOnly ? ['Bash'] : undefined
+    disallowedTools: config.safeToolsOnly ? ['Bash'] : undefined,
+    logLevel: sharedLog.level,
+    ...(sharedLog.logger ? { logger: sharedLog.logger } : {})
   });
 
   await agent.waitForInit();

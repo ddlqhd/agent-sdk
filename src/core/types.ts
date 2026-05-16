@@ -95,6 +95,11 @@ export type SDKLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export interface LogEvent {
   /** 固定来源标识，便于宿主应用统一过滤 */
   source: 'agent-sdk';
+  /**
+   * 事件发生时间。由 {@link emitSDKLog} 写入可读串 `YYYY-MM-DD HH:mm:ss.sss ±HH:mm`（本地 / IANA，`AGENT_SDK_LOG_TZ`）或 UTC 后缀 `Z`；
+   * 调用方亦可传入毫秒数或可 `Date.parse` 的字符串，输出前会据此统一格式化。
+   */
+  timestamp?: string | number;
   component:
     | 'agent'
     | 'model'

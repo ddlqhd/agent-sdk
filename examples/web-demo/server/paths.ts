@@ -12,3 +12,6 @@ export const SDK_ROOT = join(WEB_DEMO_ROOT, '..', '..');
 export const DEMO_FIXTURES = join(WEB_DEMO_ROOT, 'demo-fixtures');
 
 export const CLIENT_DIST = join(WEB_DEMO_ROOT, 'client', 'dist');
+
+/** Directory for persisted agent-sdk JSONL logs emitted by the web-demo. */
+export const WEB_DEMO_LOG_DIR = join(WEB_DEMO_ROOT, '.logs');

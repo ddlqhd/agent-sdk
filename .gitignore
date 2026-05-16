@@ -42,3 +42,6 @@ temp/
 # Session storage (generated during runtime)
 sessions/
 .claude/settings.local.json
+
+# Web demo SDK log files
+examples/web-demo/.logs/

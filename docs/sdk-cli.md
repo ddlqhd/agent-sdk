@@ -99,6 +99,9 @@ agent-sdk chat [options]
   --cwd <path>             工作目录 (默认: 当前目录)
   --resume                 恢复最近更新的会话（与 chat/run 使用相同存储；若已设 -s 则忽略）
   --ollama-think [value]   仅 Ollama：对应 API `think`（true|false|low|medium|high；单独写该 flag 等价 true）
+  --log-level <level>      Agent SDK 日志级别 (debug|info|warn|error|silent；chat/run 默认: info)
+  --log-file <path>        SDK JSONL 日志文件路径（默认 <userBase>/.claude/logs/agent-sdk-<date>.log；
+                           可被环境变量 AGENT_SDK_LOG_FILE 覆盖；--log-level=silent 时不写文件）
 ```
 
 ### run
