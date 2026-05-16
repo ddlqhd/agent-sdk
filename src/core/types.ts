@@ -661,10 +661,15 @@ export interface MCPInitializationSummary {
   /** True when `AgentConfig.mcpServers` was non-empty. */
   enabled: boolean;
   servers: MCPServerInitializationResult[];
-  /** Count of successfully connected servers. */
+  /** Count of successfully connected servers (one per unique `name`; first config wins when names repeat). */
   connected: number;
-  /** Count of servers that failed to connect. */
+  /** Count of servers that failed to connect (excludes duplicate-name entries skipped after the first). */
   failed: number;
+  /**
+   * Config entries skipped because an earlier entry already used the same `name`.
+   * The first occurrence is still initialized; later duplicates are not started.
+   */
+  skippedDuplicates: number;
 }
 
 /**

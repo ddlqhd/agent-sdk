@@ -359,13 +359,16 @@ export class Agent {
 
   /**
    * 连接配置的 MCP 服务器并注册工具；与 hooks/skills 初始化互相独立。
+   * 各 server 并行建连（输入顺序保持不变）。
+   * 同名时只初始化**第一个**配置，其余条目跳过（不建连、不计入 `failed`），避免 MCPAdapter 竞态。
    */
   private async runMcpInitialization(): Promise<MCPInitializationSummary> {
     const empty: MCPInitializationSummary = {
       enabled: false,
       servers: [],
       connected: 0,
-      failed: 0
+      failed: 0,
+      skippedDuplicates: 0
     };
     const serversConfig = this.config.mcpServers;
     if (!serversConfig?.length) {
@@ -373,49 +376,95 @@ export class Agent {
     }
 
     this.mcpAdapter = new MCPAdapter();
-    const servers: MCPServerInitializationResult[] = [];
-    let connected = 0;
-    let failed = 0;
-
-    for (const serverConfig of serversConfig) {
-      try {
-        const toolsRegistered = await this.connectMCP(serverConfig);
-        connected += 1;
-        servers.push({
-          name: serverConfig.name,
-          transport: serverConfig.transport,
-          connected: true,
-          toolsRegistered
-        });
-      } catch (err) {
-        failed += 1;
-        const error = err instanceof Error ? err : new Error(String(err));
-        this.log('error', {
-          component: 'mcp',
-          event: 'mcp.connect.error',
-          message: `Failed to connect MCP server "${serverConfig.name}"`,
-          errorName: error.name,
-          errorMessage: error.message,
-          metadata: {
-            serverName: serverConfig.name
-          }
-        });
-        servers.push({
-          name: serverConfig.name,
-          transport: serverConfig.transport,
-          connected: false,
-          errorName: error.name,
-          errorMessage: error.message
-        });
+    const firstIndexByName = new Map<string, number>();
+    for (let i = 0; i < serversConfig.length; i++) {
+      const name = serversConfig[i]!.name;
+      if (!firstIndexByName.has(name)) {
+        firstIndexByName.set(name, i);
       }
     }
 
+    let connected = 0;
+    let failed = 0;
+    let skippedDuplicates = 0;
+
+    const serverResults = await Promise.all(
+      serversConfig.map((serverConfig, index) => {
+        if (firstIndexByName.get(serverConfig.name) !== index) {
+          skippedDuplicates += 1;
+          return Promise.resolve(this.duplicateMcpServerResult(serverConfig));
+        }
+        return this.initializeOneMcpServer(serverConfig).then((result) => {
+          if (result.connected) {
+            connected += 1;
+          } else {
+            failed += 1;
+          }
+          return result;
+        });
+      })
+    );
+
     return {
       enabled: true,
-      servers,
+      servers: serverResults,
       connected,
-      failed
+      failed,
+      skippedDuplicates
     };
+  }
+
+  private duplicateMcpServerResult(serverConfig: MCPServerConfig): MCPServerInitializationResult {
+    const msg = `MCP server "${serverConfig.name}": duplicate name in AgentConfig.mcpServers (skipped; the first occurrence is initialized)`;
+    this.log('warn', {
+      component: 'mcp',
+      event: 'mcp.connect.duplicate_skipped',
+      message: `Skipped duplicate MCP server "${serverConfig.name}"`,
+      errorName: 'DuplicateMcpServerName',
+      errorMessage: msg,
+      metadata: { serverName: serverConfig.name }
+    });
+    return {
+      name: serverConfig.name,
+      transport: serverConfig.transport,
+      connected: false,
+      errorName: 'DuplicateMcpServerName',
+      errorMessage: msg
+    };
+  }
+
+  /** 单次 MCP server 连接；失败时已记日志 */
+  private async initializeOneMcpServer(
+    serverConfig: MCPServerConfig
+  ): Promise<MCPServerInitializationResult> {
+    try {
+      const toolsRegistered = await this.connectMCP(serverConfig);
+      return {
+        name: serverConfig.name,
+        transport: serverConfig.transport,
+        connected: true,
+        toolsRegistered
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.log('error', {
+        component: 'mcp',
+        event: 'mcp.connect.error',
+        message: `Failed to connect MCP server "${serverConfig.name}"`,
+        errorName: error.name,
+        errorMessage: error.message,
+        metadata: {
+          serverName: serverConfig.name
+        }
+      });
+      return {
+        name: serverConfig.name,
+        transport: serverConfig.transport,
+        connected: false,
+        errorName: error.name,
+        errorMessage: error.message
+      };
+    }
   }
 
   /**
