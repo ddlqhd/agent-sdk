@@ -121,6 +121,7 @@ export type { MemoryConfig } from './memory/index.js';
 // Config
 export {
   loadMCPConfig,
-  validateMCPConfig
+  validateMCPConfig,
+  validateMCPServerEntry
 } from './config/index.js';
-export type { MCPConfigFile, MCPConfigLoadResult } from './config/index.js';
+export type { MCPConfigFile, MCPConfigLoadResult, MCPConfigLoadError, MCPConfigLoadErrorKind } from './config/index.js';

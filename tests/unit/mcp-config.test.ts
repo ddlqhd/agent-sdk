@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { writeFileSync, unlinkSync, existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -211,5 +211,92 @@ describe('loadMCPConfig connectTimeoutMs', () => {
     );
     const { servers } = loadMCPConfig(configPath);
     expect(servers[0].connectTimeoutMs).toBeUndefined();
+  });
+});
+
+describe('loadMCPConfig errors and validation', () => {
+  let configPath: string;
+  beforeEach(() => {
+    configPath = join(
+      tmpdir(),
+      `mcp-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+  });
+  afterEach(() => {
+    if (existsSync(configPath)) unlinkSync(configPath);
+  });
+
+  it('returns path_not_found for explicit missing file', () => {
+    const missing = join(tmpdir(), `missing-mcp-${Date.now()}.json`);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const r = loadMCPConfig(missing);
+      expect(r.servers).toEqual([]);
+      expect(r.errors).toBeDefined();
+      expect(r.errors?.[0].kind).toBe('path_not_found');
+      expect(r.errors?.[0].path).toBe(missing);
+      expect(r.configPath).toBe(missing);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('skips invalid server but still loads other servers in the same file', () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          bad: {
+            command: 'node',
+            url: 'http://example.com'
+          },
+          good: {
+            command: 'node',
+            args: ['-e', '0']
+          }
+        }
+      })
+    );
+    const r = loadMCPConfig(configPath);
+    expect(r.servers).toHaveLength(1);
+    expect(r.servers[0].name).toBe('good');
+    expect(r.errors?.some(e => e.kind === 'validation_error' && e.serverName === 'bad')).toBe(true);
+    expect(
+      r.errors?.find(e => e.serverName === 'bad')?.validationMessages?.length
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe('loadMCPConfig merge skips bad user fragment', () => {
+  it('merges workspace servers when user file is invalid JSON', () => {
+    const fakeHome = join(tmpdir(), `fakehome-${Date.now()}`);
+    const userClaude = join(fakeHome, '.claude');
+    const wsRoot = join(tmpdir(), `ws-${Date.now()}`);
+    const wsClaude = join(wsRoot, '.claude');
+
+    mkdirSync(userClaude, { recursive: true });
+    mkdirSync(wsClaude, { recursive: true });
+
+    writeFileSync(join(userClaude, 'mcp_config.json'), '{ not valid json');
+    writeFileSync(
+      join(wsClaude, 'mcp_config.json'),
+      JSON.stringify({
+        mcpServers: {
+          ok: { command: 'node', args: ['-e', 'process.exit(0)'] }
+        }
+      })
+    );
+
+    try {
+      const r = loadMCPConfig(undefined, wsRoot, fakeHome);
+      expect(r.servers).toHaveLength(1);
+      expect(r.servers[0].name).toBe('ok');
+      expect(r.errors?.length).toBeGreaterThan(0);
+      expect(r.errors?.some(e => e.kind === 'parse_error')).toBe(true);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(wsRoot, { recursive: true, force: true });
+    }
   });
 });

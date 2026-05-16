@@ -28,7 +28,7 @@
 
 - `stream(input, options?)`：流式执行，返回 `AsyncIterable<StreamEvent>`（各 `type` 的字段与产生时机见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
 - `run(input, options?)`：非流式执行，返回 `Promise<AgentResult>`
-- `waitForInit()`：等待异步初始化（skills/mcp/hook）
+- `waitForInit()`：等待异步初始化（hooks、skills、MCP、subagent 磁盘 profile），返回 `Promise<AgentInitResult>`（含各阶段成功/失败及 MCP 每台 server 状态）
 - `destroy()`：销毁资源（含 MCP 断连）
 - `registerTool(tool)` / `registerTools(tools)`：注册工具
 - `getToolRegistry()`：获取工具注册中心

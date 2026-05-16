@@ -35,6 +35,22 @@ export interface MCPConfigFile {
 }
 
 /**
+ * MCP 配置加载错误（非致命；`loadMCPConfig` 不抛错）
+ */
+export type MCPConfigLoadErrorKind = 'path_not_found' | 'parse_error' | 'validation_error';
+
+export interface MCPConfigLoadError {
+  kind: MCPConfigLoadErrorKind;
+  /** 相关配置文件路径（若有） */
+  path: string;
+  message: string;
+  /** `validation_error` 且为单条 server 失败时，对应 `mcpServers` 的 key */
+  serverName?: string;
+  /** `validation_error` 时来自校验的明细 */
+  validationMessages?: string[];
+}
+
+/**
  * MCP 配置加载结果
  */
 export interface MCPConfigLoadResult {
@@ -43,6 +59,8 @@ export interface MCPConfigLoadResult {
   configPath?: string;
   /** 所有加载的配置文件路径 */
   configPaths?: string[];
+  /** 非致命问题（路径不存在、解析/校验失败等） */
+  errors?: MCPConfigLoadError[];
 }
 
 /**
@@ -87,50 +105,79 @@ function expandEnvVarsInObject(obj: unknown): unknown {
 }
 
 /**
- * 将 Claude Desktop 格式转换为内部 MCPServerConfig[]
+ * 校验 `mcpServers` 中的单条 server 配置（与 {@link validateMCPConfig} 规则一致）
  */
-function transformConfig(config: MCPConfigFile): MCPServerConfig[] {
-  const servers: MCPServerConfig[] = [];
-
-  for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
-    // 根据是否有 url 判断 transport 类型
-    const transport = serverConfig.url ? 'http' : 'stdio';
-
-    const toolTimeoutMs =
-      typeof serverConfig.toolTimeoutMs === 'number' &&
-      Number.isFinite(serverConfig.toolTimeoutMs) &&
-      serverConfig.toolTimeoutMs > 0
-        ? serverConfig.toolTimeoutMs
-        : undefined;
-    const connectTimeoutMs =
-      typeof serverConfig.connectTimeoutMs === 'number' &&
-      Number.isFinite(serverConfig.connectTimeoutMs) &&
-      serverConfig.connectTimeoutMs > 0
-        ? serverConfig.connectTimeoutMs
-        : undefined;
-
-    const server: MCPServerConfig = {
-      name,
-      transport,
-      ...(toolTimeoutMs !== undefined ? { toolTimeoutMs } : {}),
-      ...(connectTimeoutMs !== undefined ? { connectTimeoutMs } : {}),
-      ...(transport === 'stdio'
-        ? {
-            command: serverConfig.command,
-            args: serverConfig.args,
-            env: serverConfig.env as Record<string, string>,
-            cwd: serverConfig.cwd
-          }
-        : {
-            url: serverConfig.url,
-            headers: serverConfig.headers
-          })
-    };
-
-    servers.push(server);
+export function validateMCPServerEntry(
+  name: string,
+  server: MCPConfigFile['mcpServers'][string]
+): string[] {
+  const errors: string[] = [];
+  if (!server.command && !server.url) {
+    errors.push(`Server "${name}": must have either "command" or "url"`);
   }
+  if (server.command && server.url) {
+    errors.push(`Server "${name}": cannot have both "command" and "url"`);
+  }
+  if (server.toolTimeoutMs !== undefined) {
+    if (
+      typeof server.toolTimeoutMs !== 'number' ||
+      !Number.isFinite(server.toolTimeoutMs) ||
+      server.toolTimeoutMs < 0
+    ) {
+      errors.push(`Server "${name}": "toolTimeoutMs" must be a non-negative finite number`);
+    }
+  }
+  if (server.connectTimeoutMs !== undefined) {
+    if (
+      typeof server.connectTimeoutMs !== 'number' ||
+      !Number.isFinite(server.connectTimeoutMs) ||
+      server.connectTimeoutMs < 0
+    ) {
+      errors.push(`Server "${name}": "connectTimeoutMs" must be a non-negative finite number`);
+    }
+  }
+  return errors;
+}
 
-  return servers;
+/**
+ * 将单条 Claude Desktop server 条目转为 {@link MCPServerConfig}
+ */
+function transformServerEntry(
+  name: string,
+  serverConfig: MCPConfigFile['mcpServers'][string]
+): MCPServerConfig {
+  const transport = serverConfig.url ? 'http' : 'stdio';
+
+  const toolTimeoutMs =
+    typeof serverConfig.toolTimeoutMs === 'number' &&
+    Number.isFinite(serverConfig.toolTimeoutMs) &&
+    serverConfig.toolTimeoutMs > 0
+      ? serverConfig.toolTimeoutMs
+      : undefined;
+  const connectTimeoutMs =
+    typeof serverConfig.connectTimeoutMs === 'number' &&
+    Number.isFinite(serverConfig.connectTimeoutMs) &&
+    serverConfig.connectTimeoutMs > 0
+      ? serverConfig.connectTimeoutMs
+      : undefined;
+
+  return {
+    name,
+    transport,
+    ...(toolTimeoutMs !== undefined ? { toolTimeoutMs } : {}),
+    ...(connectTimeoutMs !== undefined ? { connectTimeoutMs } : {}),
+    ...(transport === 'stdio'
+      ? {
+          command: serverConfig.command,
+          args: serverConfig.args,
+          env: serverConfig.env as Record<string, string>,
+          cwd: serverConfig.cwd
+        }
+      : {
+          url: serverConfig.url,
+          headers: serverConfig.headers
+        })
+  };
 }
 
 /**
@@ -157,13 +204,118 @@ function findConfigFiles(startDir: string = process.cwd(), userBasePath?: string
 }
 
 /**
- * 加载单个配置文件
+ * 解析、校验并转换单个配置文件
  */
-function loadSingleConfig(filePath: string): MCPServerConfig[] {
-  const content = readFileSync(filePath, 'utf-8');
-  const rawConfig = JSON.parse(content) as MCPConfigFile;
-  const expandedConfig = expandEnvVarsInObject(rawConfig) as MCPConfigFile;
-  return transformConfig(expandedConfig);
+function tryLoadConfigFile(
+  filePath: string,
+  startDir: string,
+  sdkLog?: SDKLogSink
+): { servers: MCPServerConfig[]; errors: MCPConfigLoadError[] } {
+  const errors: MCPConfigLoadError[] = [];
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    const rawConfig = JSON.parse(content) as unknown;
+    const expandedConfig = expandEnvVarsInObject(rawConfig) as MCPConfigFile;
+
+    if (!expandedConfig.mcpServers || typeof expandedConfig.mcpServers !== 'object') {
+      const msgs = ['mcpServers must be an object'];
+      const err: MCPConfigLoadError = {
+        kind: 'validation_error',
+        path: filePath,
+        message: `MCP config validation failed: ${filePath}`,
+        validationMessages: msgs
+      };
+      errors.push(err);
+      if (sdkLog) {
+        emitSDKLog({
+          logger: sdkLog.logger,
+          logLevel: sdkLog.logLevel,
+          redaction: sdkLog.redaction,
+          level: 'error',
+          event: {
+            component: 'mcp',
+            event: 'mcp.config.load.error',
+            message: err.message,
+            cwd: startDir,
+            errorName: 'ValidationError',
+            errorMessage: msgs.join('; '),
+            metadata: {
+              path: filePath,
+              kind: 'validation_error',
+              validationMessages: msgs
+            }
+          }
+        });
+      }
+      return { servers: [], errors };
+    }
+
+    const servers: MCPServerConfig[] = [];
+    for (const [name, serverConfig] of Object.entries(expandedConfig.mcpServers)) {
+      const entryErrors = validateMCPServerEntry(name, serverConfig);
+      if (entryErrors.length > 0) {
+        const err: MCPConfigLoadError = {
+          kind: 'validation_error',
+          path: filePath,
+          serverName: name,
+          message: `MCP server "${name}" invalid in ${filePath}`,
+          validationMessages: entryErrors
+        };
+        errors.push(err);
+        if (sdkLog) {
+          emitSDKLog({
+            logger: sdkLog.logger,
+            logLevel: sdkLog.logLevel,
+            redaction: sdkLog.redaction,
+            level: 'error',
+            event: {
+              component: 'mcp',
+              event: 'mcp.config.load.error',
+              message: err.message,
+              cwd: startDir,
+              errorName: 'ValidationError',
+              errorMessage: entryErrors.join('; '),
+              metadata: {
+                path: filePath,
+                kind: 'validation_error',
+                serverName: name,
+                validationMessages: entryErrors
+              }
+            }
+          });
+        }
+        continue;
+      }
+      servers.push(transformServerEntry(name, serverConfig));
+    }
+    return { servers, errors };
+  } catch (error) {
+    const caught = error instanceof Error ? error : new Error(String(error));
+    const err: MCPConfigLoadError = {
+      kind: 'parse_error',
+      path: filePath,
+      message: caught.message
+    };
+    errors.push(err);
+    if (sdkLog) {
+      emitSDKLog({
+        logger: sdkLog.logger,
+        logLevel: sdkLog.logLevel,
+        redaction: sdkLog.redaction,
+        level: 'error',
+        event: {
+          component: 'mcp',
+          event: 'mcp.config.load.error',
+          message: 'Failed to load MCP JSON config',
+          cwd: startDir,
+          errorName: caught.name,
+          errorMessage: caught.message,
+          metadata: { path: filePath, kind: 'parse_error' }
+        }
+      });
+    }
+    return { servers: [], errors };
+  }
 }
 
 /**
@@ -171,7 +323,7 @@ function loadSingleConfig(filePath: string): MCPServerConfig[] {
  * @param configPath 可选的配置文件路径，如未提供则自动加载用户目录和工作目录配置
  * @param startDir 搜索起始目录，默认为当前工作目录
  * @param userBasePath 用户级基础路径，默认 ~ (homedir)
- * @param sdkLog 可选宿主日志；未传时失败仍输出到 `console.error`（便于 CLI）
+ * @param sdkLog 可选宿主日志；未传时只返回 `errors`，由调用方决定如何展示
  */
 export function loadMCPConfig(
   configPath?: string,
@@ -182,14 +334,11 @@ export function loadMCPConfig(
   // 显式指定路径 -> 单文件加载
   if (configPath) {
     if (!existsSync(configPath)) {
-      return { servers: [] };
-    }
-
-    try {
-      const servers = loadSingleConfig(configPath);
-      return { servers, configPath };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      const err: MCPConfigLoadError = {
+        kind: 'path_not_found',
+        path: configPath,
+        message: `MCP config file not found: ${configPath}`
+      };
       if (sdkLog) {
         emitSDKLog({
           logger: sdkLog.logger,
@@ -199,18 +348,23 @@ export function loadMCPConfig(
           event: {
             component: 'mcp',
             event: 'mcp.config.load.error',
-            message: 'Failed to load MCP JSON config',
+            message: err.message,
             cwd: startDir,
-            errorName: err.name,
+            errorName: 'NotFoundError',
             errorMessage: err.message,
-            metadata: { path: configPath }
+            metadata: { path: configPath, kind: 'path_not_found' }
           }
         });
-      } else {
-        console.error(`Failed to load MCP config from ${configPath}:`, error);
       }
-      return { servers: [] };
+      return { servers: [], configPath, errors: [err] };
     }
+
+    const { servers, errors } = tryLoadConfigFile(configPath, startDir, sdkLog);
+    return {
+      servers,
+      configPath,
+      errors: errors.length ? errors : undefined
+    };
   }
 
   // 自动加载 -> 多文件合并
@@ -219,42 +373,21 @@ export function loadMCPConfig(
     return { servers: [] };
   }
 
-  // 合并配置（用户目录先加载，工作目录后覆盖）
   const mergedServers = new Map<string, MCPServerConfig>();
+  const aggregatedErrors: MCPConfigLoadError[] = [];
   for (const path of configPaths) {
-    try {
-      const servers = loadSingleConfig(path);
-      for (const server of servers) {
-        mergedServers.set(server.name, server);
-      }
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      if (sdkLog) {
-        emitSDKLog({
-          logger: sdkLog.logger,
-          logLevel: sdkLog.logLevel,
-          redaction: sdkLog.redaction,
-          level: 'error',
-          event: {
-            component: 'mcp',
-            event: 'mcp.config.load.error',
-            message: 'Failed to merge MCP JSON config fragment',
-            cwd: startDir,
-            errorName: err.name,
-            errorMessage: err.message,
-            metadata: { path }
-          }
-        });
-      } else {
-        console.error(`Failed to load MCP config from ${path}:`, error);
-      }
+    const { servers, errors } = tryLoadConfigFile(path, startDir, sdkLog);
+    aggregatedErrors.push(...errors);
+    for (const server of servers) {
+      mergedServers.set(server.name, server);
     }
   }
 
   return {
     servers: Array.from(mergedServers.values()),
     configPath: configPaths[configPaths.length - 1], // 主配置（工作目录）
-    configPaths
+    configPaths,
+    errors: aggregatedErrors.length ? aggregatedErrors : undefined
   };
 }
 
@@ -262,41 +395,12 @@ export function loadMCPConfig(
  * 验证 MCP 配置
  */
 export function validateMCPConfig(config: MCPConfigFile): string[] {
-  const errors: string[] = [];
-
   if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-    errors.push('mcpServers must be an object');
-    return errors;
+    return ['mcpServers must be an object'];
   }
-
+  const errors: string[] = [];
   for (const [name, server] of Object.entries(config.mcpServers)) {
-    if (!server.command && !server.url) {
-      errors.push(`Server "${name}": must have either "command" or "url"`);
-    }
-
-    if (server.command && server.url) {
-      errors.push(`Server "${name}": cannot have both "command" and "url"`);
-    }
-
-    if (server.toolTimeoutMs !== undefined) {
-      if (
-        typeof server.toolTimeoutMs !== 'number' ||
-        !Number.isFinite(server.toolTimeoutMs) ||
-        server.toolTimeoutMs < 0
-      ) {
-        errors.push(`Server "${name}": "toolTimeoutMs" must be a non-negative finite number`);
-      }
-    }
-    if (server.connectTimeoutMs !== undefined) {
-      if (
-        typeof server.connectTimeoutMs !== 'number' ||
-        !Number.isFinite(server.connectTimeoutMs) ||
-        server.connectTimeoutMs < 0
-      ) {
-        errors.push(`Server "${name}": "connectTimeoutMs" must be a non-negative finite number`);
-      }
-    }
+    errors.push(...validateMCPServerEntry(name, server));
   }
-
   return errors;
 }

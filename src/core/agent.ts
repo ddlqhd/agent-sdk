@@ -18,7 +18,11 @@ import {
   type AgentRunEndReason,
   type ModelParams,
   type SystemMessageSource,
-  type UserMessageSource
+  type UserMessageSource,
+  type AgentInitResult,
+  type MCPInitializationSummary,
+  type AgentResourceInitStepResult,
+  type MCPServerInitializationResult
 } from '../core/types.js';
 import type { SubagentProfile } from '../subagents/types.js';
 import { randomUUID } from 'crypto';
@@ -91,7 +95,7 @@ export class Agent {
   private messages: Message[] = [];
   private mcpAdapter: MCPAdapter | null = null;
   private skillRegistry: SkillRegistry;
-  private initPromise: Promise<void>;
+  private initPromise: Promise<AgentInitResult>;
   private contextManager: ContextManager | null = null;
   private hookDiscoverPromise: Promise<void> | null = null;
   private agentDepth = 0;
@@ -290,45 +294,56 @@ export class Agent {
   }
 
   /**
-   * 异步初始化：hooks / skills / MCP（大块 try）；磁盘 subagent profile 在后续独立 try 中加载。
+   * 异步初始化：hooks、skills、MCP 分段隔离；任一段失败不阻断其它段。磁盘 subagent profile 在后续独立 try 中加载。
    */
-  private async initializeAsync(): Promise<void> {
+  private async initializeAsync(): Promise<AgentInitResult> {
+    const hooks: AgentResourceInitStepResult = { ok: true };
     try {
       if (this.hookDiscoverPromise) {
         await this.hookDiscoverPromise;
       }
-
-      // 初始化 skills（默认路径 + 配置路径）；loadSkills === false 时跳过磁盘加载
-      if (this.config.loadSkills !== false) {
-        await this.skillRegistry.initialize(
-          this.config.skillConfig,
-          this.config.skills
-        );
-      }
-
-      // 初始化 MCP 适配器
-      if (this.config.mcpServers && this.config.mcpServers.length > 0) {
-        this.mcpAdapter = new MCPAdapter();
-        await this.initializeMCP(this.config.mcpServers);
-      }
     } catch (err) {
-      // 初始化失败不应阻塞 Agent 使用，只输出警告
       const error = err instanceof Error ? err : new Error(String(err));
+      hooks.ok = false;
+      hooks.error = { name: error.name, message: error.message };
       this.log('error', {
         component: 'agent',
-        event: 'agent.initialize.error',
-        message: 'Failed to initialize agent resources',
+        event: 'agent.initialize.hooks.error',
+        message: 'Failed to discover or load hook configuration',
         errorName: error.name,
         errorMessage: error.message
       });
     }
 
+    const skills: AgentResourceInitStepResult = { ok: true };
+    try {
+      if (this.config.loadSkills !== false) {
+        await this.skillRegistry.initialize(this.config.skillConfig, this.config.skills);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      skills.ok = false;
+      skills.error = { name: error.name, message: error.message };
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.initialize.skills.error',
+        message: 'Failed to initialize skills',
+        errorName: error.name,
+        errorMessage: error.message
+      });
+    }
+
+    const mcp = await this.runMcpInitialization();
+
+    const subagent: AgentResourceInitStepResult = { ok: true };
     if (this.config.subagent?.enabled !== false) {
       try {
         await this.loadSubagentProfilesFromDisk();
         this.registerAgentToolWithProfiles();
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
+        subagent.ok = false;
+        subagent.error = { name: error.name, message: error.message };
         this.log('error', {
           component: 'agent',
           event: 'agent.initialize.subagent.error',
@@ -338,28 +353,42 @@ export class Agent {
         });
       }
     }
+
+    return { hooks, skills, mcp, subagent };
   }
 
   /**
-   * 等待异步初始化完成（skills、MCP、磁盘 subagent profile 等）。
-   *
-   * `run` / `stream` 会在会话准备阶段隐式 `await` 同一初始化 Promise，一般无需额外调用。
-   * 若宿主需在首帧前就与其它异步编排对齐，或直接使用底层 API 而不走 `run`/`stream`，仍可显式调用此方法。
+   * 连接配置的 MCP 服务器并注册工具；与 hooks/skills 初始化互相独立。
    */
-  async waitForInit(): Promise<void> {
-    await this.initPromise;
-  }
+  private async runMcpInitialization(): Promise<MCPInitializationSummary> {
+    const empty: MCPInitializationSummary = {
+      enabled: false,
+      servers: [],
+      connected: 0,
+      failed: 0
+    };
+    const serversConfig = this.config.mcpServers;
+    if (!serversConfig?.length) {
+      return empty;
+    }
 
-  /**
-   * 初始化 MCP 服务器
-   */
-  private async initializeMCP(servers: MCPServerConfig[]): Promise<void> {
-    if (!this.mcpAdapter) return;
+    this.mcpAdapter = new MCPAdapter();
+    const servers: MCPServerInitializationResult[] = [];
+    let connected = 0;
+    let failed = 0;
 
-    for (const serverConfig of servers) {
+    for (const serverConfig of serversConfig) {
       try {
-        await this.connectMCP(serverConfig);
+        const toolsRegistered = await this.connectMCP(serverConfig);
+        connected += 1;
+        servers.push({
+          name: serverConfig.name,
+          transport: serverConfig.transport,
+          connected: true,
+          toolsRegistered
+        });
       } catch (err) {
+        failed += 1;
         const error = err instanceof Error ? err : new Error(String(err));
         this.log('error', {
           component: 'mcp',
@@ -371,8 +400,32 @@ export class Agent {
             serverName: serverConfig.name
           }
         });
+        servers.push({
+          name: serverConfig.name,
+          transport: serverConfig.transport,
+          connected: false,
+          errorName: error.name,
+          errorMessage: error.message
+        });
       }
     }
+
+    return {
+      enabled: true,
+      servers,
+      connected,
+      failed
+    };
+  }
+
+  /**
+   * 等待异步初始化完成（hooks、skills、MCP、磁盘 subagent profile 等），并返回各阶段结果（含 MCP 每台 server 状态）。
+   *
+   * `run` / `stream` 会在会话准备阶段隐式 `await` 同一初始化 Promise，一般无需额外调用。
+   * 若宿主需在首帧前就与其它异步编排对齐，或直接使用底层 API 而不走 `run`/`stream`，仍可显式调用此方法。
+   */
+  async waitForInit(): Promise<AgentInitResult> {
+    return await this.initPromise;
   }
 
   private annotateStreamEvent(event: StreamEvent, iteration?: number): StreamEvent {
@@ -1503,8 +1556,9 @@ export class Agent {
 
   /**
    * 连接 MCP 服务器
+   * @returns 已注册到 Agent 工具表的 MCP 工具数量
    */
-  async connectMCP(config: MCPServerConfig): Promise<void> {
+  async connectMCP(config: MCPServerConfig): Promise<number> {
     this.log('info', {
       component: 'mcp',
       event: 'mcp.connect.start',
@@ -1556,6 +1610,8 @@ export class Agent {
         toolsRegistered
       }
     });
+
+    return toolsRegistered;
   }
 
   /**

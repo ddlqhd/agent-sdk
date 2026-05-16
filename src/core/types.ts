@@ -641,6 +641,54 @@ export interface MCPServerConfig {
 }
 
 /**
+ * Outcome for a single MCP server after {@link Agent.waitForInit} completes.
+ */
+export interface MCPServerInitializationResult {
+  name: string;
+  transport: 'stdio' | 'http';
+  /** True if the connection succeeded and tools could be registered (when applicable). */
+  connected: boolean;
+  /** Number of MCP tools registered for this server when `connected` is true. */
+  toolsRegistered?: number;
+  errorName?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Summary of MCP initialization from {@link Agent.waitForInit}.
+ */
+export interface MCPInitializationSummary {
+  /** True when `AgentConfig.mcpServers` was non-empty. */
+  enabled: boolean;
+  servers: MCPServerInitializationResult[];
+  /** Count of successfully connected servers. */
+  connected: number;
+  /** Count of servers that failed to connect. */
+  failed: number;
+}
+
+/**
+ * Result of a single async init step (hooks, skills, subagent disk load).
+ */
+export interface AgentResourceInitStepResult {
+  ok: boolean;
+  error?: {
+    name: string;
+    message: string;
+  };
+}
+
+/**
+ * Result of {@link Agent.waitForInit} after hooks, skills, MCP, and subagent profile loading.
+ */
+export interface AgentInitResult {
+  hooks: AgentResourceInitStepResult;
+  skills: AgentResourceInitStepResult;
+  mcp: MCPInitializationSummary;
+  subagent: AgentResourceInitStepResult;
+}
+
+/**
  * MCP 资源
  */
 export interface MCPResource {

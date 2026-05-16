@@ -1,4 +1,5 @@
 export { Agent, createAgent } from './agent.js';
+export type { StreamOptions } from './agent.js';
 export * from './types.js';
 export { ContextManager } from './context-manager.js';
 export type { ContextManagerOptions, ContextStatus } from './context-manager.js';

@@ -10,7 +10,7 @@ import {
   pauseKeypressListener
 } from '../utils/keypress.js';
 import type { AgentModelConfig, CLIConfig } from '../../core/types.js';
-import { loadMCPConfig } from '../../config/index.js';
+import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
 
@@ -62,6 +62,30 @@ function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
   };
 }
 
+function reportMCPConfigLoad(result: MCPConfigLoadResult): void {
+  for (const err of result.errors ?? []) {
+    console.warn(chalk.yellow(`MCP config: ${err.message}`));
+  }
+
+  if (!result.configPath) {
+    return;
+  }
+
+  const configPathFailed = result.errors?.some(
+    err =>
+      err.path === result.configPath &&
+      (err.kind === 'path_not_found' || err.kind === 'parse_error' || err.serverName === undefined)
+  );
+  if (configPathFailed) {
+    return;
+  }
+
+  console.log(chalk.gray(`Loaded MCP config from: ${result.configPath}`));
+  if (result.servers.length > 0) {
+    console.log(chalk.gray(`MCP servers: ${result.servers.map(s => s.name).join(', ')}`));
+  }
+}
+
 /**
  * 交互式对话命令
  */
@@ -80,12 +104,7 @@ export function createChatCommand(): Command {
 
       // 加载 MCP 配置
       const mcpResult = loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
-      if (mcpResult.configPath) {
-        console.log(chalk.gray(`Loaded MCP config from: ${mcpResult.configPath}`));
-        if (mcpResult.servers.length > 0) {
-          console.log(chalk.gray(`MCP servers: ${mcpResult.servers.map(s => s.name).join(', ')}`));
-        }
-      }
+      reportMCPConfigLoad(mcpResult);
 
       const cwd = options.cwd || process.cwd();
       const agent = new Agent({
@@ -283,9 +302,7 @@ export function createRunCommand(): Command {
 
         // 加载 MCP 配置
         const mcpResult = loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
-        if (mcpResult.configPath) {
-          console.log(chalk.gray(`Loaded MCP config from: ${mcpResult.configPath}`));
-        }
+        reportMCPConfigLoad(mcpResult);
 
         const cwd = options.cwd || process.cwd();
         const agent = new Agent({
