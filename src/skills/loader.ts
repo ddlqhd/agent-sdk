@@ -107,7 +107,6 @@ export class SkillLoader {
     };
   }
 
-  
   /**
    * 加载目录下的所有 Skills
    */
@@ -141,26 +140,22 @@ export class SkillLoader {
           }
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
-          if (this.config.sdkLog) {
-            emitSDKLog({
-              logger: this.config.sdkLog.logger,
-              logLevel: this.config.sdkLog.logLevel,
-              redaction: this.config.sdkLog.redaction,
-              level: 'warn',
-              event: {
-                component: 'skill',
-                event: 'skill.load.entry.error',
-                message: 'Failed to load skill entry from disk',
-                operation: 'skill_load',
-                cwd: this.config.cwd,
-                errorName: err.name,
-                errorMessage: err.message,
-                metadata: { path: entryPath }
-              }
-            });
-          } else {
-            console.warn(`Failed to load skill from ${entryPath}:`, error);
-          }
+          emitSDKLog({
+            logger: this.config.sdkLog?.logger,
+            logLevel: this.config.sdkLog?.logLevel,
+            redaction: this.config.sdkLog?.redaction,
+            level: 'warn',
+            event: {
+              component: 'skill',
+              event: 'skill.load.entry.error',
+              message: 'Failed to load skill entry from disk',
+              operation: 'skill_load',
+              cwd: this.config.cwd,
+              errorName: err.name,
+              errorMessage: err.message,
+              metadata: { path: entryPath }
+            }
+          });
         }
       }
     } catch {

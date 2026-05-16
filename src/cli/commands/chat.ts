@@ -10,6 +10,7 @@ import {
   pauseKeypressListener
 } from '../utils/keypress.js';
 import type { AgentModelConfig, CLIConfig } from '../../core/types.js';
+import { DEFAULT_CLI_AGENT_LOG_LEVEL, describeCliLogLevelOption, parseCliLogLevel } from '../utils/sdk-log.js';
 import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
@@ -46,7 +47,8 @@ function addModelOptions(cmd: Command): Command {
       '--ollama-think [value]',
       'Ollama only: `think` param (true|false|low|medium|high; bare flag => true)',
       (v: string | undefined) => parseOllamaThinkCli(v)
-    );
+    )
+    .option('--log-level <level>', describeCliLogLevelOption(), parseCliLogLevel);
 }
 
 function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
@@ -138,6 +140,7 @@ export function createChatCommand(): Command {
         maxTokens: options.maxTokens,
         mcpServers: mcpResult.servers,
         userBasePath: options.userBasePath,
+        logLevel: options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL,
         askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
       });
 
@@ -337,6 +340,7 @@ export function createRunCommand(): Command {
           maxTokens: options.maxTokens,
           mcpServers: mcpResult.servers,
           userBasePath: options.userBasePath,
+          logLevel: options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL,
           askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
         });
 

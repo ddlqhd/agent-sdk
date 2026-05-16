@@ -1165,6 +1165,12 @@ export interface CLIConfig {
   /** 详细输出 */
   verbose?: boolean;
 
+  /**
+   * Agent SDK 结构化日志级别（skills / memory / 子 agent 配置等 {@link emitSDKLog}）。
+   * CLI `chat`/`run` 未指定时由 CLI 填入默认值以便在终端可见。
+   */
+  logLevel?: SDKLogLevel;
+
   /** MCP 配置文件路径 */
   mcpConfig?: string;
 
