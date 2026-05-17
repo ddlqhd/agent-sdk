@@ -152,6 +152,13 @@ function formatStreamToolCallLine(
   return chalk.yellow(`\n🔧 ${name}`) + idPart + chalk.gray(argsStr);
 }
 
+/** 非 verbose 下不参与 CLI 状态机（不更新 lastEventType / isFirstThinking / needsGapAfterToolBlock），避免与 `thinking_end` 契约冲突。 */
+const STREAM_FORMATTER_NOISE_EVENT_TYPES = new Set<StreamEvent['type']>([
+  'model_usage',
+  'session_summary',
+  'context_compressed'
+]);
+
 export function createStreamFormatter(config: OutputConfig = {}): StreamFormatter {
   const { verbose = false } = config;
   let lastEventType: string | null = null;
@@ -162,17 +169,11 @@ export function createStreamFormatter(config: OutputConfig = {}): StreamFormatte
 
   return {
     format(event: StreamEvent): string {
-      let output = '';
-
-      // 无 thinking_end 时（emitThinkingBoundaries: false）从 thinking 过渡到其它事件仍要换行
-      if (
-        lastEventType === 'thinking' &&
-        event.type !== 'thinking' &&
-        event.type !== 'thinking_end'
-      ) {
-        output += '\n';
-        isFirstThinking = true;
+      if (!verbose && STREAM_FORMATTER_NOISE_EVENT_TYPES.has(event.type)) {
+        return '';
       }
+
+      let output = '';
 
       // 工具块结束后与助手正文或 thinking 分段（model_usage 会插在 tool_result 与 text_delta 之间，不能仅靠 lastEventType）
       if (

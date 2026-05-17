@@ -10,6 +10,10 @@ export interface StreamChunkProcessorOptions {
 /**
  * Stateful conversion from model `StreamChunk` to normalized `StreamEvent`s.
  * Used by `Agent` so streaming tool JSON and text blocks behave consistently.
+ *
+ * Thinking blocks: once `thinking_start` has been emitted, the stream must emit `thinking_end`
+ * before any non-`thinking` chunk except `metadata` (usage). `metadata` does not close the block;
+ * `text` / `tool_call*` / `error` / `thinking_block_end` do (via `endThinkingBlockIfNeeded`).
  */
 export class StreamChunkProcessor {
   private currentToolCall: { id: string; name: string; arguments: string } | null = null;

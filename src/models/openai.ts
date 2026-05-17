@@ -100,6 +100,14 @@ export class OpenAIAdapter extends BaseModelAdapter {
     let buffer = '';
     let currentToolCall: { id: string; name: string; arguments: string } | null = null;
     let reasoningBlockOpen = false;
+    // 兼容服务（vLLM/SGLang 等）会在每个 SSE chunk 上回传 cumulative `usage`；标准 OpenAI 仅在最末尾
+    // `choices: []` 的 chunk 上回传一次。统一在流结束时只 yield 一次最新的 usage，避免下游：
+    // 1) CLI 把 📊 Tokens 行夹在 thinking/text 增量之间反复打印；
+    // 2) `Agent` 累计 sessionUsage 时把 cumulative 输入按 chunk 数倍数累加。
+    let pendingUsage:
+      | { promptTokens: number; completionTokens: number; totalTokens: number }
+      | undefined;
+    let pendingUsageRaw: unknown | undefined;
 
     try {
       while (true) {
@@ -122,9 +130,22 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
           try {
             const data = JSON.parse(trimmed.slice(6));
+            const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
+
+            // 即便本 chunk 没有 choice（如标准 OpenAI 的最末尾 usage-only chunk），仍要捕获 usage。
+            if (data.usage) {
+              pendingUsage = {
+                promptTokens: data.usage.prompt_tokens,
+                completionTokens: data.usage.completion_tokens,
+                totalTokens: data.usage.total_tokens
+              };
+              if (params.includeRawStreamEvents) {
+                pendingUsageRaw = data;
+              }
+            }
+
             const choice = data.choices?.[0];
             if (!choice) continue;
-            const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
             const delta = choice.delta ?? {};
 
             // vLLM / 兼容网关：推理增量（thinking 语义）
@@ -208,22 +229,6 @@ export class OpenAIAdapter extends BaseModelAdapter {
               };
               currentToolCall = null;
             }
-
-            // 处理元数据
-            if (data.usage) {
-              yield {
-                type: 'metadata',
-                usagePhase: 'output',
-                metadata: {
-                  usage: {
-                    promptTokens: data.usage.prompt_tokens,
-                    completionTokens: data.usage.completion_tokens,
-                    totalTokens: data.usage.total_tokens
-                  }
-                },
-                ...raw
-              };
-            }
           } catch (error) {
             logModelStreamParseError(
               {
@@ -259,6 +264,16 @@ export class OpenAIAdapter extends BaseModelAdapter {
             arguments: this.safeParseJSON(currentToolCall.arguments)
           },
           ...(params.includeRawStreamEvents ? { providerRaw: { trailing: true } } : {})
+        };
+      }
+
+      // 在流末尾一次性 yield 最新的 cumulative usage（标准 OpenAI 与兼容服务统一行为）。
+      if (pendingUsage) {
+        yield {
+          type: 'metadata',
+          usagePhase: 'output',
+          metadata: { usage: pendingUsage },
+          ...(pendingUsageRaw !== undefined ? { providerRaw: pendingUsageRaw } : {})
         };
       }
 

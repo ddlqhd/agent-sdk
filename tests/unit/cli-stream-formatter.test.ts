@@ -115,6 +115,98 @@ describe('createStreamFormatter', () => {
     expect(stripAnsi(out)).toBe('\nHello');
   });
 
+  it('non-verbose: suppresses mid-stream model_usage output (avoids 📊 spam between thinking/text)', () => {
+    const f = createStreamFormatter({ verbose: false });
+    const usageOut = f.format({
+      type: 'model_usage',
+      usage: { promptTokens: 100, completionTokens: 5, totalTokens: 105 }
+    });
+    expect(usageOut).toBe('');
+
+    // OpenAI-compatible servers (vLLM/SGLang) emit cumulative usage on every chunk; the formatter
+    // must keep streaming text/thinking continuous instead of interleaving 📊 Tokens lines.
+    const thinkingOut = stripAnsi(f.format({ type: 'thinking', content: 'A' }));
+    expect(thinkingOut).toContain('💭 A');
+    const usageOut2 = f.format({
+      type: 'model_usage',
+      usage: { promptTokens: 100, completionTokens: 6, totalTokens: 106 }
+    });
+    expect(usageOut2).toBe('');
+    const moreThinking = stripAnsi(f.format({ type: 'thinking', content: 'B' }));
+    expect(moreThinking).toBe('B');
+    expect(moreThinking).not.toContain('💭');
+  });
+
+  it('verbose: prints mid-stream model_usage as 📊 Tokens line', () => {
+    const f = createStreamFormatter({ verbose: true });
+    const out = stripAnsi(
+      f.format({
+        type: 'model_usage',
+        usage: { promptTokens: 100, completionTokens: 5, totalTokens: 105 }
+      })
+    );
+    expect(out).toContain('📊 Tokens: 100 in, 5 out (105 total)');
+  });
+
+  it('non-verbose: suppresses session_summary (usage shown via chat formatSessionUsage)', () => {
+    const f = createStreamFormatter({ verbose: false });
+    expect(
+      f.format({
+        type: 'session_summary',
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        iterations: 1
+      })
+    ).toBe('');
+  });
+
+  it('verbose: prints session_summary usage line', () => {
+    const f = createStreamFormatter({ verbose: true });
+    expect(
+      stripAnsi(
+        f.format({
+          type: 'session_summary',
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+          iterations: 1
+        })
+      )
+    ).toContain('📊 Tokens: 100 in, 50 out (150 total)');
+  });
+
+  it('thinking_end only: text_delta is not prefixed with a second newline (no duplicate gap)', () => {
+    const f = createStreamFormatter({ verbose: false });
+    const a = stripAnsi(f.format({ type: 'thinking', content: 'x' }));
+    const b = stripAnsi(f.format({ type: 'thinking_end' }));
+    const c = stripAnsi(f.format({ type: 'text_delta', content: 'Hi' }));
+    expect(c).toBe('Hi');
+    expect(`${a}${b}${c}`).not.toContain('\n\n');
+  });
+
+  it('thinking_end starts a new 💭 segment on next thinking', () => {
+    const f = createStreamFormatter({ verbose: false });
+    f.format({ type: 'thinking', content: 'a' });
+    f.format({ type: 'thinking_end' });
+    const out = stripAnsi(f.format({ type: 'thinking', content: 'b' }));
+    expect(out).toContain('💭 b');
+  });
+
+  it('non-verbose: model_usage between thinking deltas does not reset 💭 prefix', () => {
+    const f = createStreamFormatter({ verbose: false });
+    f.format({ type: 'thinking', content: 'A' });
+    expect(f.format({ type: 'model_usage', usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } })).toBe(
+      ''
+    );
+    const more = stripAnsi(f.format({ type: 'thinking', content: 'B' }));
+    expect(more).toBe('B');
+    expect(more).not.toContain('💭');
+  });
+
+  it('without thinking_end, text_delta follows thinking inline (no heuristic newline)', () => {
+    const f = createStreamFormatter({ verbose: false });
+    f.format({ type: 'thinking', content: 't' });
+    const out = stripAnsi(f.format({ type: 'text_delta', content: 'Hello' }));
+    expect(out).toBe('Hello');
+  });
+
   it('inserts newline before assistant text after tool error', () => {
     const f = createStreamFormatter({ verbose: false });
     f.format({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
