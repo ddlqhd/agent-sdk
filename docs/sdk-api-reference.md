@@ -173,7 +173,6 @@
 - Agent 配置：`SystemPromptConfig` `SystemPrompt` `ContextManagerConfig` `AgentConfig` `SkillConfig` `AgentCallbacks` `AgentResult`
   - `AgentConfig.subagent` 支持 `enabled/maxDepth/maxParallel/timeoutMs/defaultAllowedTools/loadProfilesFromFiles/profileConfig/profiles/subagentTypePrompts`（自定义 **Markdown profile** 目录与 `profiles` 数组见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) §13；`subagentTypePrompts` 可按任意 profile 名覆盖内置追加片段，例如 `explore`）
   - `ToolExecutionContext.agentDepth` 用于限制 subagent 嵌套；`ToolExecutionContext.signal` 与 `StreamOptions.signal` 同源，用于协作式取消（见 [`sdk-agent-loop.md`](./sdk-agent-loop.md)）
-- CLI 相关导出类型：`CLIConfig` `ChatOptions` `RunOptions` `ToolListOptions` `SessionListOptions` `MCPOptions` `SkillOptions`
 
 上文为常用类型子集；`export *` 另含生命周期回调、窄消息类型、`MODEL_STREAM_EVENT_TYPES` 等，以源码为准。
 

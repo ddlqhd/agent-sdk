@@ -30,4 +30,6 @@ if (isMainModule) {
   program.parse();
 }
 
+export type { CLIConfig } from './types.js';
+
 export { createChatCommand, createRunCommand, createToolsCommand, createSessionsCommand, createMCPCommand };

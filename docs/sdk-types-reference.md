@@ -775,18 +775,3 @@ interface SessionInfo {
   metadata?: Record<string, unknown>;
 }
 ```
-
-## 9. CLI 类型（已公开，但偏 CLI 语义）
-
-根入口也导出了：
-
-- `CLIConfig`
-- `ChatOptions`
-- `RunOptions`
-- `ToolListOptions`
-- `SessionListOptions`
-- `MCPOptions`
-- `SkillOptions`
-
-这些类型主要用于 CLI 集成，不建议在纯业务 SDK 接口层强耦合。
-

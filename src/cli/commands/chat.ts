@@ -9,7 +9,8 @@ import {
   clearKeypressHandler,
   pauseKeypressListener
 } from '../utils/keypress.js';
-import type { AgentModelConfig, CLIConfig } from '../../core/types.js';
+import type { AgentModelConfig } from '../../core/types.js';
+import type { CLIConfig } from '../types.js';
 import {
   DEFAULT_CLI_AGENT_LOG_LEVEL,
   describeCliLogLevelOption,
