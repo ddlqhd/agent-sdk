@@ -725,22 +725,29 @@ export class Agent {
     });
   }
 
+  /**
+   * Rebuilds the primary system message every run (including resume) so runtime
+   * `options.systemPrompt`, cwd/env, and skills list stay current. Persisted JSONL
+   * omits system lines; see {@link JsonlStorage}.
+   */
   private appendInitialSystemMessages(options?: StreamOptions): void {
-    if (this.messages.length === 0) {
-      const usedRuntimePrompt = options?.systemPrompt !== undefined;
-      const systemPrompt = this.buildSystemPrompt(
-        options?.systemPrompt || this.config.systemPrompt
-      );
-      const sysMsg: Message = {
-        role: 'system',
-        content: systemPrompt
-      };
-      this.messages.push(sysMsg);
-      this.notifySystemMessage(
-        sysMsg,
-        usedRuntimePrompt ? 'runtime_prompt' : 'default_prompt'
-      );
+    while (this.messages[0]?.role === 'system') {
+      this.messages.shift();
     }
+
+    const usedRuntimePrompt = options?.systemPrompt !== undefined;
+    const systemPrompt = this.buildSystemPrompt(
+      options?.systemPrompt || this.config.systemPrompt
+    );
+    const sysMsg: Message = {
+      role: 'system',
+      content: systemPrompt
+    };
+    this.messages.unshift(sysMsg);
+    this.notifySystemMessage(
+      sysMsg,
+      usedRuntimePrompt ? 'runtime_prompt' : 'default_prompt'
+    );
 
     if (this.config.memory !== false) {
       const hasUserMessages = this.messages.some(m => m.role === 'user');

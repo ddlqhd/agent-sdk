@@ -10,8 +10,12 @@ export interface JsonlStorageConfig {
 }
 
 /**
- * JSONL 文件存储实现
- * 每个会话一个 .jsonl 文件，每行一条消息
+ * Persists only user / assistant / tool messages. System prompts are built at runtime by
+ * {@link Agent.appendInitialSystemMessages} and are not written to disk.
+ *
+ * Save semantics: append new lines only when the new sequence is a strict extension of the
+ * on-disk persistable history (same prefix). Otherwise the file is replaced atomically
+ * (e.g. after context compression or in-place edits).
  */
 export class JsonlStorage implements StorageAdapter {
   private basePath: string;
@@ -44,60 +48,161 @@ export class JsonlStorage implements StorageAdapter {
     await fs.mkdir(this.basePath, { recursive: true });
   }
 
+  private filterPersistable(messages: Message[]): Message[] {
+    return messages.filter((m) => m.role !== 'system');
+  }
+
+  private static sameMessageIdentity(a: Message, b: Message): boolean {
+    if (a.role !== b.role) return false;
+    if (a.toolCallId !== b.toolCallId) return false;
+    if (JSON.stringify(a.toolCalls ?? null) !== JSON.stringify(b.toolCalls ?? null)) {
+      return false;
+    }
+    if (typeof a.content === 'string' && typeof b.content === 'string') {
+      return a.content === b.content;
+    }
+    if (Array.isArray(a.content) && Array.isArray(b.content)) {
+      return JSON.stringify(a.content) === JSON.stringify(b.content);
+    }
+    return false;
+  }
+
   /**
-   * 保存消息（追加模式）
+   * Parse JSONL on disk and return non-system messages (drops legacy persisted system lines).
+   */
+  private async readPersistableFromDisk(filePath: string): Promise<Message[]> {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n').filter(Boolean);
+      const out: Message[] = [];
+      for (const line of lines) {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        const { timestamp: _ts, ...rest } = parsed;
+        const message = rest as unknown as Message;
+        if (message.role === 'system') {
+          continue;
+        }
+        out.push(message);
+      }
+      return out;
+    } catch (error: unknown) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private serializeLines(messages: Message[]): string {
+    if (messages.length === 0) {
+      return '';
+    }
+    return (
+      messages
+        .map((msg) => {
+          const record = {
+            ...msg,
+            timestamp: msg.timestamp || Date.now()
+          };
+          return JSON.stringify(record);
+        })
+        .join('\n') + '\n'
+    );
+  }
+
+  private isStrictExtension(existing: Message[], persistable: Message[]): boolean {
+    if (persistable.length < existing.length) {
+      return false;
+    }
+    for (let i = 0; i < existing.length; i++) {
+      if (!JsonlStorage.sameMessageIdentity(existing[i]!, persistable[i]!)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Write then rename for safer updates. Windows may require removing the target first.
+   */
+  private async atomicReplaceFile(targetPath: string, data: string): Promise<void> {
+    const tmp = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await fs.writeFile(tmp, data, 'utf-8');
+    try {
+      await fs.rename(tmp, targetPath);
+    } catch (err) {
+      if (process.platform === 'win32') {
+        await fs.rm(targetPath, { force: true }).catch(() => {});
+        await fs.rename(tmp, targetPath);
+      } else {
+        await fs.unlink(tmp).catch(() => {});
+        throw err;
+      }
+    }
+  }
+
+  private async writeMetaAtomic(sessionId: string, messageCount: number): Promise<void> {
+    const metaPath = this.getMetaFilePath(sessionId);
+    const meta: SessionInfo = {
+      id: sessionId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount
+    };
+
+    try {
+      const existingMeta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SessionInfo;
+      meta.createdAt = existingMeta.createdAt;
+    } catch {
+      // new session
+    }
+
+    const payload = JSON.stringify(meta, null, 2);
+    const tmp = `${metaPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await fs.writeFile(tmp, payload, 'utf-8');
+    try {
+      await fs.rename(tmp, metaPath);
+    } catch (err) {
+      if (process.platform === 'win32') {
+        await fs.rm(metaPath, { force: true }).catch(() => {});
+        await fs.rename(tmp, metaPath);
+      } else {
+        await fs.unlink(tmp).catch(() => {});
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * 保存消息：在可追加时仅追加新行；否则原子重写整个 JSONL。
    */
   async save(sessionId: string, messages: Message[]): Promise<void> {
     await this.ensureDir();
 
     const filePath = this.getFilePath(sessionId);
-    const metaPath = this.getMetaFilePath(sessionId);
+    const persistable = this.filterPersistable(messages);
 
-    // 获取已有的消息数量
-    let existingCount = 0;
-    try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      existingCount = content.split('\n').filter(Boolean).length;
-    } catch {
-      // 文件不存在，这是正常的
+    const existingPersistable = await this.readPersistableFromDisk(filePath);
+    const canAppend =
+      persistable.length >= existingPersistable.length &&
+      this.isStrictExtension(existingPersistable, persistable);
+
+    if (canAppend) {
+      const newMessages = persistable.slice(existingPersistable.length);
+      if (newMessages.length > 0) {
+        const chunk = this.serializeLines(newMessages);
+        await fs.appendFile(filePath, chunk, 'utf-8');
+      }
+    } else {
+      await this.atomicReplaceFile(filePath, this.serializeLines(persistable));
     }
 
-    // 只追加新消息
-    const newMessages = messages.slice(existingCount);
-    
-    if (newMessages.length > 0) {
-      const lines = newMessages.map(msg => {
-        const record = {
-          ...msg,
-          timestamp: msg.timestamp || Date.now()
-        };
-        return JSON.stringify(record);
-      }).join('\n') + '\n';
-
-      await fs.appendFile(filePath, lines, 'utf-8');
-    }
-
-    // 更新元数据
-    const meta: SessionInfo = {
-      id: sessionId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      messageCount: messages.length
-    };
-
-    // 读取创建时间（如果存在）
-    try {
-      const existingMeta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
-      meta.createdAt = existingMeta.createdAt;
-    } catch {
-      // 新会话
-    }
-
-    await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+    await this.writeMetaAtomic(sessionId, persistable.length);
   }
 
   /**
-   * 加载消息
+   * 加载消息（不包含 system；兼容旧文件中首行 system）
    */
   async load(sessionId: string): Promise<Message[]> {
     const filePath = this.getFilePath(sessionId);
@@ -106,14 +211,16 @@ export class JsonlStorage implements StorageAdapter {
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(Boolean);
 
-      return lines.map(line => {
-        const parsed = JSON.parse(line);
-        // 移除 timestamp（存储用的）
-        const { timestamp, ...message } = parsed;
-        return message as Message;
-      });
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
+      return lines
+        .map((line) => {
+          const parsed = JSON.parse(line);
+          const { timestamp, ...message } = parsed;
+          return message as Message;
+        })
+        .filter((m) => m.role !== 'system');
+    } catch (error: unknown) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
         return [];
       }
       throw error;
@@ -128,7 +235,7 @@ export class JsonlStorage implements StorageAdapter {
 
     try {
       const files = await fs.readdir(this.basePath);
-      const metaFiles = files.filter(f => f.endsWith('.meta.json'));
+      const metaFiles = files.filter((f) => f.endsWith('.meta.json'));
 
       const sessions: SessionInfo[] = [];
 
@@ -184,9 +291,7 @@ export class JsonlStorage implements StorageAdapter {
 
     try {
       const files = await fs.readdir(this.basePath);
-      await Promise.all(
-        files.map(file => fs.unlink(join(this.basePath, file)).catch(() => {}))
-      );
+      await Promise.all(files.map((file) => fs.unlink(join(this.basePath, file)).catch(() => {})));
     } catch {
       // 目录不存在
     }
