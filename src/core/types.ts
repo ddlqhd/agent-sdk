@@ -407,6 +407,11 @@ export interface ToolExecutionContext {
    * 与 `Agent` 流式运行传入的 `signal` 同源；工具应在长任务中检查 `signal.aborted` 并协作结束。
    */
   signal?: AbortSignal;
+  /**
+   * Agent 级环境变量覆盖（来自 {@link AgentConfig.env} 的稀疏 record），不是 `process.env` 的完整快照。
+   * 工具需要 spawn 子进程时建议用 {@link import('./process-env-merge.js').mergeProcessEnv} 合并 `context.env` 与当前进程环境。
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -960,10 +965,10 @@ export interface AgentConfig {
   loadMCPConfigFromFiles?: boolean | { configPath: string };
 
   /**
-   * 对当前进程环境的补充与覆盖（合并到 stdio MCP 子进程；键与 `process.env` 冲突时以本字段为准）。
-   * 与 {@link includeEnvironment}（往 system prompt 注入工作区描述）无关。
+   * 对当前进程环境的补充与覆盖（合并到 stdio MCP 子进程与内置 Bash 工具子进程；键与 `process.env` 冲突时以本字段为准）。
+   * 亦透传给工具的 {@link ToolExecutionContext.env}。与 {@link includeEnvironment}（往 system prompt 注入工作区描述）无关。
    * 使用 `modelConfig` 时，`env` 会一并用于构造模型适配器；若传入现成 `model`，请自行用 `mergeProcessEnv` 解析密钥等。
-   * 完整继承会将 `process.env` 中的敏感变量一并带入 MCP 子进程，由调用方控制。
+   * 完整继承会将 `process.env` 中的敏感变量一并带入 MCP/Bash 子进程，由调用方控制。
    */
   env?: Record<string, string>;
 

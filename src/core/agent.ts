@@ -2316,7 +2316,8 @@ export class Agent {
             iteration,
             sessionId: this.sessionManager.sessionId ?? undefined,
             runId: this.currentRunId,
-            agentName: this.config.agentName ?? 'Agent'
+            agentName: this.config.agentName ?? 'Agent',
+            env: this.config.env
           });
           const durationMs = Date.now() - startedAt;
           const isError = Boolean(result.isError);

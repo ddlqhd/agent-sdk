@@ -29,6 +29,7 @@
 
 **后台任务**：`Bash` 传入 `background: true` 时使用 SDK 内进程表管理子进程，并可选用 `blockUntilMs` 在返回前短暂采集启动日志。可选 **`remove_job_on_exit: true`** 在子进程退出后立即从注册表移除（默认保留至 **`BashKill`**）。后台任务**不会**随 `Agent.stream` 的取消而自动结束，需调用 `BashKill` 或在 Node 进程退出时由 SDK 钩子清理。详见 [`bash-background-jobs.md`](./bash-background-jobs.md)。
 
+**环境变量**：`AgentConfig.env` 会与当前 `process.env` 合并（`mergeProcessEnv`）后传入 `Bash` 所 `spawn` 的子进程（与 stdio MCP 子进程、通过 `modelConfig` 构造模型时的环境语义一致），便于设置 `LANG`、`PYTHONIOENCODING`、`PYTHONUTF8` 等而无需在宿主 Node 进程上全局修改。
 ### 搜索 (grep)
 
 | Tool | 说明 | Dangerous |

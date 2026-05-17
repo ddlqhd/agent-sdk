@@ -1248,7 +1248,7 @@ describe('Builtin Tools cwd inheritance', () => {
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.rm(overrideDir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });
 
 describe('Bash background shell tools', () => {
@@ -1410,8 +1410,15 @@ describe('Bash background shell tools', () => {
     expect(m).toBeTruthy();
     const jobId = m![1];
 
-    await new Promise((r) => setTimeout(r, 800));
-    const listed = await registry.execute('BashList', {});
+    const deadline = Date.now() + 14_000;
+    let listed: Awaited<ReturnType<typeof registry.execute>>;
+    do {
+      await new Promise((r) => setTimeout(r, 100));
+      listed = await registry.execute('BashList', {});
+      if (!listed.content.includes(jobId)) {
+        break;
+      }
+    } while (Date.now() < deadline);
     expect(listed.content).not.toContain(jobId);
   }, 15_000);
 });

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { z } from 'zod';
 import { createTool } from '../registry.js';
+import { mergeProcessEnv } from '../../core/process-env-merge.js';
 import { getShellPath } from '../../core/environment.js';
 import type { ToolDefinition } from '../../core/types.js';
 import {
@@ -122,7 +123,7 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
         command,
         shellPath: getShellPath(),
         cwd: cwd ?? context?.projectDir,
-        env: { ...process.env },
+        env: mergeProcessEnv(context?.env),
         title,
         maxRingChars: maxOutputBytes,
         removeJobOnExit: remove_job_on_exit === true
@@ -143,7 +144,8 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
       cwd,
       timeout: timeout ?? 120000,
       signal: context?.signal,
-      projectDir: context?.projectDir
+      projectDir: context?.projectDir,
+      env: context?.env
     });
   }
 });
@@ -171,10 +173,11 @@ interface ForegroundOpts {
   timeout: number;
   signal?: AbortSignal;
   projectDir?: string;
+  env?: Record<string, string>;
 }
 
 async function runForegroundBash(opts: ForegroundOpts): Promise<{ content: string; isError?: boolean }> {
-  const { command, desc, cwd, timeout: effectiveTimeout, signal, projectDir } = opts;
+  const { command, desc, cwd, timeout: effectiveTimeout, signal, projectDir, env } = opts;
   return new Promise((resolve) => {
     const shellPath = getShellPath();
     let stdout = '';
@@ -186,7 +189,7 @@ async function runForegroundBash(opts: ForegroundOpts): Promise<{ content: strin
     const invocation = buildShellInvocation(command, shellPath);
     const child = spawn(invocation.file, invocation.args, {
       cwd: cwd ?? projectDir,
-      env: { ...process.env },
+      env: mergeProcessEnv(env),
       windowsVerbatimArguments: invocation.windowsVerbatimArguments
     });
 

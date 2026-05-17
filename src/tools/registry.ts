@@ -58,6 +58,10 @@ export interface ToolExecuteOptions {
    * 会传入 {@link ToolExecutionContext.signal}。
    */
   signal?: AbortSignal;
+  /**
+   * Agent 级环境变量覆盖；由 `Agent` 从 `AgentConfig.env` 传入，映射到 {@link ToolExecutionContext.env}。
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -366,7 +370,8 @@ export class ToolRegistry {
         toolCallId: options?.toolCallId,
         projectDir: options?.projectDir,
         agentDepth: options?.agentDepth,
-        signal: options?.signal
+        signal: options?.signal,
+        env: options?.env
       };
       const result = await tool.handler(handlerArgs, executionContext);
       const toolResultRaw = result;
