@@ -18,4 +18,4 @@ export function createStorage(config?: StorageConfig & { basePath?: string }): S
 // 重新导出具体实现
 export { JsonlStorage, createJsonlStorage } from './jsonl.js';
 export { MemoryStorage, createMemoryStorage } from './memory.js';
-export { SessionManager } from './session.js';
+export { SessionManager, reconstructActiveMessages, messageToSessionEntry, buildSummaryEntry } from './session.js';

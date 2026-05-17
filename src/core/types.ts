@@ -454,12 +454,57 @@ export interface ToolSchema {
 // ==================== Session 类型 ====================
 
 /**
+ * 上下文压缩统计（与 {@link Compressor} / {@link SummarizationCompressor} 对齐）
+ */
+export interface CompressionStats {
+  /** 原始消息数 */
+  originalMessageCount: number;
+  /** 压缩后消息数 */
+  compressedMessageCount: number;
+  /** 压缩耗时 (ms) */
+  durationMs: number;
+}
+
+/**
+ * JSONL 中的摘要截断行（append-only 逻辑截断：load 活动链时从最后一个 summary 起读）
+ */
+export interface SummaryEntry {
+  $type: 'summary';
+  /** LLM 成功摘要为 `llm`；失败/回退为 `fallback` */
+  summaryMode: 'llm' | 'fallback';
+  /**
+   * `llm`：摘要正文（不含 synthetic user 包装文案）；
+   * `fallback`：`formatSyntheticFallbackNotice` 中的 reason 字符串
+   */
+  text: string;
+  stats: CompressionStats;
+  timestamp: number;
+}
+
+/** 会话中一行：普通消息或 summary 元条目 */
+export type SessionEntry =
+  | (Message & { $type?: 'message' })
+  | SummaryEntry;
+
+/**
+ * {@link SessionManager.saveSystemPrompt} 侧车文件内容
+ */
+export interface SystemPromptSidecar {
+  content: string;
+  contentSha256: string;
+  savedAt: number;
+  agentName?: string;
+  cwd?: string;
+}
+
+/**
  * 会话信息
  */
 export interface SessionInfo {
   id: string;
   createdAt: number;
   updatedAt: number;
+  /** JSONL 行数（含 summary 行） */
   messageCount: number;
   metadata?: Record<string, unknown>;
 }
@@ -472,23 +517,30 @@ export interface StorageConfig {
 }
 
 /**
- * 存储适配器接口
+ * 存储适配器接口（append-only JSONL，无全量 save）
  */
 export interface StorageAdapter {
-  /** 保存消息 */
-  save(sessionId: string, messages: Message[]): Promise<void>;
+  /** 仅追加条目，不重写已有 transcript */
+  append(sessionId: string, entries: SessionEntry[]): Promise<void>;
 
-  /** 加载消息 */
-  load(sessionId: string): Promise<Message[]>;
+  /** 加载全部原始条目（含 summary 之前的已截断历史，供审计） */
+  load(sessionId: string): Promise<SessionEntry[]>;
 
   /** 列出会话 */
   list(): Promise<SessionInfo[]>;
 
-  /** 删除会话 */
+  /** 删除会话（jsonl / meta / system sidecar） */
   delete(sessionId: string): Promise<void>;
 
-  /** 会话是否存在 */
+  /** 会话 jsonl 是否存在 */
   exists(sessionId: string): Promise<boolean>;
+
+  /** 写入最近一次下发的 system prompt（审计）；可选 */
+  saveSystemPrompt?(
+    sessionId: string,
+    content: string,
+    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+  ): Promise<void>;
 }
 
 // ==================== 流式事件类型 ====================

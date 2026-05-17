@@ -62,7 +62,8 @@ describe('Agent compressContext persists shortened history to JsonlStorage', () 
       type: 'jsonl',
       basePath: getSessionStoragePath(userBase)
     });
-    const fromDisk = await sm.resumeSession(sid);
+    await sm.attachSession(sid);
+    const fromDisk = await sm.loadActiveMessages();
 
     expect(fromDisk.length).toBe(inMemoryNonSystem);
     expect(fromDisk.length).toBeLessThan(beforeCompress);

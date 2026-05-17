@@ -2,6 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '../../src/core/agent.js';
 import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
+import type { SessionManager } from '../../src/storage/session.js';
+
+async function loadActiveForManager(sm: SessionManager) {
+  const id = sm.sessionId;
+  if (!id) {
+    return [];
+  }
+  await sm.attachSession(id);
+  return sm.loadActiveMessages();
+}
 
 describe('Agent aborted-run persistence', () => {
   it('persists once when aborted before model request', async () => {
@@ -25,7 +35,7 @@ describe('Agent aborted-run persistence', () => {
     });
     await agent.waitForInit();
 
-    const saveSpy = vi.spyOn(agent.getSessionManager(), 'saveMessages');
+    const saveSpy = vi.spyOn(agent.getSessionManager(), 'appendEntries');
     const ac = new AbortController();
     ac.abort();
 
@@ -60,7 +70,7 @@ describe('Agent aborted-run persistence', () => {
     });
     await agent.waitForInit();
 
-    const saveSpy = vi.spyOn(agent.getSessionManager(), 'saveMessages');
+    const saveSpy = vi.spyOn(agent.getSessionManager(), 'appendEntries');
     const ac = new AbortController();
 
     const events = [];
@@ -74,7 +84,7 @@ describe('Agent aborted-run persistence', () => {
     expect(saveSpy).toHaveBeenCalledTimes(1);
     expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'aborted' });
 
-    const persisted = await agent.getSessionManager().resumeSession(agent.getSessionManager().sessionId!);
+    const persisted = await loadActiveForManager(agent.getSessionManager());
     expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
   });
 
@@ -116,7 +126,7 @@ describe('Agent aborted-run persistence', () => {
     expect(events.some(event => event.type === 'thinking')).toBe(true);
     expect(endEvent).toMatchObject({ type: 'end', reason: 'aborted', partialContent: 'partial' });
 
-    const persisted = await agent.getSessionManager().resumeSession(agent.getSessionManager().sessionId!);
+    const persisted = await loadActiveForManager(agent.getSessionManager());
     const assistantMsg = [...persisted].reverse().find(m => m.role === 'assistant');
     expect(assistantMsg).toBeDefined();
     expect(Array.isArray(assistantMsg!.content)).toBe(true);
@@ -146,7 +156,7 @@ describe('Agent aborted-run persistence', () => {
     });
     await agent.waitForInit();
 
-    const saveSpy = vi.spyOn(agent.getSessionManager(), 'saveMessages');
+    const saveSpy = vi.spyOn(agent.getSessionManager(), 'appendEntries');
     const events = [];
     for await (const event of agent.stream('ping')) {
       events.push(event);

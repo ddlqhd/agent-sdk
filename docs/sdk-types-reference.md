@@ -748,21 +748,53 @@ interface SkillConfig {
 
 ## 8. 存储类型
 
-### `StorageConfig` / `StorageAdapter` / `SessionInfo`
+### `StorageConfig` / `CompressionStats` / `SummaryEntry` / `SessionEntry` / `SystemPromptSidecar` / `StorageAdapter` / `SessionInfo`
 
 ```ts
 interface StorageConfig {
   type: 'jsonl' | 'memory';
 }
 
+interface CompressionStats {
+  originalMessageCount: number;
+  compressedMessageCount: number;
+  durationMs: number;
+}
+
+interface SummaryEntry {
+  $type: 'summary';
+  summaryMode: 'llm' | 'fallback';
+  text: string;
+  stats: CompressionStats;
+  timestamp: number;
+}
+
+type SessionEntry = (Message & { $type?: 'message' }) | SummaryEntry;
+
+interface SystemPromptSidecar {
+  content: string;
+  contentSha256: string;
+  savedAt: number;
+  agentName?: string;
+  cwd?: string;
+}
+
 interface StorageAdapter {
-  save(sessionId: string, messages: Message[]): Promise<void>;
-  load(sessionId: string): Promise<Message[]>;
+  append(sessionId: string, entries: SessionEntry[]): Promise<void>;
+  load(sessionId: string): Promise<SessionEntry[]>;
   list(): Promise<SessionInfo[]>;
   delete(sessionId: string): Promise<void>;
   exists(sessionId: string): Promise<boolean>;
+  saveSystemPrompt?(
+    sessionId: string,
+    content: string,
+    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+  ): Promise<void>;
 }
 ```
+
+- **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }` 与保留的 `recent` 消息行，此前正文仍保留供审计。
+- **Resume 活动链**：`SessionManager.loadActiveMessages()` 从 **最后一个** `summary` 行起重建为 `Message[]`（summary 行变为 synthetic `user`），**不包含** system（system 每次 run 由 Agent 重建，并写入 `*.system.json` 侧车）。
 
 `SessionInfo`:
 
@@ -771,7 +803,9 @@ interface SessionInfo {
   id: string;
   createdAt: number;
   updatedAt: number;
-  messageCount: number;
+  messageCount: number; // JSONL 行数（含 summary）
   metadata?: Record<string, unknown>;
 }
 ```
+
+`SessionManager` 主要方法：`createSession`、`attachSession`、`appendEntries`、`appendCompactionBoundary`、`loadRawEntries`、`loadActiveMessages`、`saveSystemPrompt`、`deleteSession`、`listSessions`。已移除 `saveMessages` / `resumeSession` / `appendMessage`（v2 breaking）。

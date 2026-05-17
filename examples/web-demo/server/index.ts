@@ -301,7 +301,7 @@ wss.on('connection', (socket: WebSocket) => {
           }
           const agent = await createConfiguredAgent();
           try {
-            await agent.getSessionManager().resumeSession(msg.sessionId);
+            await agent.getSessionManager().attachSession(msg.sessionId);
           } catch {
             await agent.destroy();
             console.warn(`${LOG_PREFIX} [${connId}] sessions:resume failed: session not found`);

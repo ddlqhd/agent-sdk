@@ -1,100 +1,117 @@
-import type { StorageAdapter, Message, SessionInfo } from '../core/types.js';
+import { createHash } from 'node:crypto';
+import type {
+  SessionEntry,
+  SessionInfo,
+  StorageAdapter,
+  SummaryEntry,
+  SystemPromptSidecar
+} from '../core/types.js';
 
 /**
- * 内存存储实现
- * 用于测试或临时会话，重启后数据丢失
+ * 内存存储（测试 / 临时会话）；语义与 {@link JsonlStorage} 对齐：append-only + 侧车 system
  */
 export class MemoryStorage implements StorageAdapter {
-  private sessions: Map<string, Message[]> = new Map();
+  private sessions: Map<string, SessionEntry[]> = new Map();
   private metadata: Map<string, SessionInfo> = new Map();
+  private systemSidecars: Map<string, SystemPromptSidecar> = new Map();
 
-  /**
-   * 保存消息
-   */
-  async save(sessionId: string, messages: Message[]): Promise<void> {
-    this.sessions.set(sessionId, [...messages]);
-
-    // 更新元数据
-    const existing = this.metadata.get(sessionId);
+  async append(sessionId: string, entries: SessionEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
+    const existing = this.sessions.get(sessionId) ?? [];
     const now = Date.now();
+    const stamped = entries.map((e) => {
+      if ((e as SummaryEntry).$type === 'summary') {
+        const s = e as SummaryEntry;
+        return { ...s, timestamp: s.timestamp ?? now };
+      }
+      return {
+        ...(e as object),
+        timestamp: (e as { timestamp?: number }).timestamp ?? now
+      } as SessionEntry;
+    });
+    this.sessions.set(sessionId, [...existing, ...stamped]);
 
+    const metaExisting = this.metadata.get(sessionId);
+    const nowMeta = Date.now();
     this.metadata.set(sessionId, {
       id: sessionId,
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-      messageCount: messages.length
+      createdAt: metaExisting?.createdAt ?? nowMeta,
+      updatedAt: nowMeta,
+      messageCount: (metaExisting?.messageCount ?? 0) + entries.length
     });
   }
 
-  /**
-   * 加载消息
-   */
-  async load(sessionId: string): Promise<Message[]> {
-    return this.sessions.get(sessionId) || [];
+  async load(sessionId: string): Promise<SessionEntry[]> {
+    const rows = this.sessions.get(sessionId);
+    return rows ? [...rows] : [];
   }
 
-  /**
-   * 列出所有会话
-   */
   async list(): Promise<SessionInfo[]> {
-    return Array.from(this.metadata.values())
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return Array.from(this.metadata.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /**
-   * 删除会话
-   */
   async delete(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
     this.metadata.delete(sessionId);
+    this.systemSidecars.delete(sessionId);
   }
 
-  /**
-   * 检查会话是否存在
-   */
   async exists(sessionId: string): Promise<boolean> {
     return this.sessions.has(sessionId);
   }
 
-  /**
-   * 清空所有会话
-   */
-  async clear(): Promise<void> {
-    this.sessions.clear();
-    this.metadata.clear();
+  async saveSystemPrompt(
+    sessionId: string,
+    content: string,
+    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+  ): Promise<void> {
+    const side: SystemPromptSidecar = {
+      content,
+      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
+      savedAt: Date.now(),
+      ...meta
+    };
+    this.systemSidecars.set(sessionId, side);
   }
 
-  /**
-   * 获取会话数量
-   */
+  clear(): Promise<void> {
+    this.sessions.clear();
+    this.metadata.clear();
+    this.systemSidecars.clear();
+    return Promise.resolve();
+  }
+
   get size(): number {
     return this.sessions.size;
   }
 
-  /**
-   * 导出所有数据
-   */
-  export(): Record<string, Message[]> {
-    const result: Record<string, Message[]> = {};
+  export(): Record<string, SessionEntry[]> {
+    const result: Record<string, SessionEntry[]> = {};
     for (const [key, value] of this.sessions) {
       result[key] = [...value];
     }
     return result;
   }
 
-  /**
-   * 导入数据
-   */
-  import(data: Record<string, Message[]>): void {
-    for (const [sessionId, messages] of Object.entries(data)) {
-      this.save(sessionId, messages);
+  import(data: Record<string, SessionEntry[]>): void {
+    for (const [sessionId, entries] of Object.entries(data)) {
+      this.sessions.set(sessionId, [...entries]);
+      this.metadata.set(sessionId, {
+        id: sessionId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messageCount: entries.length
+      });
     }
+  }
+
+  getSystemPromptSidecar(sessionId: string): SystemPromptSidecar | undefined {
+    return this.systemSidecars.get(sessionId);
   }
 }
 
-/**
- * 创建内存存储
- */
 export function createMemoryStorage(): MemoryStorage {
   return new MemoryStorage();
 }

@@ -22,6 +22,7 @@ import {
   type AgentInitResult,
   type MCPInitializationSummary,
   type AgentResourceInitStepResult,
+  type CompressionStats,
   type MCPServerInitializationResult
 } from '../core/types.js';
 import type { SubagentProfile } from '../subagents/types.js';
@@ -30,7 +31,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { ToolRegistry } from '../tools/registry.js';
 import { getAllBuiltinTools } from '../tools/builtin/index.js';
-import { SessionManager } from '../storage/session.js';
+import { SessionManager, buildSummaryEntry, messageToSessionEntry } from '../storage/session.js';
 import { getSessionStoragePath } from '../storage/session-path.js';
 import { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 import { MemoryManager } from '../memory/manager.js';
@@ -105,6 +106,11 @@ export class Agent {
   private subagentProfileMap: Map<string, SubagentProfile>;
   /** Set for the lifetime of each `stream()` / `run()` turn for log correlation */
   private currentRunId?: string;
+
+  /**
+   * 已持久化到会话存储的非 system 消息条数（与 {@link this.messages} 中顺序一致的前缀长度）
+   */
+  private persistedNonSystemCount = 0;
 
   // Token 使用量统计
   // contextTokens: 当前上下文大小 (用于压缩判断)
@@ -631,6 +637,7 @@ export class Agent {
 
   private resetSessionState(): void {
     this.messages = [];
+    this.persistedNonSystemCount = 0;
     this.sessionUsage = this.contextManager
       ? this.contextManager.resetUsage()
       : Agent.createEmptySessionUsage();
@@ -697,10 +704,15 @@ export class Agent {
         this.resetSessionState();
       }
       try {
-        this.messages = await this.sessionManager.resumeSession(options.sessionId);
-        this.notifySessionResume(options.sessionId, this.messages.length);
+        await this.sessionManager.attachSession(options.sessionId);
+        this.messages = await this.sessionManager.loadActiveMessages();
+        this.notifySessionResume(
+          options.sessionId,
+          this.messages.filter((m) => m.role !== 'system').length
+        );
       } catch {
         this.sessionManager.createSession(options.sessionId);
+        this.messages = [];
         this.notifySessionCreate();
       }
     } else if (!this.sessionManager.sessionId) {
@@ -709,6 +721,57 @@ export class Agent {
       this.notifySessionCreate();
     }
     this.attachSdkLogToHooks();
+  }
+
+  private countPersistableMessages(): number {
+    return this.messages.filter((m) => m.role !== 'system').length;
+  }
+
+  private syncPersistedNonSystemFromMemory(): void {
+    this.persistedNonSystemCount = this.countPersistableMessages();
+  }
+
+  private async persistSessionSystemSidecar(): Promise<void> {
+    const content = this.getSystemPrompt();
+    if (!content) {
+      return;
+    }
+    try {
+      await this.sessionManager.saveSystemPrompt(content, {
+        agentName: this.config.agentName ?? 'Agent',
+        cwd: this.config.cwd ?? process.cwd()
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('warn', {
+        component: 'session',
+        event: 'session.sidecar.error',
+        message: 'Failed to persist system prompt sidecar',
+        errorName: err.name,
+        errorMessage: err.message
+      });
+    }
+  }
+
+  private async flushNewPersistableMessagesToStorage(): Promise<void> {
+    const nonSys = this.messages.filter((m) => m.role !== 'system');
+    const delta = nonSys.slice(this.persistedNonSystemCount);
+    if (delta.length === 0) {
+      return;
+    }
+    await this.sessionManager.appendEntries(delta.map((m) => messageToSessionEntry(m)));
+    this.persistedNonSystemCount = nonSys.length;
+  }
+
+  private async persistCompactionToStorage(stats: CompressionStats): Promise<void> {
+    const nonSys = this.messages.filter((m) => m.role !== 'system');
+    if (nonSys.length === 0) {
+      return;
+    }
+    const [summaryMsg, ...recent] = nonSys;
+    const summaryEntry = buildSummaryEntry(summaryMsg, stats);
+    await this.sessionManager.appendCompactionBoundary(summaryEntry, recent);
+    this.persistedNonSystemCount = nonSys.length;
   }
 
   private notifySessionResume(sessionId: string, messageCount: number): void {
@@ -830,7 +893,7 @@ export class Agent {
         return;
       }
       try {
-        await this.sessionManager.saveMessages(this.messages);
+        await this.flushNewPersistableMessagesToStorage();
         abortedPersisted = true;
         this.safeLifecycleVoid(() => {
           this.config.callbacks?.lifecycle?.onMessagePersist?.({
@@ -1277,7 +1340,7 @@ export class Agent {
     maxIterations: number
   ): AsyncGenerator<StreamEvent, void, undefined> {
     try {
-      await this.sessionManager.saveMessages(this.messages);
+      await this.flushNewPersistableMessagesToStorage();
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.log('warn', {
@@ -1419,6 +1482,8 @@ export class Agent {
 
       await this.prepareStreamSession(options);
       this.appendInitialSystemMessages(options);
+      await this.persistSessionSystemSidecar();
+      this.syncPersistedNonSystemFromMemory();
       const { processedInput } = await this.appendUserMessageFromProcessedInput(input);
 
       this.logRunStart(input, processedInput, options);
@@ -1909,9 +1974,8 @@ export class Agent {
     this.messages = result.messages;
     this.sessionUsage = this.contextManager.resetUsage();
 
-    // 保存压缩后的会话
     try {
-      await this.sessionManager.saveMessages(this.messages);
+      await this.persistCompactionToStorage(result.stats);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.log('warn', {
@@ -1982,6 +2046,24 @@ export class Agent {
     );
     this.messages = messages;
     this.sessionUsage = usage;
+    for (const ev of events) {
+      if (ev.type === 'context_compressed') {
+        try {
+          await this.persistCompactionToStorage(ev.stats);
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.log('warn', {
+            component: 'session',
+            event: 'session.persist.error',
+            message: 'Failed to persist compaction boundary',
+            operation: 'persist',
+            errorName: err.name,
+            errorMessage: err.message,
+            metadata: { phase: 'iteration_compact' }
+          });
+        }
+      }
+    }
     return events;
   }
 

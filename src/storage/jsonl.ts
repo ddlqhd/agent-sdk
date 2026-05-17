@@ -1,6 +1,13 @@
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import type { StorageAdapter, Message, SessionInfo } from '../core/types.js';
+import type {
+  SessionEntry,
+  SessionInfo,
+  StorageAdapter,
+  SummaryEntry,
+  SystemPromptSidecar
+} from '../core/types.js';
 
 /**
  * JSONL 文件存储配置
@@ -10,12 +17,8 @@ export interface JsonlStorageConfig {
 }
 
 /**
- * Persists only user / assistant / tool messages. System prompts are built at runtime by
- * {@link Agent.appendInitialSystemMessages} and are not written to disk.
- *
- * Save semantics: append new lines only when the new sequence is a strict extension of the
- * on-disk persistable history (same prefix). Otherwise the file is replaced atomically
- * (e.g. after context compression or in-place edits).
+ * JSONL append-only 存储：每行一条 {@link SessionEntry}。
+ * System prompt 不进 jsonl，由 {@link SessionManager.saveSystemPrompt} 写侧车文件。
  */
 export class JsonlStorage implements StorageAdapter {
   private basePath: string;
@@ -24,108 +27,25 @@ export class JsonlStorage implements StorageAdapter {
     this.basePath = config.basePath || './sessions';
   }
 
-  /**
-   * 获取会话文件路径
-   */
   private getFilePath(sessionId: string): string {
-    // 确保会话 ID 安全（防止路径遍历）
     const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
     return join(this.basePath, `${safeId}.jsonl`);
   }
 
-  /**
-   * 获取元数据文件路径
-   */
   private getMetaFilePath(sessionId: string): string {
     const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
     return join(this.basePath, `${safeId}.meta.json`);
   }
 
-  /**
-   * 确保目录存在
-   */
+  private getSystemSidecarPath(sessionId: string): string {
+    const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return join(this.basePath, `${safeId}.system.json`);
+  }
+
   private async ensureDir(): Promise<void> {
     await fs.mkdir(this.basePath, { recursive: true });
   }
 
-  private filterPersistable(messages: Message[]): Message[] {
-    return messages.filter((m) => m.role !== 'system');
-  }
-
-  private static sameMessageIdentity(a: Message, b: Message): boolean {
-    if (a.role !== b.role) return false;
-    if (a.toolCallId !== b.toolCallId) return false;
-    if (JSON.stringify(a.toolCalls ?? null) !== JSON.stringify(b.toolCalls ?? null)) {
-      return false;
-    }
-    if (typeof a.content === 'string' && typeof b.content === 'string') {
-      return a.content === b.content;
-    }
-    if (Array.isArray(a.content) && Array.isArray(b.content)) {
-      return JSON.stringify(a.content) === JSON.stringify(b.content);
-    }
-    return false;
-  }
-
-  /**
-   * Parse JSONL on disk and return non-system messages (drops legacy persisted system lines).
-   */
-  private async readPersistableFromDisk(filePath: string): Promise<Message[]> {
-    try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const lines = content.split('\n').filter(Boolean);
-      const out: Message[] = [];
-      for (const line of lines) {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        const { timestamp: _ts, ...rest } = parsed;
-        const message = rest as unknown as Message;
-        if (message.role === 'system') {
-          continue;
-        }
-        out.push(message);
-      }
-      return out;
-    } catch (error: unknown) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ENOENT') {
-        return [];
-      }
-      throw error;
-    }
-  }
-
-  private serializeLines(messages: Message[]): string {
-    if (messages.length === 0) {
-      return '';
-    }
-    return (
-      messages
-        .map((msg) => {
-          const record = {
-            ...msg,
-            timestamp: msg.timestamp || Date.now()
-          };
-          return JSON.stringify(record);
-        })
-        .join('\n') + '\n'
-    );
-  }
-
-  private isStrictExtension(existing: Message[], persistable: Message[]): boolean {
-    if (persistable.length < existing.length) {
-      return false;
-    }
-    for (let i = 0; i < existing.length; i++) {
-      if (!JsonlStorage.sameMessageIdentity(existing[i]!, persistable[i]!)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Write then rename for safer updates. Windows may require removing the target first.
-   */
   private async atomicReplaceFile(targetPath: string, data: string): Promise<void> {
     const tmp = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     await fs.writeFile(tmp, data, 'utf-8');
@@ -142,6 +62,15 @@ export class JsonlStorage implements StorageAdapter {
     }
   }
 
+  private async readMeta(sessionId: string): Promise<SessionInfo | null> {
+    const metaPath = this.getMetaFilePath(sessionId);
+    try {
+      return JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SessionInfo;
+    } catch {
+      return null;
+    }
+  }
+
   private async writeMetaAtomic(sessionId: string, messageCount: number): Promise<void> {
     const metaPath = this.getMetaFilePath(sessionId);
     const meta: SessionInfo = {
@@ -151,73 +80,75 @@ export class JsonlStorage implements StorageAdapter {
       messageCount
     };
 
-    try {
-      const existingMeta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SessionInfo;
-      meta.createdAt = existingMeta.createdAt;
-    } catch {
-      // new session
+    const existing = await this.readMeta(sessionId);
+    if (existing) {
+      meta.createdAt = existing.createdAt;
     }
 
     const payload = JSON.stringify(meta, null, 2);
-    const tmp = `${metaPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-    await fs.writeFile(tmp, payload, 'utf-8');
+    await this.atomicReplaceFile(metaPath, payload);
+  }
+
+  private parseLine(line: string): SessionEntry | null {
     try {
-      await fs.rename(tmp, metaPath);
-    } catch (err) {
-      if (process.platform === 'win32') {
-        await fs.rm(metaPath, { force: true }).catch(() => {});
-        await fs.rename(tmp, metaPath);
-      } else {
-        await fs.unlink(tmp).catch(() => {});
-        throw err;
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      if (parsed.$type === 'summary') {
+        return parsed as unknown as SummaryEntry;
       }
+      const { timestamp: _t, ...rest } = parsed;
+      return rest as unknown as SessionEntry;
+    } catch {
+      return null;
     }
   }
 
   /**
-   * 保存消息：在可追加时仅追加新行；否则原子重写整个 JSONL。
+   * 仅追加条目（不重写 jsonl）
    */
-  async save(sessionId: string, messages: Message[]): Promise<void> {
+  async append(sessionId: string, entries: SessionEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
     await this.ensureDir();
-
     const filePath = this.getFilePath(sessionId);
-    const persistable = this.filterPersistable(messages);
+    const now = Date.now();
+    const lines =
+      entries
+        .map((e) => {
+      const rec =
+        (e as SummaryEntry).$type === 'summary'
+          ? { ...e, timestamp: (e as SummaryEntry).timestamp ?? now }
+          : ({
+              ...(e as unknown as Record<string, unknown>),
+              timestamp: (e as { timestamp?: number }).timestamp ?? now
+            } as Record<string, unknown>);
+      return JSON.stringify(rec);
+        })
+        .join('\n') + '\n';
 
-    const existingPersistable = await this.readPersistableFromDisk(filePath);
-    const canAppend =
-      persistable.length >= existingPersistable.length &&
-      this.isStrictExtension(existingPersistable, persistable);
+    await fs.appendFile(filePath, lines, 'utf-8');
 
-    if (canAppend) {
-      const newMessages = persistable.slice(existingPersistable.length);
-      if (newMessages.length > 0) {
-        const chunk = this.serializeLines(newMessages);
-        await fs.appendFile(filePath, chunk, 'utf-8');
-      }
-    } else {
-      await this.atomicReplaceFile(filePath, this.serializeLines(persistable));
-    }
-
-    await this.writeMetaAtomic(sessionId, persistable.length);
+    const existing = await this.readMeta(sessionId);
+    const count = (existing?.messageCount ?? 0) + entries.length;
+    await this.writeMetaAtomic(sessionId, count);
   }
 
   /**
-   * 加载消息（不包含 system；兼容旧文件中首行 system）
+   * 加载全部原始条目（含 summary 截断前的历史）
    */
-  async load(sessionId: string): Promise<Message[]> {
+  async load(sessionId: string): Promise<SessionEntry[]> {
     const filePath = this.getFilePath(sessionId);
-
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(Boolean);
-
-      return lines
-        .map((line) => {
-          const parsed = JSON.parse(line);
-          const { timestamp, ...message } = parsed;
-          return message as Message;
-        })
-        .filter((m) => m.role !== 'system');
+      const out: SessionEntry[] = [];
+      for (const line of lines) {
+        const entry = this.parseLine(line);
+        if (entry) {
+          out.push(entry);
+        }
+      }
+      return out;
     } catch (error: unknown) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
@@ -228,53 +159,58 @@ export class JsonlStorage implements StorageAdapter {
   }
 
   /**
-   * 列出所有会话
+   * 写入 system prompt 侧车（审计）
    */
+  async saveSystemPrompt(
+    sessionId: string,
+    content: string,
+    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+  ): Promise<void> {
+    await this.ensureDir();
+    const side: SystemPromptSidecar = {
+      content,
+      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
+      savedAt: Date.now(),
+      ...meta
+    };
+    const path = this.getSystemSidecarPath(sessionId);
+    await this.atomicReplaceFile(path, JSON.stringify(side, null, 2));
+  }
+
   async list(): Promise<SessionInfo[]> {
     await this.ensureDir();
-
     try {
       const files = await fs.readdir(this.basePath);
       const metaFiles = files.filter((f) => f.endsWith('.meta.json'));
-
       const sessions: SessionInfo[] = [];
-
       for (const metaFile of metaFiles) {
         try {
           const metaPath = join(this.basePath, metaFile);
-          const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+          const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SessionInfo;
           sessions.push(meta);
         } catch {
-          // 跳过损坏的元数据文件
+          // skip corrupt meta
         }
       }
-
-      // 按更新时间排序
       return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     } catch {
       return [];
     }
   }
 
-  /**
-   * 删除会话
-   */
   async delete(sessionId: string): Promise<void> {
     const filePath = this.getFilePath(sessionId);
     const metaPath = this.getMetaFilePath(sessionId);
-
+    const sysPath = this.getSystemSidecarPath(sessionId);
     await Promise.all([
       fs.unlink(filePath).catch(() => {}),
-      fs.unlink(metaPath).catch(() => {})
+      fs.unlink(metaPath).catch(() => {}),
+      fs.unlink(sysPath).catch(() => {})
     ]);
   }
 
-  /**
-   * 检查会话是否存在
-   */
   async exists(sessionId: string): Promise<boolean> {
     const filePath = this.getFilePath(sessionId);
-
     try {
       await fs.access(filePath);
       return true;
@@ -283,22 +219,18 @@ export class JsonlStorage implements StorageAdapter {
     }
   }
 
-  /**
-   * 清空所有会话
-   */
   async clear(): Promise<void> {
     await this.ensureDir();
-
     try {
       const files = await fs.readdir(this.basePath);
       await Promise.all(files.map((file) => fs.unlink(join(this.basePath, file)).catch(() => {})));
     } catch {
-      // 目录不存在
+      // ignore
     }
   }
 
   /**
-   * 获取会话统计
+   * 会话统计
    */
   async getStats(sessionId: string): Promise<{
     messageCount: number;
@@ -308,14 +240,12 @@ export class JsonlStorage implements StorageAdapter {
   } | null> {
     const filePath = this.getFilePath(sessionId);
     const metaPath = this.getMetaFilePath(sessionId);
-
     try {
       const [metaContent, fileStat] = await Promise.all([
         fs.readFile(metaPath, 'utf-8'),
         fs.stat(filePath)
       ]);
-
-      const meta = JSON.parse(metaContent);
+      const meta = JSON.parse(metaContent) as SessionInfo;
       return {
         messageCount: meta.messageCount,
         createdAt: meta.createdAt,
@@ -328,9 +258,6 @@ export class JsonlStorage implements StorageAdapter {
   }
 }
 
-/**
- * 创建 JSONL 存储
- */
 export function createJsonlStorage(config?: JsonlStorageConfig): JsonlStorage {
   return new JsonlStorage(config);
 }

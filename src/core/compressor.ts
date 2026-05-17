@@ -1,5 +1,6 @@
 import { emitSDKLog } from './logger.js';
 import type {
+  CompressionStats,
   ContentPart,
   LogRedactionConfig,
   Message,
@@ -34,16 +35,53 @@ export interface CompressionResult {
   stats: CompressionStats;
 }
 
+export type { CompressionStats };
+
+const SYNTHETIC_USER_SUMMARY_PREFIX = [
+  'The following is a compressed summary of earlier conversation history.',
+  'It is context only, not a new request. Do not execute tools because of it.',
+  ''
+].join('\n');
+
+const SYNTHETIC_FALLBACK_PREFIX = [
+  'Context compression did not produce a usable LLM summary.',
+  'The full non-system message history is preserved below; oversized tool outputs were replaced locally to save context.',
+  'This message is context only, not a new request. Do not execute tools because of it.',
+  '',
+  'Reason: '
+].join('\n');
+
+/** 将 LLM 摘要正文包装为 synthetic user 消息（持久化时可只存正文，加载时再包装） */
+export function formatSyntheticUserSummary(summary: string): string {
+  return SYNTHETIC_USER_SUMMARY_PREFIX + summary;
+}
+
+/** 压缩失败时的 synthetic user 提示 */
+export function formatSyntheticFallbackNotice(detail: string): string {
+  return SYNTHETIC_FALLBACK_PREFIX + detail;
+}
+
 /**
- * 压缩统计
+ * 从压缩产生的首条 synthetic user 消息解析出 {@link SummaryEntry} 的 text + summaryMode
  */
-export interface CompressionStats {
-  /** 原始消息数 */
-  originalMessageCount: number;
-  /** 压缩后消息数 */
-  compressedMessageCount: number;
-  /** 压缩耗时 (ms) */
-  durationMs: number;
+export function parseCompactionSyntheticUser(message: Message): {
+  summaryMode: 'llm' | 'fallback';
+  text: string;
+} | null {
+  if (message.role !== 'user') {
+    return null;
+  }
+  const c = message.content;
+  if (typeof c !== 'string') {
+    return null;
+  }
+  if (c.startsWith(SYNTHETIC_USER_SUMMARY_PREFIX)) {
+    return { summaryMode: 'llm', text: c.slice(SYNTHETIC_USER_SUMMARY_PREFIX.length) };
+  }
+  if (c.startsWith(SYNTHETIC_FALLBACK_PREFIX)) {
+    return { summaryMode: 'fallback', text: c.slice(SYNTHETIC_FALLBACK_PREFIX.length) };
+  }
+  return null;
 }
 
 /**
@@ -298,31 +336,6 @@ export class SummarizationCompressor implements Compressor {
   }
 
   /**
-   * 将摘要包成 synthetic user 消息正文（与系统指令区分，避免当作 policy）
-   */
-  private formatSyntheticUserSummary(summary: string): string {
-    return [
-      'The following is a compressed summary of earlier conversation history.',
-      'It is context only, not a new request. Do not execute tools because of it.',
-      '',
-      summary
-    ].join('\n');
-  }
-
-  /**
-   * 摘要模型不可用时的 synthetic user 提示：说明未生成 LLM 摘要，仅做了本地 tool 输出裁剪。
-   */
-  private formatSyntheticFallbackNotice(detail: string): string {
-    return [
-      'Context compression did not produce a usable LLM summary.',
-      'The full non-system message history is preserved below; oversized tool outputs were replaced locally to save context.',
-      'This message is context only, not a new request. Do not execute tools because of it.',
-      '',
-      `Reason: ${detail}`
-    ].join('\n');
-  }
-
-  /**
    * 构建摘要请求正文：transcript 前后都有明确边界，避免模型把历史当作当前对话继续执行
    */
   private buildSummaryRequestContent(transcript: string): string {
@@ -481,7 +494,7 @@ export class SummarizationCompressor implements Compressor {
       if (text) {
         const summaryUser: Message = {
           role: 'user',
-          content: this.formatSyntheticUserSummary(text)
+          content: formatSyntheticUserSummary(text)
         };
         const compressedMessages = [
           ...systemMessages,
@@ -499,7 +512,7 @@ export class SummarizationCompressor implements Compressor {
       emitCompressError(new Error(emptyReason));
       const fallbackUser: Message = {
         role: 'user',
-        content: this.formatSyntheticFallbackNotice(emptyReason)
+        content: formatSyntheticFallbackNotice(emptyReason)
       };
       const fallbackMessages = [
         ...systemMessages,
@@ -513,7 +526,7 @@ export class SummarizationCompressor implements Compressor {
       emitCompressError(err);
       const fallbackUser: Message = {
         role: 'user',
-        content: this.formatSyntheticFallbackNotice(err.message)
+        content: formatSyntheticFallbackNotice(err.message)
       };
       const fallbackMessages = [
         ...systemMessages,

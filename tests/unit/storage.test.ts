@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { promises as fs } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { MemoryStorage } from '../../src/storage/memory.js';
 import { SessionManager } from '../../src/storage/session.js';
+import { JsonlStorage } from '../../src/storage/jsonl.js';
 
 describe('MemoryStorage', () => {
   let storage: MemoryStorage;
@@ -9,70 +13,67 @@ describe('MemoryStorage', () => {
     storage = new MemoryStorage();
   });
 
-  it('should save and load messages', async () => {
-    const messages = [
-      { role: 'user' as const, content: 'Hello' },
-      { role: 'assistant' as const, content: 'Hi there!' }
-    ];
-
-    await storage.save('test-session', messages);
-    const loaded = await storage.load('test-session');
-
-    expect(loaded).toEqual(messages);
+  it('append + load roundtrip', async () => {
+    const sid = 's1';
+    await storage.append(sid, [{ role: 'user', content: 'Hello' }]);
+    await storage.append(sid, [{ role: 'assistant', content: 'Hi!' }]);
+    const loaded = await storage.load(sid);
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0]).toMatchObject({ role: 'user', content: 'Hello' });
   });
 
-  it('should return empty array for non-existent session', async () => {
-    const messages = await storage.load('non-existent');
-    expect(messages).toEqual([]);
+  it('returns empty load for missing session', async () => {
+    expect(await storage.load('missing')).toEqual([]);
   });
 
-  it('should list sessions', async () => {
-    await storage.save('session1', [{ role: 'user', content: 'Hi' }]);
-    await storage.save('session2', [{ role: 'user', content: 'Hello' }]);
-
-    const sessions = await storage.list();
-    expect(sessions).toHaveLength(2);
-    expect(sessions.map(s => s.id)).toContain('session1');
-    expect(sessions.map(s => s.id)).toContain('session2');
+  it('exists after append', async () => {
+    await storage.append('x', [{ role: 'user', content: 'a' }]);
+    expect(await storage.exists('x')).toBe(true);
   });
 
-  it('should delete a session', async () => {
-    await storage.save('test-session', [{ role: 'user', content: 'Hi' }]);
-    expect(await storage.exists('test-session')).toBe(true);
+  it('delete removes session', async () => {
+    await storage.append('d', [{ role: 'user', content: 'a' }]);
+    await storage.delete('d');
+    expect(await storage.exists('d')).toBe(false);
+  });
+});
 
-    await storage.delete('test-session');
-    expect(await storage.exists('test-session')).toBe(false);
+describe('JsonlStorage', () => {
+  let basePath: string;
+  let storage: JsonlStorage;
+
+  beforeEach(async () => {
+    basePath = await fs.mkdtemp(join(tmpdir(), 'stor-test-'));
+    storage = new JsonlStorage({ basePath });
   });
 
-  it('should check session existence', async () => {
-    expect(await storage.exists('test')).toBe(false);
-    
-    await storage.save('test', [{ role: 'user', content: 'Hi' }]);
-    expect(await storage.exists('test')).toBe(true);
+  afterEach(async () => {
+    await storage.clear().catch(() => {});
+    await fs.rm(basePath, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('should clear all sessions', async () => {
-    await storage.save('session1', []);
-    await storage.save('session2', []);
-
-    expect(storage.size).toBe(2);
-
-    await storage.clear();
-    expect(storage.size).toBe(0);
+  it('append + load roundtrip', async () => {
+    const sid = 's1';
+    await storage.append(sid, [{ role: 'user', content: 'Hello' }]);
+    await storage.append(sid, [{ role: 'assistant', content: 'Hi!' }]);
+    const loaded = await storage.load(sid);
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0]).toMatchObject({ role: 'user', content: 'Hello' });
   });
 
-  it('should export and import data', async () => {
-    const messages = [{ role: 'user' as const, content: 'Hello' }];
-    await storage.save('test', messages);
+  it('returns empty load for missing session', async () => {
+    expect(await storage.load('missing')).toEqual([]);
+  });
 
-    const exported = storage.export();
-    expect(exported['test']).toEqual(messages);
+  it('exists after append', async () => {
+    await storage.append('x', [{ role: 'user', content: 'a' }]);
+    expect(await storage.exists('x')).toBe(true);
+  });
 
-    const newStorage = new MemoryStorage();
-    newStorage.import(exported);
-
-    const loaded = await newStorage.load('test');
-    expect(loaded).toEqual(messages);
+  it('delete removes session', async () => {
+    await storage.append('d', [{ role: 'user', content: 'a' }]);
+    await storage.delete('d');
+    expect(await storage.exists('d')).toBe(false);
   });
 });
 
@@ -83,7 +84,7 @@ describe('SessionManager', () => {
     manager = new SessionManager({ type: 'memory' });
   });
 
-  it('should create a new session', () => {
+  it('creates a new session', () => {
     const id = manager.createSession();
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -91,67 +92,55 @@ describe('SessionManager', () => {
     expect(manager.sessionId).toBe(id);
   });
 
-  it('should create session with custom ID', () => {
+  it('createSession with custom ID', () => {
     const id = manager.createSession('custom-id');
     expect(id).toBe('custom-id');
-    expect(manager.sessionId).toBe('custom-id');
   });
 
-  it('should save and load messages', async () => {
-    manager.createSession('test');
-    
-    const messages = [
-      { role: 'user' as const, content: 'Hello' },
-      { role: 'assistant' as const, content: 'Hi!' }
-    ];
-
-    await manager.saveMessages(messages);
-    const loaded = await manager.loadMessages();
-
-    expect(loaded).toEqual(messages);
+  it('appendEntries + loadActiveMessages', async () => {
+    manager.createSession('custom');
+    await manager.appendEntries([
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi!' }
+    ]);
+    const active = await manager.loadActiveMessages();
+    expect(active).toEqual([
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi!' }
+    ]);
   });
 
-  it('should append a message', async () => {
+  it('resume another manager via memory import', async () => {
     manager.createSession('test');
-
-    await manager.appendMessage({ role: 'user', content: 'First' });
-    await manager.appendMessage({ role: 'assistant', content: 'Second' });
-
-    const messages = await manager.loadMessages();
-    expect(messages).toHaveLength(2);
-  });
-
-  it('should resume an existing session', async () => {
-    manager.createSession('test');
-    await manager.saveMessages([{ role: 'user', content: 'Hello' }]);
+    await manager.appendEntries([{ role: 'user', content: 'Hello' }]);
 
     const manager2 = new SessionManager({ type: 'memory' });
-    // Manually copy data for memory storage test
     const storage = manager.getStorage() as MemoryStorage;
     const manager2Storage = manager2.getStorage() as MemoryStorage;
     manager2Storage.import(storage.export());
 
-    const messages = await manager2.resumeSession('test');
+    await manager2.attachSession('test');
+    const messages = await manager2.loadActiveMessages();
     expect(messages).toHaveLength(1);
     expect(manager2.sessionId).toBe('test');
   });
 
-  it('should throw on non-existent session resume', async () => {
-    await expect(manager.resumeSession('non-existent')).rejects.toThrow('not found');
+  it('throws on attachSession when missing', async () => {
+    await expect(manager.attachSession('non-existent')).rejects.toThrow('not found');
   });
 
-  it('should delete a session', async () => {
+  it('deletes session', async () => {
     manager.createSession('test');
-    await manager.saveMessages([{ role: 'user', content: 'Hi' }]);
-
+    await manager.appendEntries([{ role: 'user', content: 'Hi' }]);
     await manager.deleteSession('test');
     expect(manager.sessionId).toBeNull();
   });
 
-  it('should list sessions', async () => {
-    await manager.saveMessages([{ role: 'user', content: '1' }]);
-    manager.createSession('session2');
-    await manager.saveMessages([{ role: 'user', content: '2' }]);
+  it('lists sessions', async () => {
+    manager.createSession('session-a');
+    await manager.appendEntries([{ role: 'user', content: '1' }]);
+    manager.createSession('session-b');
+    await manager.appendEntries([{ role: 'user', content: '2' }]);
 
     const sessions = await manager.listSessions();
     expect(sessions.length).toBeGreaterThanOrEqual(2);

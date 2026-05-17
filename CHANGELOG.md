@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Session storage**: `StorageAdapter` is now **append-only**. Implementations expose `append(sessionId, entries: SessionEntry[])` and `load()` returns **`SessionEntry[]`** (messages plus optional `{ $type: 'summary', ... }` compaction rows). **`save(sessionId, Message[])` is removed.** Jsonl transcripts are **append-only** with **logical truncation**: after compaction, new lines append `[summary, ...recent]`; **`loadActiveMessages()` / resume** reconstructs the chain from the **last** `summary` line only (older lines remain on disk for audit). **`SessionManager`**: removed **`saveMessages` / `appendMessage` / `resumeSession`**; use **`attachSession`**, **`loadRawEntries` / `loadActiveMessages`**, **`appendEntries`**, **`appendCompactionBoundary`**. System prompt is **not** stored in jsonl; **`saveSystemPrompt` sidecar** (`*.system.json`) holds the last primary system text for audit. **Existing pre-v2 session files are not migrated**—start fresh or re-run conversations.
+
 ### Changed
 
 - **Subagent**: Default `AgentConfig.subagent.timeoutMs` is now **1800000ms (30 minutes)** (previously **120000ms / 2 minutes**). The main package exports **`DEFAULT_SUBAGENT_TIMEOUT_MS`** for the same value. To keep the old cap, set `subagent.timeoutMs: 120_000` (or another limit) explicitly.

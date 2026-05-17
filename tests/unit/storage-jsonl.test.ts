@@ -3,14 +3,17 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { JsonlStorage } from '../../src/storage/jsonl.js';
-import type { Message } from '../../src/core/types.js';
+import { SessionManager, reconstructActiveMessages, buildSummaryEntry } from '../../src/storage/session.js';
+import type { CompressionStats, Message, SummaryEntry } from '../../src/core/types.js';
+import { formatSyntheticUserSummary } from '../../src/core/compressor.js';
 
-function jsonlPaths(base: string, sessionId: string): { jsonl: string; meta: string } {
-  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return { jsonl: join(base, `${safe}.jsonl`), meta: join(base, `${safe}.meta.json`) };
-}
+const stats: CompressionStats = {
+  originalMessageCount: 10,
+  compressedMessageCount: 3,
+  durationMs: 1
+};
 
-describe('JsonlStorage', () => {
+describe('JsonlStorage append-only + logical truncation', () => {
   let basePath: string;
   let storage: JsonlStorage;
 
@@ -24,128 +27,83 @@ describe('JsonlStorage', () => {
     await fs.rm(basePath, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('append fast path: extends file by one line when prefix matches', async () => {
-    const sid = 'sess-append';
-    const m1: Message[] = [
-      { role: 'user', content: 'u1' },
-      { role: 'assistant', content: 'a1' }
-    ];
-    await storage.save(sid, m1);
-    const path = jsonlPaths(basePath, sid).jsonl;
-    const afterFirst = (await fs.readFile(path, 'utf-8')).trimEnd().split('\n').length;
-
-    await storage.save(sid, [...m1, { role: 'user', content: 'u2' }]);
-    const afterSecond = (await fs.readFile(path, 'utf-8')).trimEnd().split('\n').length;
-
-    expect(afterFirst).toBe(2);
-    expect(afterSecond).toBe(3);
-    const loaded = await storage.load(sid);
-    expect(loaded).toHaveLength(3);
-    expect(loaded[2]).toMatchObject({ role: 'user', content: 'u2' });
-  });
-
-  it('rewrites atomically when persisted slice is shorter than disk (compression)', async () => {
-    const sid = 'sess-compact';
-    const long: Message[] = Array.from({ length: 6 }, (_, i) => [
-      { role: 'user' as const, content: `u${i}` },
-      { role: 'assistant' as const, content: `a${i}` }
-    ]).flat();
-
-    await storage.save(sid, long);
-    const path = jsonlPaths(basePath, sid).jsonl;
-    expect((await fs.readFile(path, 'utf-8')).trimEnd().split('\n')).toHaveLength(12);
-
-    const compressed: Message[] = [
-      { role: 'user', content: 'summary synthetic' },
-      { role: 'user', content: 'last-u' },
-      { role: 'assistant', content: 'last-a' }
-    ];
-    await storage.save(sid, compressed);
-
-    const lines = (await fs.readFile(path, 'utf-8')).trimEnd().split('\n').filter(Boolean);
-    expect(lines).toHaveLength(3);
-    const loaded = await storage.load(sid);
-    expect(loaded).toEqual(compressed);
-
-    const meta = JSON.parse(await fs.readFile(jsonlPaths(basePath, sid).meta, 'utf-8'));
-    expect(meta.messageCount).toBe(3);
-  });
-
-  it('rewrites when an earlier message is edited', async () => {
-    const sid = 'sess-edit';
-    await storage.save(sid, [
-      { role: 'user', content: 'u1' },
-      { role: 'assistant', content: 'a1' }
-    ]);
-    await storage.save(sid, [
-      { role: 'user', content: 'u1' },
-      { role: 'assistant', content: 'a1-edited' }
-    ]);
-    const loaded = await storage.load(sid);
-    expect(loaded).toHaveLength(2);
-    expect(loaded[1]).toMatchObject({ role: 'assistant', content: 'a1-edited' });
-  });
-
-  it('save([]) clears transcript', async () => {
-    const sid = 'sess-clear';
-    const long: Message[] = Array.from({ length: 6 }, (_, i) => [
-      { role: 'user' as const, content: `u${i}` },
-      { role: 'assistant' as const, content: `a${i}` }
-    ]).flat();
-    await storage.save(sid, long);
-    await storage.save(sid, []);
-    const loaded = await storage.load(sid);
-    expect(loaded).toEqual([]);
-    const path = jsonlPaths(basePath, sid).jsonl;
-    const raw = await fs.readFile(path, 'utf-8');
-    expect(raw.trim()).toBe('');
-  });
-
-  it('does not persist system rows; meta messageCount excludes system', async () => {
-    const sid = 'sess-sys';
-    await storage.save(sid, [
-      { role: 'system', content: 'should-not-appear' },
-      { role: 'user', content: 'hi' }
-    ]);
-    const path = jsonlPaths(basePath, sid).jsonl;
-    const text = await fs.readFile(path, 'utf-8');
-    expect(text).not.toContain('should-not-appear');
-    expect(text.trimEnd().split('\n').filter(Boolean)).toHaveLength(1);
-
-    const meta = JSON.parse(await fs.readFile(jsonlPaths(basePath, sid).meta, 'utf-8'));
-    expect(meta.messageCount).toBe(1);
-
-    const loaded = await storage.load(sid);
-    expect(loaded).toEqual([{ role: 'user', content: 'hi' }]);
-  });
-
-  it('load strips legacy persisted system lines', async () => {
-    const sid = 'sess-legacy';
-    const path = jsonlPaths(basePath, sid).jsonl;
-    await fs.mkdir(basePath, { recursive: true });
-    await fs.writeFile(
-      path,
-      JSON.stringify({ role: 'system', content: 'legacy', timestamp: 1 }) +
-        '\n' +
-        JSON.stringify({ role: 'user', content: 'keep', timestamp: 2 }) +
-        '\n',
-      'utf-8'
+  it('append extends file; load returns all raw lines', async () => {
+    const sid = 'sess-a';
+    await storage.append(sid, [{ role: 'user', content: 'u1' }]);
+    await storage.append(sid, [{ role: 'assistant', content: 'a1' }]);
+    const raw = await storage.load(sid);
+    expect(raw).toHaveLength(2);
+    expect(raw[0]).toMatchObject({ role: 'user', content: 'u1' });
+    const path = join(basePath, `${sid}.jsonl`);
+    expect((await fs.readFile(path, 'utf-8')).trimEnd().split('\n').filter(Boolean).length).toBe(
+      2
     );
-
-    const loaded = await storage.load(sid);
-    expect(loaded).toEqual([{ role: 'user', content: 'keep' }]);
   });
 
-  it('meta file remains valid JSON after consecutive saves', async () => {
-    const sid = 'sess-meta';
-    await storage.save(sid, [{ role: 'user', content: 'a' }]);
-    JSON.parse(await fs.readFile(jsonlPaths(basePath, sid).meta, 'utf-8'));
-    await storage.save(sid, [
-      { role: 'user', content: 'a' },
-      { role: 'assistant', content: 'b' }
+  it('second compaction appends; active chain starts at last summary only', async () => {
+    const sid = 'sess-b';
+    await storage.append(sid, [{ role: 'user', content: 'old' }]);
+    const s1: SummaryEntry = {
+      $type: 'summary',
+      summaryMode: 'llm',
+      text: 'sum1',
+      stats,
+      timestamp: 1
+    };
+    await storage.append(sid, [s1, { role: 'user', content: 'recent1' }]);
+
+    const s2: SummaryEntry = {
+      $type: 'summary',
+      summaryMode: 'llm',
+      text: 'sum2',
+      stats,
+      timestamp: 2
+    };
+    await storage.append(sid, [s2, { role: 'assistant', content: 'tail' }]);
+
+    const raw = await storage.load(sid);
+    expect(raw.length).toBeGreaterThan(3);
+
+    const active = reconstructActiveMessages(raw);
+    expect(active).toHaveLength(2);
+    expect(active[0]).toMatchObject({
+      role: 'user',
+      content: formatSyntheticUserSummary('sum2')
+    });
+    expect(active[1]).toMatchObject({ role: 'assistant', content: 'tail' });
+  });
+
+  it('SessionManager appendCompactionBoundary + loadActiveMessages', async () => {
+    const sm = new SessionManager({ type: 'jsonl', basePath });
+    sm.createSession('sess-c');
+    await sm.appendEntries([
+      { role: 'user', content: 'gone' },
+      { role: 'assistant', content: 'gone-a' }
     ]);
-    const meta = JSON.parse(await fs.readFile(jsonlPaths(basePath, sid).meta, 'utf-8'));
-    expect(meta.id).toBe(sid);
-    expect(meta.messageCount).toBe(2);
+
+    const summaryMsg: Message = {
+      role: 'user',
+      content: formatSyntheticUserSummary('compressed-body')
+    };
+    const summaryEntry = buildSummaryEntry(summaryMsg, stats);
+    const recent: Message[] = [{ role: 'user', content: 'keep-u' }];
+    await sm.appendCompactionBoundary(summaryEntry, recent);
+
+    const active = await sm.loadActiveMessages();
+    expect(active).toHaveLength(2);
+    expect(active[0]).toMatchObject({ role: 'user', content: summaryMsg.content });
+    expect(active[1]).toMatchObject({ role: 'user', content: 'keep-u' });
+  });
+
+  it('saveSystemPrompt writes sidecar', async () => {
+    const sid = 'sess-sys';
+    await storage.append(sid, [{ role: 'user', content: 'x' }]);
+    await storage.saveSystemPrompt?.(sid, 'hello system', { cwd: '/tmp', agentName: 'T' });
+    const p = join(basePath, `${sid}.system.json`);
+    const side = JSON.parse(await fs.readFile(p, 'utf-8'));
+    expect(side.content).toBe('hello system');
+    expect(side.cwd).toBe('/tmp');
+    expect(side.agentName).toBe('T');
+    expect(typeof side.contentSha256).toBe('string');
   });
 });
