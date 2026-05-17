@@ -41,7 +41,7 @@ const MAX_TOOL_SNIPPET_CHARS = 14_000;
 const MODEL_HINTS: Record<ModelProvider, string> = {
   openai: 'gpt-4o',
   anthropic: 'claude-sonnet-4-20250514',
-  ollama: 'glm-5:cloud'
+  ollama: 'nemotron-3-super:cloud'
 };
 
 const DEFAULT_MODEL_NAMES = new Set(Object.values(MODEL_HINTS));
@@ -805,7 +805,12 @@ function readConfigureMessage(): ClientMessage {
   const provider = String(fd.get('provider') || 'ollama') as ModelProvider;
   const model = String(fd.get('model') || MODEL_HINTS[provider]);
   const temperature = fd.get('temperature') ? Number(fd.get('temperature')) : undefined;
-  const maxTokens = fd.get('maxTokens') ? Number(fd.get('maxTokens')) : undefined;
+  const rawCtxLen = String(fd.get('contextLength') ?? '').trim();
+  const contextLengthParsed = rawCtxLen !== '' ? Number(rawCtxLen) : undefined;
+  const contextLength =
+    contextLengthParsed !== undefined && Number.isFinite(contextLengthParsed) && contextLengthParsed > 0
+      ? contextLengthParsed
+      : undefined;
   const storage = (String(fd.get('storage') || 'memory') === 'jsonl' ? 'jsonl' : 'memory') as
     | 'memory'
     | 'jsonl';
@@ -832,7 +837,7 @@ function readConfigureMessage(): ClientMessage {
     provider,
     model,
     temperature,
-    maxTokens,
+    ...(contextLength !== undefined ? { contextLength } : {}),
     storage,
     safeToolsOnly,
     memory,

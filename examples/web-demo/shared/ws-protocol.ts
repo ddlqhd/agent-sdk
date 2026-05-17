@@ -17,7 +17,8 @@ export type ClientMessage =
       provider: ModelProvider;
       model: string;
       temperature?: number;
-      maxTokens?: number;
+      /** 覆盖 ContextManager 的上下文窗口（tokens）；仅在与上下文压缩一并启用时生效 */
+      contextLength?: number;
       storage: 'memory' | 'jsonl';
       /** When true, strip isDangerous tools and add demo calculator */
       safeToolsOnly?: boolean;

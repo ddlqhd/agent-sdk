@@ -89,7 +89,8 @@ export interface BuildAgentOptions {
   provider: ModelProvider;
   model: string;
   temperature?: number;
-  maxTokens?: number;
+  /** ContextManager 上下文窗口覆盖；仅在 `contextManagement !== false` 时传入 Agent */
+  contextLength?: number;
   storage: 'memory' | 'jsonl';
   safeToolsOnly?: boolean;
   /** Long-term CLAUDE.md memory; omit for SDK default (on) */
@@ -193,15 +194,21 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
   }
 
   const sharedLog = getSharedAgentLogger();
+  const contextManagement =
+    config.contextManagement === false
+      ? false
+      : config.contextLength != null
+        ? { contextLength: config.contextLength }
+        : {};
+
   const agent = new Agent({
     model,
     cwd,
     userBasePath,
     storage: { type: config.storage },
     temperature: config.temperature,
-    maxTokens: config.maxTokens,
     memory: config.memory,
-    contextManagement: config.contextManagement === false ? false : {},
+    contextManagement,
     mcpServers,
     skillConfig: {
       autoLoad: true,

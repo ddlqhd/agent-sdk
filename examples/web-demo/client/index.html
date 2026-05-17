@@ -68,7 +68,7 @@
               </label>
               <label>
                 模型 ID
-                <input name="model" id="cfg-model" type="text" value="glm-5:cloud" autocomplete="off" />
+                <input name="model" id="cfg-model" type="text" value="nemotron-3-super:cloud" autocomplete="off" />
               </label>
               <label id="cfg-thinking-wrap">
                 Thinking（布尔）
@@ -93,8 +93,14 @@
                   <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
                 </label>
                 <label class="field-half">
-                  最大 tokens
-                  <input name="maxTokens" type="number" min="1" value="128000" />
+                  上下文长度
+                  <input
+                    name="contextLength"
+                    type="number"
+                    min="1"
+                    placeholder="留空=默认"
+                    title="上下文窗口（tokens），用于压缩与预算；留空则用模型/SDK 默认。与单次回复最大输出无关。仅在开启「上下文压缩」时生效。"
+                  />
                 </label>
               </div>
               <label>

@@ -203,7 +203,7 @@ wss.on('connection', (socket: WebSocket) => {
 
         case 'configure': {
           console.log(
-            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
+            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} contextLength=${msg.contextLength ?? '(default)'} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
           );
           rejectAllAskPending('reconfigured');
           await destroyAllAgents();
@@ -215,7 +215,7 @@ wss.on('connection', (socket: WebSocket) => {
             provider: msg.provider,
             model: msg.model,
             temperature: msg.temperature,
-            maxTokens: msg.maxTokens,
+            contextLength: msg.contextLength,
             storage: msg.storage,
             safeToolsOnly: msg.safeToolsOnly === true,
             memory: msg.memory,
