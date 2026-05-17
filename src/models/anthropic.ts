@@ -220,6 +220,10 @@ export interface AnthropicConfig {
    * Extended thinking / adaptive。省略则请求中不包含 `thinking`（保持与旧版一致）。
    */
   thinking?: AnthropicThinkingOption;
+  /**
+   * 构建默认请求体后浅合并到 JSON 顶层，`extraBody` 可覆盖适配器生成的字段。
+   */
+  extraBody?: Record<string, unknown>;
 }
 
 /**
@@ -236,6 +240,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   private requestMetadata?: AnthropicRequestMetadata;
   private fetchRetry: Required<AnthropicFetchRetryOptions>;
   private thinkingOption?: AnthropicThinkingOption;
+  private extraBody?: Record<string, unknown>;
 
   constructor(config: AnthropicConfig = {}) {
     super();
@@ -246,6 +251,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
     this.requestMetadata = config.metadata;
     this.fetchRetry = normalizeFetchRetry(config.fetchRetry);
     this.thinkingOption = config.thinking;
+    this.extraBody = config.extraBody;
 
     if (!this.apiKey) {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
@@ -263,6 +269,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
       metadata: this.requestMetadata,
       fetchRetry: this.fetchRetry,
       thinking: this.thinkingOption,
+      extraBody: this.extraBody,
       capabilities: this.capabilities
     });
   }
@@ -552,6 +559,10 @@ export class AnthropicAdapter extends BaseModelAdapter {
       if (outputConfig) {
         body.output_config = outputConfig;
       }
+    }
+
+    if (this.extraBody) {
+      Object.assign(body, this.extraBody);
     }
 
     return body;

@@ -74,7 +74,7 @@
 
 **集成约定**：`createModel` / `createOpenAI` / `createAnthropic` / `createOllama` 仅用于构造传入 `Agent` 的 `model`。应用代码须通过 `Agent` 执行，**勿**直接调用适配器上的 `stream` / `complete` 等执行型 API（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。导出的适配器类主要用于类型或高级场景；第三方默认以 `Agent` 为准。
 
-- `createModel(config)`
+- `createModel(config)`：`thinking`、**`thinkingLevel`**（仅 Ollama：`low`|`medium`|`high`，映射 HTTP `think`）、`extraBody`。Anthropic thinking 的对象形态、`capabilities` 等仍用各 `create*`。见 [`sdk-types-reference.md`](./sdk-types-reference.md)。
 - `createOpenAI(config?)`
 - `createAnthropic(config?)`
 - `createOllama(config?)`

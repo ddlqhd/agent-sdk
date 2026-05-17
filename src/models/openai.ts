@@ -23,6 +23,13 @@ export interface OpenAIConfig {
   organization?: string;
   /** 自定义模型能力 (覆盖默认值) */
   capabilities?: ModelCapabilities;
+  /**
+   * vLLM-style OpenAI-compat: sets `chat_template_kwargs.enable_thinking`.
+   * Stream and complete parsers accept `reasoning` and legacy `reasoning_content`.
+   */
+  thinking?: boolean;
+  /** 浅合并进请求 JSON 末尾，可覆盖上述字段与其它默认项。 */
+  extraBody?: Record<string, unknown>;
 }
 
 /**
@@ -36,6 +43,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
   private baseUrl: string;
   private model: string;
   private organization?: string;
+  private readonly thinkingToggle?: boolean;
+  private readonly extraBody?: Record<string, unknown>;
 
   constructor(config: OpenAIConfig = {}) {
     super();
@@ -43,6 +52,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
     this.baseUrl = config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     this.model = config.model || 'gpt-4o';
     this.organization = config.organization || process.env.OPENAI_ORG_ID;
+    this.thinkingToggle = config.thinking;
+    this.extraBody = config.extraBody;
 
     if (!this.apiKey) {
       throw new Error('OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass apiKey in config.');
@@ -57,7 +68,9 @@ export class OpenAIAdapter extends BaseModelAdapter {
       baseUrl: this.baseUrl,
       model: this.model,
       organization: this.organization,
-      capabilities: this.capabilities
+      capabilities: this.capabilities,
+      thinking: this.thinkingToggle,
+      extraBody: this.extraBody
     });
   }
 
@@ -86,6 +99,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
     const decoder = new TextDecoder();
     let buffer = '';
     let currentToolCall: { id: string; name: string; arguments: string } | null = null;
+    let reasoningBlockOpen = false;
 
     try {
       while (true) {
@@ -111,14 +125,37 @@ export class OpenAIAdapter extends BaseModelAdapter {
             const choice = data.choices?.[0];
             if (!choice) continue;
             const raw = params.includeRawStreamEvents ? { providerRaw: data as unknown } : {};
+            const delta = choice.delta ?? {};
 
-            // 处理内容增量
-            if (choice.delta?.content) {
-              yield { type: 'text', content: choice.delta.content, ...raw };
+            // vLLM / 兼容网关：推理增量（thinking 语义）
+            const reasoningDelta =
+              (typeof delta.reasoning === 'string' && delta.reasoning) ||
+              (typeof delta.reasoning_content === 'string' && delta.reasoning_content);
+            if (reasoningDelta) {
+              reasoningBlockOpen = true;
+              yield { type: 'thinking', content: reasoningDelta, ...raw };
+            }
+
+            if (choice.finish_reason && reasoningBlockOpen) {
+              yield { type: 'thinking_block_end', ...raw };
+              reasoningBlockOpen = false;
+            }
+
+            // 处理内容增量（正文开始前结束推理块）
+            if (delta.content) {
+              if (reasoningBlockOpen) {
+                yield { type: 'thinking_block_end', ...raw };
+                reasoningBlockOpen = false;
+              }
+              yield { type: 'text', content: delta.content, ...raw };
             }
 
             // 处理工具调用
             if (choice.delta?.tool_calls) {
+              if (reasoningBlockOpen) {
+                yield { type: 'thinking_block_end', ...raw };
+                reasoningBlockOpen = false;
+              }
               for (const toolCall of choice.delta.tool_calls) {
                 if (toolCall.index !== undefined) {
                   // 新的工具调用开始
@@ -203,6 +240,15 @@ export class OpenAIAdapter extends BaseModelAdapter {
         }
       }
 
+      // 末尾仍悬空的推理块
+      if (reasoningBlockOpen) {
+        reasoningBlockOpen = false;
+        yield {
+          type: 'thinking_block_end',
+          ...(params.includeRawStreamEvents ? { providerRaw: { trailing: true } } : {})
+        };
+      }
+
       // 处理剩余的工具调用
       if (currentToolCall) {
         yield {
@@ -237,13 +283,22 @@ export class OpenAIAdapter extends BaseModelAdapter {
       throw new Error('No completion choice returned');
     }
 
+    const msg = choice.message ?? {};
     const result: CompletionResult = {
-      content: choice.message?.content || ''
+      content: msg.content ?? ''
     };
 
+    const reasoningStr =
+      (typeof msg.reasoning === 'string' && msg.reasoning) ||
+      (typeof msg.reasoning_content === 'string' && msg.reasoning_content) ||
+      '';
+    if (reasoningStr.length > 0) {
+      result.thinking = reasoningStr;
+    }
+
     // 处理工具调用
-    if (choice.message?.tool_calls) {
-      result.toolCalls = choice.message.tool_calls.map((tc: any) => ({
+    if (msg.tool_calls) {
+      result.toolCalls = msg.tool_calls.map((tc: any) => ({
         id: tc.id,
         name: tc.function.name,
         arguments: this.safeParseJSON(tc.function.arguments)
@@ -282,6 +337,14 @@ export class OpenAIAdapter extends BaseModelAdapter {
         type: 'function',
         function: tool
       }));
+    }
+
+    if (this.thinkingToggle !== undefined) {
+      body.chat_template_kwargs = { enable_thinking: this.thinkingToggle };
+    }
+
+    if (this.extraBody) {
+      Object.assign(body, this.extraBody);
     }
 
     return body;

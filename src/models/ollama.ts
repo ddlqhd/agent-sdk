@@ -32,6 +32,10 @@ export interface OllamaConfig {
    * Omit to use the server default for the model.
    */
   think?: OllamaThinkOption;
+  /**
+   * Merged shallowly onto the built `/api/chat` JSON body last; may override defaults.
+   */
+  extraBody?: Record<string, unknown>;
 }
 
 /**
@@ -108,12 +112,14 @@ export class OllamaAdapter extends BaseModelAdapter {
   private baseUrl: string;
   private model: string;
   private readonly think: OllamaThinkOption | undefined;
+  private readonly extraBody: Record<string, unknown> | undefined;
 
   constructor(config: OllamaConfig = {}) {
     super();
     this.baseUrl = config.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     this.model = config.model || 'qwen3.5:0.8b';
     this.think = config.think;
+    this.extraBody = config.extraBody;
 
     this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
   }
@@ -123,6 +129,7 @@ export class OllamaAdapter extends BaseModelAdapter {
       baseUrl: this.baseUrl,
       model: this.model,
       think: this.think,
+      extraBody: this.extraBody,
       capabilities: this.capabilities
     });
   }
@@ -346,6 +353,10 @@ export class OllamaAdapter extends BaseModelAdapter {
         type: 'function' as const,
         function: tool
       }));
+    }
+
+    if (this.extraBody) {
+      Object.assign(body, this.extraBody);
     }
 
     return body;

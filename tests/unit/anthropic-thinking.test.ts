@@ -140,7 +140,7 @@ describe('AnthropicAdapter request thinking', () => {
     expect(body.output_config).toEqual({ effort: 'high' });
   });
 
-  it('createModel passes thinking to AnthropicAdapter', async () => {
+  it('createAnthropic passes object thinking option', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -151,8 +151,7 @@ describe('AnthropicAdapter request thinking', () => {
         })
       })
     );
-    const adapter = createModel({
-      provider: 'anthropic',
+    const adapter = createAnthropic({
       apiKey: 'sk-test',
       thinking: { type: 'enabled', budget_tokens: 2048 }
     });
@@ -161,6 +160,28 @@ describe('AnthropicAdapter request thinking', () => {
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 2048 });
+  });
+
+  it('createModel passes boolean thinking to AnthropicAdapter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'x' }],
+          usage: { input_tokens: 1, output_tokens: 1 }
+        })
+      })
+    );
+    await createModel({
+      provider: 'anthropic',
+      apiKey: 'sk-test',
+      thinking: true
+    }).complete(minimalUserParams());
+
+    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 1024 });
   });
 
   it('createAnthropic passes thinking', async () => {

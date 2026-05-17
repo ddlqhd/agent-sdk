@@ -96,8 +96,10 @@ export interface BuildAgentOptions {
   memory?: boolean;
   /** false disables context compression; true/omit enables with defaults */
   contextManagement?: boolean;
-  /** Ollama only: passed to `createModel` as `think`. */
-  ollamaThink?: boolean | 'low' | 'medium' | 'high';
+  /** Maps to AgentModelConfig.thinking; omit for provider default. */
+  thinking?: boolean;
+  /** → AgentModelConfig.thinkingLevel; `createModel` / adapters use when supported (e.g. Ollama `think`). */
+  thinkingLevel?: 'low' | 'medium' | 'high';
   mcpConfigPath?: string;
   cwd?: string;
   userBasePath?: string;
@@ -152,11 +154,9 @@ export async function buildAgent(config: BuildAgentOptions): Promise<{ agent: Ag
     apiKey: key,
     baseUrl: config.provider === 'ollama' ? getOllamaBaseUrl() : undefined,
     model: config.model,
-    ...(config.provider === 'ollama' && config.ollamaThink !== undefined
-      ? { think: config.ollamaThink }
-      : {})
+    ...(config.thinking !== undefined ? { thinking: config.thinking } : {}),
+    ...(config.thinkingLevel !== undefined ? { thinkingLevel: config.thinkingLevel } : {})
   });
-
   let mcpServers: MCPServerConfig[] | undefined;
   if (config.mcpConfigPath && config.mcpConfigPath.trim() !== '') {
     const mcpPath = resolvePathRelative(config.mcpConfigPath, WEB_DEMO_ROOT);

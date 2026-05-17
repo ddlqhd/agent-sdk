@@ -868,8 +868,18 @@ export interface AgentModelConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
-  /** Ollama：对应 `/api/chat` 的 `think` */
-  think?: boolean | 'low' | 'medium' | 'high';
+  /**
+   * 与 `createModel` 对齐：对各 provider 的统一开关（布尔）。
+   */
+  thinking?: boolean;
+  /**
+   * 与 `createModel` 对齐：浅合并进各适配器请求的 JSON。
+   */
+  extraBody?: Record<string, unknown>;
+  /**
+   * 推理档位，对应 `createModel` 的 `thinkingLevel`；目前由 Ollama 使用 HTTP `think`，优先于 {@link thinking}；其他适配器可按需采纳或忽略。
+   */
+  thinkingLevel?: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -1186,10 +1196,14 @@ export interface CLIConfig {
   cwd?: string;
 
   /**
-   * Ollama `/api/chat` `think` option (boolean or GPT-OSS level).
-   * Used only when `-m`/`--model` is `ollama`.
+   * 与 {@link AgentModelConfig.thinking} 对齐的统一开关。
    */
-  ollamaThink?: boolean | 'low' | 'medium' | 'high';
+  thinking?: boolean;
+
+  /**
+   * 与 {@link AgentModelConfig.thinkingLevel} 对齐；由 `createModel` 与各 adapter 按需使用。
+   */
+  thinkingLevel?: 'low' | 'medium' | 'high';
 }
 
 /**

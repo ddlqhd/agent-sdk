@@ -70,12 +70,18 @@
                 模型 ID
                 <input name="model" id="cfg-model" type="text" value="glm-5:cloud" autocomplete="off" />
               </label>
-              <label id="cfg-ollama-think-wrap" hidden>
-                Ollama thinking（think）
-                <select name="ollamaThink" id="cfg-ollama-think">
-                  <option value="">默认（服务端）</option>
+              <label id="cfg-thinking-wrap">
+                Thinking（布尔）
+                <select name="thinking" id="cfg-thinking">
+                  <option value="">默认（按提供商）</option>
                   <option value="true">开启</option>
                   <option value="false">关闭</option>
+                </select>
+              </label>
+              <label id="cfg-thinking-level-wrap">
+                Thinking 档位（可选用；由各提供商按需采纳）
+                <select name="thinkingLevel" id="cfg-thinking-level">
+                  <option value="">不使用档位</option>
                   <option value="low">low（GPT-OSS）</option>
                   <option value="medium">medium</option>
                   <option value="high">high</option>

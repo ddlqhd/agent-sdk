@@ -98,11 +98,16 @@ agent-sdk chat [options]
   --user-base-path <path>  用户基础路径 (默认: ~)
   --cwd <path>             工作目录 (默认: 当前目录)
   --resume                 恢复最近更新的会话（与 chat/run 使用相同存储；若已设 -s 则忽略）
-  --ollama-think [value]   仅 Ollama：对应 API `think`（true|false|low|medium|high；单独写该 flag 等价 true）
+  --thinking [value]       模型统一 thinking/reasoning 开关（true|false；省略 value 等价 true）。
+                           写入 `AgentConfig.modelConfig.thinking`。
+  --thinking-level <lvl>   推理档位 low|medium|high，写入 `thinkingLevel`
+                           （各 adapter 按需使用；Ollama 对应顶层 HTTP `think`）。
   --log-level <level>      Agent SDK 日志级别 (debug|info|warn|error|silent；chat/run 默认: info)
   --log-file <path>        SDK JSONL 日志文件路径（默认 <userBase>/.claude/logs/agent-sdk-<date>.log；
                            可被环境变量 AGENT_SDK_LOG_FILE 覆盖；--log-level=silent 时不写文件）
 ```
+
+**迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 
 ### run
 

@@ -30,8 +30,10 @@ export type ClientMessage =
       cwd?: string;
       /** Base for ~/.claude/sessions etc.; defaults to temp under demo */
       userBasePath?: string;
-      /** Ollama only: `/api/chat` `think` (omit = server default). */
-      ollamaThink?: boolean | 'low' | 'medium' | 'high';
+      /** Maps to AgentModelConfig.thinking (omit for provider default). */
+      thinking?: boolean;
+      /** Maps to AgentModelConfig.thinkingLevel (omit for default; adapters use when supported). */
+      thinkingLevel?: 'low' | 'medium' | 'high';
     }
   | { type: 'chat'; text: string; sessionId?: string; requestId: string }
   | { type: 'chat_run'; text: string; sessionId?: string; requestId: string }

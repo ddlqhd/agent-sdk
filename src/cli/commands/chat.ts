@@ -20,13 +20,18 @@ import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
 
-function parseOllamaThinkCli(value: string | undefined): boolean | 'low' | 'medium' | 'high' {
+function parseThinkingCli(value?: string): boolean {
   if (value === undefined || value === '') return true;
   const s = value.toLowerCase();
   if (s === 'true' || s === '1' || s === 'yes') return true;
   if (s === 'false' || s === '0' || s === 'no') return false;
+  throw new Error(`Invalid --thinking: ${value} (use true or false; bare flag defaults to true)`);
+}
+
+function parseThinkingLevelCli(value: string): 'low' | 'medium' | 'high' {
+  const s = value.trim().toLowerCase();
   if (s === 'low' || s === 'medium' || s === 'high') return s;
-  throw new Error(`Invalid --ollama-think: ${value} (use true, false, low, medium, or high)`);
+  throw new Error(`Invalid --thinking-level: ${value} (use low, medium, or high)`);
 }
 
 function addModelOptions(cmd: Command): Command {
@@ -49,9 +54,14 @@ function addModelOptions(cmd: Command): Command {
       'Resume the most recently updated session (uses same storage as --user-base-path; ignored if --session is set)'
     )
     .option(
-      '--ollama-think [value]',
-      'Ollama only: `think` param (true|false|low|medium|high; bare flag => true)',
-      (v: string | undefined) => parseOllamaThinkCli(v)
+      '--thinking [value]',
+      'Unified model thinking/reasoning (true|false; bare flag => true). Maps to AgentConfig.modelConfig.thinking.',
+      (v: string | undefined) => parseThinkingCli(v)
+    )
+    .option(
+      '--thinking-level <level>',
+      'Reasoning tier (low|medium|high). Maps to modelConfig.thinkingLevel (Ollama: HTTP think; unused by other adapters).',
+      (v: string) => parseThinkingLevelCli(v)
     )
     .option('--log-level <level>', describeCliLogLevelOption(), parseCliLogLevel)
     .option(
@@ -67,9 +77,8 @@ function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
     model: options.modelName,
-    ...(provider === 'ollama' && options.ollamaThink !== undefined
-      ? { think: options.ollamaThink }
-      : {})
+    thinking: options.thinking,
+    thinkingLevel: options.thinkingLevel
   };
 }
 

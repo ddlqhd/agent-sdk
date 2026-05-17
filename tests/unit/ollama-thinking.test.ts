@@ -4,6 +4,7 @@ import {
   ollamaMessageContentToApiString,
   OllamaAdapter
 } from '../../src/models/ollama.js';
+import { createModel } from '../../src/models/index.js';
 import type { ModelParams } from '../../src/core/types.js';
 
 function parseToolArguments(args: unknown): Record<string, unknown> {
@@ -144,6 +145,32 @@ describe('OllamaAdapter request body', () => {
 
   it('passes GPT-OSS think level', () => {
     const adapter = new OllamaAdapter({ think: 'medium', model: 'gpt-oss' });
+    const params: ModelParams = {
+      messages: [{ role: 'user', content: 'hi' }]
+    };
+    const build = adapter as unknown as {
+      buildRequestBody(p: ModelParams, stream: boolean): Record<string, unknown>;
+    };
+    expect(build.buildRequestBody(params, true).think).toBe('medium');
+  });
+
+  it('createModel({ provider: ollama, thinking: true }) sets think on body', () => {
+    const adapter = createModel({ provider: 'ollama', thinking: true });
+    const params: ModelParams = {
+      messages: [{ role: 'user', content: 'hi' }]
+    };
+    const build = adapter as unknown as {
+      buildRequestBody(p: ModelParams, stream: boolean): Record<string, unknown>;
+    };
+    expect(build.buildRequestBody(params, true).think).toBe(true);
+  });
+
+  it('createModel({ provider: ollama, thinkingLevel: medium }) prefers level over thinking', () => {
+    const adapter = createModel({
+      provider: 'ollama',
+      thinkingLevel: 'medium',
+      thinking: false
+    });
     const params: ModelParams = {
       messages: [{ role: 'user', content: 'hi' }]
     };

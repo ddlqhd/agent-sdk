@@ -7,7 +7,6 @@ const btnReconnect = document.querySelector<HTMLButtonElement>('#btn-reconnect')
 const formConfig = document.querySelector<HTMLFormElement>('#form-config')!;
 const cfgWarnings = document.querySelector<HTMLParagraphElement>('#cfg-warnings')!;
 const cfgProvider = document.querySelector<HTMLSelectElement>('#cfg-provider')!;
-const cfgOllamaThinkWrap = document.querySelector<HTMLLabelElement>('#cfg-ollama-think-wrap')!;
 const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
 const btnSessionNew = document.querySelector<HTMLButtonElement>('#btn-session-new')!;
@@ -56,7 +55,7 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'configure':
       console.log(
-        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} ollamaThink=${msg.ollamaThink !== undefined ? String(msg.ollamaThink) : '(default)'}`
+        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'}`
       );
       break;
     case 'chat':
@@ -817,12 +816,15 @@ function readConfigureMessage(): ClientMessage {
   const userBasePath = String(fd.get('userBasePath') || '').trim() || undefined;
   const mcpConfigPath = String(fd.get('mcpConfigPath') || '').trim() || undefined;
 
-  let ollamaThink: boolean | 'low' | 'medium' | 'high' | undefined;
-  if (provider === 'ollama') {
-    const raw = String(fd.get('ollamaThink') ?? '').trim();
-    if (raw === 'true') ollamaThink = true;
-    else if (raw === 'false') ollamaThink = false;
-    else if (raw === 'low' || raw === 'medium' || raw === 'high') ollamaThink = raw;
+  let thinking: boolean | undefined;
+  const rawThinking = String(fd.get('thinking') ?? '').trim();
+  if (rawThinking === 'true') thinking = true;
+  else if (rawThinking === 'false') thinking = false;
+
+  let thinkingLevel: 'low' | 'medium' | 'high' | undefined;
+  const rawLevel = String(fd.get('thinkingLevel') ?? '').trim();
+  if (rawLevel === 'low' || rawLevel === 'medium' || rawLevel === 'high') {
+    thinkingLevel = rawLevel;
   }
 
   return {
@@ -838,18 +840,14 @@ function readConfigureMessage(): ClientMessage {
     cwd,
     userBasePath,
     mcpConfigPath,
-    ...(ollamaThink !== undefined ? { ollamaThink } : {})
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {})
   };
-}
-
-function syncOllamaThinkVisibility(): void {
-  cfgOllamaThinkWrap.hidden = cfgProvider.value !== 'ollama';
 }
 
 cfgProvider.addEventListener('change', () => {
   const p = cfgProvider.value as ModelProvider;
   const hint = MODEL_HINTS[p];
-  syncOllamaThinkVisibility();
   if (['gpt-4', 'gpt-4o'].some((x) => cfgModel.value.includes(x)) && p !== 'openai') {
     cfgModel.value = hint;
     return;
@@ -858,8 +856,6 @@ cfgProvider.addEventListener('change', () => {
     cfgModel.value = hint;
   }
 });
-
-syncOllamaThinkVisibility();
 
 formConfig.addEventListener('submit', (e) => {
   e.preventDefault();
