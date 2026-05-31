@@ -183,6 +183,19 @@ export interface SDKLogSink {
 }
 
 /**
+ * Agent-scoped logging context: sink plus correlation fields for structured logs.
+ *
+ * When wired through `Agent`, the same object is updated per run (`runId`, `sessionId`, etc.).
+ * A single `Agent` instance should not run overlapping `stream()` / `run()` calls concurrently.
+ */
+export interface SDKLogContext extends SDKLogSink {
+  sessionId?: string;
+  runId?: string;
+  agentName?: string;
+  cwd?: string;
+}
+
+/**
  * 系统消息
  */
 export interface SystemMessage extends Message {
@@ -234,16 +247,20 @@ export interface ModelParams {
   includeRawStreamEvents?: boolean;
   /** 会话标识；Agent 会在每次模型请求中填入，各适配器自行决定是否映射到 HTTP 请求。 */
   sessionId?: string;
-  /** 当前请求使用的 SDK logger。 */
+  /**
+   * @deprecated Prefer {@link logContext}. Standalone adapter calls may still pass these fields.
+   */
   logger?: SDKLogger;
-  /** 当前请求使用的 SDK 日志级别。 */
+  /** @deprecated Prefer {@link logContext}. */
   logLevel?: SDKLogLevel;
-  /** 当前请求使用的日志脱敏策略。 */
+  /** @deprecated Prefer {@link logContext}. */
   redaction?: LogRedactionConfig;
-  /** 单次 run 关联 ID；由 Agent 在流式/非流式回合中注入。 */
+  /** @deprecated Prefer {@link logContext} (`runId` on context). */
   runId?: string;
-  /** {@link AgentConfig.agentName} 透传，便于模型层日志关联 */
+  /** @deprecated Prefer {@link logContext} (`agentName` on context). */
   agentName?: string;
+  /** Structured log context from Agent (preferred over separate logger / logLevel / redaction). */
+  logContext?: SDKLogContext;
 }
 
 /**

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **Logging**: `SDKLogContext`, `createSDKLogContext`, `withLogScope`, and `sdkLog()` to propagate logger config and correlation fields (`sessionId`, `runId`, `agentName`, `cwd`) without repeating `emitSDKLog` arguments across modules.
+- **Logging**: `adaptMessageLogger` / `adaptConsoleLogger` for pino/winston-style loggers; public exports for `emitSDKLog` (deprecated), `sdkLog`, and helpers.
+- **Logging**: `ModelParams.logContext` preferred over separate `logger` / `logLevel` / `redaction` on model requests.
+- **Docs**: [sdk-log-events.md](./docs/sdk-log-events.md), [sdk-observability-matrix.md](./docs/sdk-observability-matrix.md), [sdk-observability-spike.md](./docs/sdk-observability-spike.md).
+- **Observability**: `publishSdkDiagnostic` and `SDK_DIAGNOSTIC_CHANNELS` (`node:diagnostics_channel`, opt-in).
+
+### Changed
+
+- Internal modules (Agent, tools, skills, MCP config, compressor, model request log) now emit via `sdkLog` and shared context; `HookManagerSdkLogContext` is an alias of `SDKLogContext`.
+- `loadMCPConfig` optional fourth argument is documented as `SDKLogContext` (internal parameter name `logCtx`; same type and position as before — **not** a breaking API change).
+
 ### Breaking
 
 - **Session storage**: `StorageAdapter` is now **append-only**. Implementations expose `append(sessionId, entries: SessionEntry[])` and `load()` returns **`SessionEntry[]`** (messages plus optional `{ $type: 'summary', ... }` compaction rows). **`save(sessionId, Message[])` is removed.** Jsonl transcripts are **append-only** with **logical truncation**: after compaction, new lines append `[summary, ...recent]`; **`loadActiveMessages()` / resume** reconstructs the chain from the **last** `summary` line only (older lines remain on disk for audit). **`SessionManager`**: removed **`saveMessages` / `appendMessage` / `resumeSession`**; use **`attachSession`**, **`loadRawEntries` / `loadActiveMessages`**, **`appendEntries`**, **`appendCompactionBoundary`**. System prompt is **not** stored in jsonl; **`saveSystemPrompt` sidecar** (`*.system.json`) holds the last primary system text for audit. **Existing pre-v2 session files are not migrated**—start fresh or re-run conversations.

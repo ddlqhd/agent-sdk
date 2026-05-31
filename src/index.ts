@@ -18,7 +18,24 @@ export {
   formatSyntheticFallbackNotice,
   parseCompactionSyntheticUser
 } from './core/compressor.js';
-export { createConsoleSDKLogger, formatSDKLog } from './core/logger.js';
+export {
+  createConsoleSDKLogger,
+  emitSDKLog,
+  formatSDKLog,
+  resolveLogRedaction,
+  resolveSDKLogLevel,
+  sanitizeForLogging,
+  shouldEmitLog
+} from './core/logger.js';
+export {
+  createSDKLogContext,
+  sdkLog,
+  withLogScope
+} from './core/log-context.js';
+export type { SDKLogEventInput } from './core/log-context.js';
+export { adaptConsoleLogger, adaptMessageLogger } from './core/log-adapters.js';
+export type { MessageLogger } from './core/log-adapters.js';
+export { publishSdkDiagnostic } from './core/diagnostics.js';
 export { createFileJSONLLogger } from './core/file-logger.js';
 export type { FileJSONLLogger, FileJSONLLoggerOptions } from './core/file-logger.js';
 

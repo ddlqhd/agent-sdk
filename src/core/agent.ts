@@ -41,7 +41,8 @@ import { formatMcpToolName, isMcpPrefixedToolName, validateMcpNameSegment } from
 import { SkillRegistry, createSkillRegistry } from '../skills/registry.js';
 import { invokeUserSkill, processUserInputForSkills } from '../skills/user-invocation.js';
 import { ContextManager, runIterationCompaction } from './context-manager.js';
-import { emitSDKLog } from './logger.js';
+import { createSDKLogContext, sdkLog } from './log-context.js';
+import type { SDKLogContext } from './types.js';
 import { isNonBlankString } from '../utils/index.js';
 import { HookManager } from '../tools/hooks/manager.js';
 import { StreamChunkProcessor } from '../streaming/chunk-processor.js';
@@ -106,6 +107,8 @@ export class Agent {
   private subagentProfileMap: Map<string, SubagentProfile>;
   /** Set for the lifetime of each `stream()` / `run()` turn for log correlation */
   private currentRunId?: string;
+  /** Shared structured-log context (mutable scope fields updated per run/session). */
+  private readonly logCtx: SDKLogContext;
 
   /**
    * 已持久化到会话存储的非 system 消息条数（与 {@link this.messages} 中顺序一致的前缀长度）
@@ -142,16 +145,16 @@ export class Agent {
     };
     this.config.maxIterations = this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
+    this.logCtx = createSDKLogContext(this.config, {
+      cwd: this.config.cwd ?? process.cwd(),
+      agentName: this.config.agentName ?? 'Agent'
+    });
 
     // 初始化 Skill 注册中心
     this.skillRegistry = createSkillRegistry({
       cwd: this.config.cwd,
       userBasePath: this.config.userBasePath,
-      sdkLog: {
-        logger: this.config.logger,
-        logLevel: this.config.logLevel,
-        redaction: this.config.redaction
-      }
+      sdkLog: this.logCtx
     });
 
     this.subagentProfileMap = mergeSubagentProfiles([
@@ -173,15 +176,7 @@ export class Agent {
         canUseTool: this.config.canUseTool
       },
       hookObserver: this.config.callbacks?.lifecycle?.hooks,
-      sdkLogBinder: () => ({
-        logger: this.config.logger,
-        logLevel: this.config.logLevel,
-        redaction: this.config.redaction,
-        sessionId: this.sessionManager.sessionId ?? undefined,
-        runId: this.currentRunId,
-        agentName: this.config.agentName ?? 'Agent',
-        cwd: this.config.cwd ?? process.cwd()
-      })
+      sdkLogBinder: () => this.getLogCtx()
     });
 
     this.registerInitialTools();
@@ -214,13 +209,7 @@ export class Agent {
         : this.config.contextManagement ?? {};
 
       const compressor = cmConfig.compressor ?? new SummarizationCompressor(this.config.model!, {
-        logger: this.config.logger,
-        logLevel: this.config.logLevel,
-        redaction: this.config.redaction,
-        sessionIdProvider: () => this.sessionManager.sessionId ?? undefined,
-        cwd: this.config.cwd ?? process.cwd(),
-        agentName: this.config.agentName ?? 'Agent',
-        runIdProvider: () => this.currentRunId
+        logCtxBinder: () => this.getLogCtx()
       });
       this.contextManager = new ContextManager(this.config.model!, {
         ...cmConfig,
@@ -237,33 +226,24 @@ export class Agent {
   private attachSdkLogToHooks(): void {
     const hm = this.toolRegistry.getHookManager() as HookManager | null;
     if (hm && typeof hm.setSdkLogContext === 'function') {
-      hm.setSdkLogContext({
-        logger: this.config.logger,
-        logLevel: this.config.logLevel,
-        redaction: this.config.redaction,
-        cwd: this.config.cwd ?? process.cwd(),
-        sessionId: this.sessionManager.sessionId ?? undefined
-      });
+      hm.setSdkLogContext(this.getLogCtx());
     }
+  }
+
+  /** Current log context with session/run scope refreshed. */
+  private getLogCtx(): SDKLogContext {
+    this.logCtx.sessionId = this.sessionManager.sessionId ?? undefined;
+    this.logCtx.runId = this.currentRunId;
+    this.logCtx.agentName = this.config.agentName ?? 'Agent';
+    this.logCtx.cwd = this.config.cwd ?? process.cwd();
+    return this.logCtx;
   }
 
   private log(
     level: 'debug' | 'info' | 'warn' | 'error',
-    event: Parameters<typeof emitSDKLog>[0]['event']
+    event: Parameters<typeof sdkLog>[2]
   ): void {
-    emitSDKLog({
-      logger: this.config.logger,
-      logLevel: this.config.logLevel,
-      redaction: this.config.redaction,
-      level,
-      event: {
-        sessionId: this.sessionManager.sessionId ?? undefined,
-        runId: this.currentRunId,
-        agentName: this.config.agentName ?? 'Agent',
-        cwd: this.config.cwd ?? process.cwd(),
-        ...event
-      }
-    });
+    sdkLog(this.getLogCtx(), level, event);
   }
 
   /**
@@ -378,18 +358,12 @@ export class Agent {
       return { fileServers: [], configErrors: [] };
     }
 
-    const sdkLog = {
-      logger: this.config.logger,
-      logLevel: this.config.logLevel,
-      redaction: this.config.redaction
-    };
-
     const configPath = typeof opt === 'object' ? opt.configPath : undefined;
     const result = loadMCPConfig(
       configPath,
       this.config.cwd ?? process.cwd(),
       this.config.userBasePath,
-      sdkLog
+      this.logCtx
     );
 
     return {
@@ -819,11 +793,7 @@ export class Agent {
           this.config.cwd,
           this.config.memoryConfig,
           this.config.userBasePath,
-          {
-            logger: this.config.logger,
-            logLevel: this.config.logLevel,
-            redaction: this.config.redaction
-          }
+          this.logCtx
         );
         const memoryContent = memoryManager.loadMemory();
         if (memoryContent) {
@@ -1099,11 +1069,7 @@ export class Agent {
       signal,
       includeRawStreamEvents: options?.includeRawStreamEvents,
       sessionId: this.sessionManager.sessionId ?? undefined,
-      logger: this.config.logger,
-      logLevel: this.config.logLevel,
-      redaction: this.config.redaction,
-      runId: this.currentRunId,
-      agentName: this.config.agentName ?? 'Agent'
+      logContext: this.getLogCtx()
     };
   }
 

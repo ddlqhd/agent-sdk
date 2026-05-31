@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { MCPServerConfig, SDKLogSink } from '../core/types.js';
-import { emitSDKLog } from '../core/logger.js';
+import { sdkLog } from '../core/log-context.js';
+import type { MCPServerConfig, SDKLogContext } from '../core/types.js';
 
 /**
  * MCP 配置文件格式 (Claude Desktop 兼容)
@@ -217,7 +217,7 @@ function findConfigFiles(startDir: string = process.cwd(), userBasePath?: string
 function tryLoadConfigFile(
   filePath: string,
   startDir: string,
-  sdkLog?: SDKLogSink
+  logCtx?: SDKLogContext
 ): { servers: MCPServerConfig[]; errors: MCPConfigLoadError[] } {
   const errors: MCPConfigLoadError[] = [];
   try {
@@ -235,23 +235,15 @@ function tryLoadConfigFile(
         validationMessages: varList
       };
       errors.push(err);
-      if (sdkLog) {
-        emitSDKLog({
-          logger: sdkLog.logger,
-          logLevel: sdkLog.logLevel,
-          redaction: sdkLog.redaction,
-          level: 'warn',
-          event: {
-            component: 'mcp',
-            event: 'mcp.config.env.missing',
-            message: err.message,
-            cwd: startDir,
-            errorName: 'MissingEnvVar',
-            errorMessage: err.message,
-            metadata: { path: filePath, kind: 'missing_env_var', variables: varList }
-          }
-        });
-      }
+      sdkLog(logCtx, 'warn', {
+        component: 'mcp',
+        event: 'mcp.config.env.missing',
+        message: err.message,
+        cwd: startDir,
+        errorName: 'MissingEnvVar',
+        errorMessage: err.message,
+        metadata: { path: filePath, kind: 'missing_env_var', variables: varList }
+      });
     }
 
     if (!expandedConfig.mcpServers || typeof expandedConfig.mcpServers !== 'object') {
@@ -263,27 +255,19 @@ function tryLoadConfigFile(
         validationMessages: msgs
       };
       errors.push(err);
-      if (sdkLog) {
-        emitSDKLog({
-          logger: sdkLog.logger,
-          logLevel: sdkLog.logLevel,
-          redaction: sdkLog.redaction,
-          level: 'error',
-          event: {
-            component: 'mcp',
-            event: 'mcp.config.load.error',
-            message: err.message,
-            cwd: startDir,
-            errorName: 'ValidationError',
-            errorMessage: msgs.join('; '),
-            metadata: {
-              path: filePath,
-              kind: 'validation_error',
-              validationMessages: msgs
-            }
-          }
-        });
-      }
+      sdkLog(logCtx, 'error', {
+        component: 'mcp',
+        event: 'mcp.config.load.error',
+        message: err.message,
+        cwd: startDir,
+        errorName: 'ValidationError',
+        errorMessage: msgs.join('; '),
+        metadata: {
+          path: filePath,
+          kind: 'validation_error',
+          validationMessages: msgs
+        }
+      });
       return { servers: [], errors };
     }
 
@@ -299,28 +283,20 @@ function tryLoadConfigFile(
           validationMessages: entryErrors
         };
         errors.push(err);
-        if (sdkLog) {
-          emitSDKLog({
-            logger: sdkLog.logger,
-            logLevel: sdkLog.logLevel,
-            redaction: sdkLog.redaction,
-            level: 'error',
-            event: {
-              component: 'mcp',
-              event: 'mcp.config.load.error',
-              message: err.message,
-              cwd: startDir,
-              errorName: 'ValidationError',
-              errorMessage: entryErrors.join('; '),
-              metadata: {
-                path: filePath,
-                kind: 'validation_error',
-                serverName: name,
-                validationMessages: entryErrors
-              }
-            }
-          });
-        }
+        sdkLog(logCtx, 'error', {
+          component: 'mcp',
+          event: 'mcp.config.load.error',
+          message: err.message,
+          cwd: startDir,
+          errorName: 'ValidationError',
+          errorMessage: entryErrors.join('; '),
+          metadata: {
+            path: filePath,
+            kind: 'validation_error',
+            serverName: name,
+            validationMessages: entryErrors
+          }
+        });
         continue;
       }
       servers.push(transformServerEntry(name, serverConfig));
@@ -334,23 +310,15 @@ function tryLoadConfigFile(
       message: caught.message
     };
     errors.push(err);
-    if (sdkLog) {
-      emitSDKLog({
-        logger: sdkLog.logger,
-        logLevel: sdkLog.logLevel,
-        redaction: sdkLog.redaction,
-        level: 'error',
-        event: {
-          component: 'mcp',
-          event: 'mcp.config.load.error',
-          message: 'Failed to load MCP JSON config',
-          cwd: startDir,
-          errorName: caught.name,
-          errorMessage: caught.message,
-          metadata: { path: filePath, kind: 'parse_error' }
-        }
-      });
-    }
+    sdkLog(logCtx, 'error', {
+      component: 'mcp',
+      event: 'mcp.config.load.error',
+      message: 'Failed to load MCP JSON config',
+      cwd: startDir,
+      errorName: caught.name,
+      errorMessage: caught.message,
+      metadata: { path: filePath, kind: 'parse_error' }
+    });
     return { servers: [], errors };
   }
 }
@@ -360,13 +328,13 @@ function tryLoadConfigFile(
  * @param configPath 可选的配置文件路径，如未提供则自动加载用户目录和工作目录配置
  * @param startDir 搜索起始目录，默认为当前工作目录
  * @param userBasePath 用户级基础路径，默认 ~ (homedir)
- * @param sdkLog 可选宿主日志；未传时只返回 `errors`，由调用方决定如何展示
+ * @param logCtx 可选宿主日志；未传时只返回 `errors`，由调用方决定如何展示
  */
 export function loadMCPConfig(
   configPath?: string,
   startDir: string = process.cwd(),
   userBasePath?: string,
-  sdkLog?: SDKLogSink
+  logCtx?: SDKLogContext
 ): MCPConfigLoadResult {
   // 显式指定路径 -> 单文件加载
   if (configPath) {
@@ -376,27 +344,19 @@ export function loadMCPConfig(
         path: configPath,
         message: `MCP config file not found: ${configPath}`
       };
-      if (sdkLog) {
-        emitSDKLog({
-          logger: sdkLog.logger,
-          logLevel: sdkLog.logLevel,
-          redaction: sdkLog.redaction,
-          level: 'error',
-          event: {
-            component: 'mcp',
-            event: 'mcp.config.load.error',
-            message: err.message,
-            cwd: startDir,
-            errorName: 'NotFoundError',
-            errorMessage: err.message,
-            metadata: { path: configPath, kind: 'path_not_found' }
-          }
-        });
-      }
+      sdkLog(logCtx, 'error', {
+        component: 'mcp',
+        event: 'mcp.config.load.error',
+        message: err.message,
+        cwd: startDir,
+        errorName: 'NotFoundError',
+        errorMessage: err.message,
+        metadata: { path: configPath, kind: 'path_not_found' }
+      });
       return { servers: [], configPath, errors: [err] };
     }
 
-    const { servers, errors } = tryLoadConfigFile(configPath, startDir, sdkLog);
+    const { servers, errors } = tryLoadConfigFile(configPath, startDir, logCtx);
     return {
       servers,
       configPath,
@@ -413,7 +373,7 @@ export function loadMCPConfig(
   const mergedServers = new Map<string, MCPServerConfig>();
   const aggregatedErrors: MCPConfigLoadError[] = [];
   for (const path of configPaths) {
-    const { servers, errors } = tryLoadConfigFile(path, startDir, sdkLog);
+    const { servers, errors } = tryLoadConfigFile(path, startDir, logCtx);
     aggregatedErrors.push(...errors);
     for (const server of servers) {
       mergedServers.set(server.name, server);

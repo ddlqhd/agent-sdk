@@ -1,10 +1,11 @@
-import { emitSDKLog } from './logger.js';
+import { createSDKLogContext, sdkLog } from './log-context.js';
 import type {
   CompressionStats,
   ContentPart,
   LogRedactionConfig,
   Message,
   ModelAdapter,
+  SDKLogContext,
   SDKLogLevel,
   SDKLogger
 } from './types.js';
@@ -106,22 +107,26 @@ export interface SummarizationCompressorOptions {
     toolCallId?: string;
     originalChars: number;
   }) => string;
-  /** SDK logger */
+  /**
+   * @deprecated Prefer {@link logCtxBinder}. Used when constructing a compressor outside {@link Agent}.
+   */
   logger?: SDKLogger;
-  /** SDK 日志级别 */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   logLevel?: SDKLogLevel;
-  /** 日志脱敏配置 */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   redaction?: LogRedactionConfig;
-  /** 关联当前会话 ID */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   sessionId?: string;
-  /** 动态读取当前会话 ID */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   sessionIdProvider?: () => string | undefined;
-  /** {@link AgentConfig.cwd}：仅路径元信息 */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   cwd?: string;
-  /** {@link AgentConfig.agentName}，日志默认对齐 Agent */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   agentName?: string;
-  /** 单次 run ID（与外层 Agent 对齐） */
+  /** @deprecated Prefer {@link logCtxBinder}. */
   runIdProvider?: () => string | undefined;
+  /** Dynamic log context (e.g. `() => agent.getLogCtx()`). */
+  logCtxBinder?: () => SDKLogContext | undefined;
 }
 
 /**
@@ -141,18 +146,33 @@ export class SummarizationCompressor implements Compressor {
     return this.options.sessionIdProvider?.() ?? this.options.sessionId;
   }
 
-  private compressorLogExtras(): {
-    sessionId?: string;
-    cwd?: string;
-    runId?: string;
-    agentName?: string;
-  } {
-    return {
-      sessionId: this.getSessionId(),
-      cwd: this.options.cwd,
-      runId: this.options.runIdProvider?.(),
-      agentName: this.options.agentName
-    };
+  private getLogCtx(): SDKLogContext | undefined {
+    const fromBinder = this.options.logCtxBinder?.();
+    if (fromBinder != null) {
+      return fromBinder;
+    }
+    if (
+      this.options.logger == null &&
+      this.options.logLevel == null &&
+      this.options.redaction == null &&
+      this.options.sessionId == null &&
+      this.options.sessionIdProvider == null
+    ) {
+      return undefined;
+    }
+    return createSDKLogContext(
+      {
+        logger: this.options.logger,
+        logLevel: this.options.logLevel,
+        redaction: this.options.redaction
+      },
+      {
+        sessionId: this.getSessionId(),
+        cwd: this.options.cwd,
+        runId: this.options.runIdProvider?.(),
+        agentName: this.options.agentName
+      }
+    );
   }
 
   private stringifyToolArguments(argumentsValue: unknown): string {
@@ -361,23 +381,16 @@ export class SummarizationCompressor implements Compressor {
     const preserveRecent = this.options.preserveRecent ?? 6;
     const sessionId = this.getSessionId();
 
-    emitSDKLog({
-      logger: this.options.logger,
-      logLevel: this.options.logLevel,
-      redaction: this.options.redaction,
-      level: 'info',
-      event: {
-        component: 'memory',
-        event: 'context.compress.start',
-        message: 'Starting context compression',
-        operation: 'compress',
-        ...this.compressorLogExtras(),
-        metadata: {
-          compressor: this.name,
-          messageCount: messages.length,
-          targetTokens,
-          preserveRecent
-        }
+    sdkLog(this.getLogCtx(), 'info', {
+      component: 'memory',
+      event: 'context.compress.start',
+      message: 'Starting context compression',
+      operation: 'compress',
+      metadata: {
+        compressor: this.name,
+        messageCount: messages.length,
+        targetTokens,
+        preserveRecent
       }
     });
 
@@ -386,23 +399,16 @@ export class SummarizationCompressor implements Compressor {
     const nonSystemMessages = messages.filter((m) => m.role !== 'system');
 
     if (nonSystemMessages.length <= preserveRecent) {
-      emitSDKLog({
-        logger: this.options.logger,
-        logLevel: this.options.logLevel,
-        redaction: this.options.redaction,
-        level: 'debug',
-        event: {
-          component: 'memory',
-          event: 'context.compress.skipped',
-          message: 'Skipped compression because there are not enough messages',
-          operation: 'compress',
-          ...this.compressorLogExtras(),
-          durationMs: Date.now() - startedAt,
-          metadata: {
-            compressor: this.name,
-            messageCount: messages.length,
-            preserveRecent
-          }
+      sdkLog(this.getLogCtx(), 'debug', {
+        component: 'memory',
+        event: 'context.compress.skipped',
+        message: 'Skipped compression because there are not enough messages',
+        operation: 'compress',
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          compressor: this.name,
+          messageCount: messages.length,
+          preserveRecent
         }
       });
       return messages;
@@ -427,47 +433,33 @@ export class SummarizationCompressor implements Compressor {
       compressedMessages: Message[],
       metadata: Record<string, unknown>
     ): void => {
-      emitSDKLog({
-        logger: this.options.logger,
-        logLevel: this.options.logLevel,
-        redaction: this.options.redaction,
-        level: 'info',
-        event: {
-          component: 'memory',
-          event: 'context.compress.end',
-          message: 'Context compression completed',
-          operation: 'compress',
-          ...this.compressorLogExtras(),
-          durationMs: Date.now() - startedAt,
-          metadata: {
-            compressor: this.name,
-            originalMessageCount: messages.length,
-            compressedMessageCount: compressedMessages.length,
-            ...metadata
-          }
+      sdkLog(this.getLogCtx(), 'info', {
+        component: 'memory',
+        event: 'context.compress.end',
+        message: 'Context compression completed',
+        operation: 'compress',
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          compressor: this.name,
+          originalMessageCount: messages.length,
+          compressedMessageCount: compressedMessages.length,
+          ...metadata
         }
       });
     };
 
     const emitCompressError = (err: Error): void => {
-      emitSDKLog({
-        logger: this.options.logger,
-        logLevel: this.options.logLevel,
-        redaction: this.options.redaction,
-        level: 'error',
-        event: {
-          component: 'memory',
-          event: 'context.compress.error',
-          message: 'Context compression failed',
-          operation: 'compress',
-          ...this.compressorLogExtras(),
-          durationMs: Date.now() - startedAt,
-          errorName: err.name,
-          errorMessage: err.message,
-          metadata: {
-            compressor: this.name,
-            messageCount: messages.length
-          }
+      sdkLog(this.getLogCtx(), 'error', {
+        component: 'memory',
+        event: 'context.compress.error',
+        message: 'Context compression failed',
+        operation: 'compress',
+        durationMs: Date.now() - startedAt,
+        errorName: err.name,
+        errorMessage: err.message,
+        metadata: {
+          compressor: this.name,
+          messageCount: messages.length
         }
       });
     };
@@ -479,14 +471,8 @@ export class SummarizationCompressor implements Compressor {
           { role: 'user', content: this.buildSummaryRequestContent(transcript) }
         ],
         maxTokens,
-        logger: this.options.logger,
-        logLevel: this.options.logLevel,
-        redaction: this.options.redaction,
-        sessionId,
-        ...(this.options.agentName !== undefined ? { agentName: this.options.agentName } : {}),
-        ...(this.options.runIdProvider !== undefined
-          ? { runId: this.options.runIdProvider() }
-          : {})
+        logContext: this.getLogCtx(),
+        sessionId
       });
 
       const text =

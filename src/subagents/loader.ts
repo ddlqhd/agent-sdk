@@ -1,8 +1,8 @@
 import { promises as fs } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
 import type { SubagentProfile } from './types.js';
-import type { SDKLogSink } from '../core/types.js';
-import { emitSDKLog } from '../core/logger.js';
+import { sdkLog } from '../core/log-context.js';
+import type { SDKLogContext } from '../core/types.js';
 import { metadataToSubagentProfile, parseSubagentMd } from './parser.js';
 
 export interface SubagentLoaderConfig {
@@ -10,7 +10,7 @@ export interface SubagentLoaderConfig {
   /** When set, overrides the default SDK log emission on per-file load failures in directories. */
   onLoadFileError?: (path: string, error: unknown) => void;
   /** SDK log sink; controls where load-error warnings are routed when `onLoadFileError` is not set. */
-  sdkLog?: SDKLogSink;
+  sdkLog?: SDKLogContext;
 }
 
 export class SubagentLoader {
@@ -55,20 +55,14 @@ export class SubagentLoader {
             reportLoadError(full, err);
           } else {
             const error = err instanceof Error ? err : new Error(String(err));
-            emitSDKLog({
-              logger: this.config.sdkLog?.logger,
-              logLevel: this.config.sdkLog?.logLevel,
-              redaction: this.config.sdkLog?.redaction,
-              level: 'warn',
-              event: {
-                component: 'agent',
-                event: 'subagent.profile.load.error',
-                message: 'Failed to load subagent profile file',
-                cwd: this.config.cwd ?? process.cwd(),
-                errorName: error.name,
-                errorMessage: error.message,
-                metadata: { path: full }
-              }
+            sdkLog(this.config.sdkLog, 'warn', {
+              component: 'agent',
+              event: 'subagent.profile.load.error',
+              message: 'Failed to load subagent profile file',
+              cwd: this.config.cwd ?? process.cwd(),
+              errorName: error.name,
+              errorMessage: error.message,
+              metadata: { path: full }
             });
           }
         }

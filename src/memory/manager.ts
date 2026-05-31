@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import type { MemoryConfig, SDKLogSink } from '../core/types.js';
-import { emitSDKLog } from '../core/logger.js';
+import { sdkLog } from '../core/log-context.js';
+import type { MemoryConfig, SDKLogContext } from '../core/types.js';
 
 /**
  * MemoryManager handles the loading of long-term memory files
@@ -12,13 +12,13 @@ export class MemoryManager {
   private workspaceRoot: string;
   private userBasePath: string;
   private config: MemoryConfig;
-  private readonly sdkLog?: SDKLogSink;
+  private readonly sdkLog?: SDKLogContext;
 
   constructor(
     workspaceRoot?: string,
     config?: MemoryConfig,
     userBasePath?: string,
-    sdkLog?: SDKLogSink
+    sdkLog?: SDKLogContext
   ) {
     this.workspaceRoot = workspaceRoot || process.cwd();
     this.userBasePath = userBasePath || homedir();
@@ -44,20 +44,14 @@ export class MemoryManager {
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        emitSDKLog({
-          logger: this.sdkLog?.logger,
-          logLevel: this.sdkLog?.logLevel,
-          redaction: this.sdkLog?.redaction,
-          level: 'warn',
-          event: {
-            component: 'memory',
-            event: 'memory.file.read.error',
-            message: 'Failed reading user CLAUDE.md memory file',
-            cwd: this.workspaceRoot,
-            errorName: err.name,
-            errorMessage: err.message,
-            metadata: { kind: 'user', path: userPath }
-          }
+        sdkLog(this.sdkLog, 'warn', {
+          component: 'memory',
+          event: 'memory.file.read.error',
+          message: 'Failed reading user CLAUDE.md memory file',
+          cwd: this.workspaceRoot,
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: { kind: 'user', path: userPath }
         });
       }
     }
@@ -72,20 +66,14 @@ export class MemoryManager {
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        emitSDKLog({
-          logger: this.sdkLog?.logger,
-          logLevel: this.sdkLog?.logLevel,
-          redaction: this.sdkLog?.redaction,
-          level: 'warn',
-          event: {
-            component: 'memory',
-            event: 'memory.file.read.error',
-            message: 'Failed reading workspace CLAUDE.md memory file',
-            cwd: this.workspaceRoot,
-            errorName: err.name,
-            errorMessage: err.message,
-            metadata: { kind: 'workspace', path: workspacePath }
-          }
+        sdkLog(this.sdkLog, 'warn', {
+          component: 'memory',
+          event: 'memory.file.read.error',
+          message: 'Failed reading workspace CLAUDE.md memory file',
+          cwd: this.workspaceRoot,
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: { kind: 'workspace', path: workspacePath }
         });
       }
     }

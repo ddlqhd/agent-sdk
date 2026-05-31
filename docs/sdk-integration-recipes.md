@@ -119,7 +119,7 @@ console.log(next.content);
 import { Agent, createOpenAI, loadMCPConfig } from '@ddlqhd/agent-sdk';
 
 const { servers } = loadMCPConfig(undefined, process.cwd(), process.env.HOME);
-// 若要将 JSON 解析失败记入宿主日志，可传第四参：loadMCPConfig(path, cwd, userBase, { logger, logLevel, redaction })
+// 若要将 JSON 解析失败记入宿主日志，可传第四参 SDKLogContext：loadMCPConfig(path, cwd, userBase, logCtx)
 
 const agent = new Agent({
   model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY }),
@@ -266,7 +266,7 @@ for await (const event of agent.stream(userInput, { includeRawStreamEvents: fals
 推荐通过 **`AgentConfig.logger`** 接入宿主应用自己的日志系统，而不是在应用代码里直接调用底层适配器。
 
 ```ts
-import { Agent, createOpenAI, formatSDKLog } from '@ddlqhd/agent-sdk';
+import { Agent, adaptMessageLogger, createOpenAI } from '@ddlqhd/agent-sdk';
 import pino from 'pino';
 
 const appLogger = pino();
@@ -274,22 +274,11 @@ const appLogger = pino();
 const agent = new Agent({
   model: createOpenAI({ apiKey: process.env.OPENAI_API_KEY }),
   logLevel: 'info',
-  logger: {
-    info(event) {
-      appLogger.info(event, formatSDKLog(event));
-    },
-    warn(event) {
-      appLogger.warn(event, formatSDKLog(event));
-    },
-    error(event) {
-      appLogger.error(event, formatSDKLog(event));
-    },
-    debug(event) {
-      appLogger.debug(event, formatSDKLog(event));
-    }
-  }
+  logger: adaptMessageLogger(appLogger)
 });
 ```
+
+Event catalog: [sdk-log-events.md](./sdk-log-events.md). Callback vs log overlap: [sdk-observability-matrix.md](./sdk-observability-matrix.md).
 
 关键约定：
 
@@ -369,7 +358,7 @@ CLI（`agent-sdk chat` / `run`）默认即使用此 logger，文件路径为 `<u
 - `info`：输出信息与更高级别。
 - `warn`：仅警告与错误。
 - `error`：仅错误。
-- `silent`：不输出任何 SDK 日志（不传 `logger` 时不写 `console`；传入自定义 `logger` 时仍按级别过滤，通常也为无输出）。
+- `silent` / `off`：不输出任何 SDK 日志（`off` 为 `silent` 别名；不传 `logger` 时不写 `console`）。
 
 **布尔类变量**（`AGENT_SDK_LOG_BODIES`、`AGENT_SDK_LOG_INCLUDE_TOOL_ARGS`）：
 

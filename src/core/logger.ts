@@ -29,13 +29,17 @@ const LEVEL_PRIORITY: Record<SDKLogLevel, number> = {
 };
 
 function parseEnvLogLevel(raw: string | undefined): SDKLogLevel | undefined {
-  switch ((raw ?? '').trim().toLowerCase()) {
+  const normalized = (raw ?? '').trim().toLowerCase();
+  if (normalized === 'off') {
+    return 'silent';
+  }
+  switch (normalized) {
     case 'debug':
     case 'info':
     case 'warn':
     case 'error':
     case 'silent':
-      return (raw ?? '').trim().toLowerCase() as SDKLogLevel;
+      return normalized as SDKLogLevel;
     default:
       return undefined;
   }
@@ -270,6 +274,8 @@ export function createConsoleSDKLogger(): SDKLogger {
  *
  * `metadata` 会先经 {@link sanitizeForLogging}（由 `redaction` 与环境变量推导）再输出。
  * 每条记录的 {@link LogEvent.timestamp} 为本地化墙钟字符串（毫秒精度 + 偏移或 `Z`），由 {@link formatStructuredLogWallClock} 规则生成；可被调用方预先传入数字毫秒或可被 `Date.parse` 解析的字符串并在此统一格式化。
+ *
+ * @deprecated Prefer {@link sdkLog} with {@link SDKLogContext} from `./log-context.js`.
  */
 export function emitSDKLog(args: {
   logger?: SDKLogger;

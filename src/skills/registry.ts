@@ -1,8 +1,8 @@
 import { existsSync, promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import type { SkillConfig, SkillDefinition, SDKLogSink } from '../core/types.js';
-import { emitSDKLog } from '../core/logger.js';
+import { sdkLog } from '../core/log-context.js';
+import type { SkillConfig, SkillDefinition, SDKLogContext } from '../core/types.js';
 import { SkillLoader, type SkillLoaderConfig } from './loader.js';
 
 /**
@@ -15,7 +15,7 @@ export class SkillRegistry {
   private workspaceRoot: string;
   private userBasePath: string;
   private skillConfig?: SkillConfig;
-  private readonly sdkLog?: SDKLogSink;
+  private readonly sdkLog?: SDKLogContext;
 
   constructor(config?: SkillLoaderConfig & { userBasePath?: string }) {
     this.loader = new SkillLoader(config);
@@ -53,23 +53,17 @@ export class SkillRegistry {
         this.register(skill);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        emitSDKLog({
-          logger: this.sdkLog?.logger,
-          logLevel: this.sdkLog?.logLevel,
-          redaction: this.sdkLog?.redaction,
-          level: 'warn',
-          event: {
-            component: 'skill',
-            event: 'skill.register.error',
-            message: 'Failed to register loaded skill definition',
-            operation: 'skill_load',
-            cwd: this.workspaceRoot,
-            errorName: err.name,
-            errorMessage: err.message,
-            metadata: {
-              skillName: skill.metadata.name,
-              ...(skill.path ? { path: skill.path } : {})
-            }
+        sdkLog(this.sdkLog, 'warn', {
+          component: 'skill',
+          event: 'skill.register.error',
+          message: 'Failed to register loaded skill definition',
+          operation: 'skill_load',
+          cwd: this.workspaceRoot,
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: {
+            skillName: skill.metadata.name,
+            ...(skill.path ? { path: skill.path } : {})
           }
         });
       }
@@ -321,38 +315,26 @@ ${modelSkillsText}`);
           await this.loadAll(dirPath);
           const loaded = this.skills.size - beforeCount;
           if (loaded > 0) {
-            emitSDKLog({
-              logger: this.sdkLog?.logger,
-              logLevel: this.sdkLog?.logLevel,
-              redaction: this.sdkLog?.redaction,
-              level: 'info',
-              event: {
-                component: 'skill',
-                event: 'skill.load.directory.done',
-                message: 'Loaded skill entries from scan directory',
-                operation: 'skill_load',
-                cwd: this.workspaceRoot,
-                metadata: { dirPath, loadedCount: loaded }
-              }
+            sdkLog(this.sdkLog, 'info', {
+              component: 'skill',
+              event: 'skill.load.directory.done',
+              message: 'Loaded skill entries from scan directory',
+              operation: 'skill_load',
+              cwd: this.workspaceRoot,
+              metadata: { dirPath, loadedCount: loaded }
             });
           }
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
-          emitSDKLog({
-            logger: this.sdkLog?.logger,
-            logLevel: this.sdkLog?.logLevel,
-            redaction: this.sdkLog?.redaction,
-            level: 'warn',
-            event: {
-              component: 'skill',
-              event: 'skill.load.directory.error',
-              message: 'Failed to load skills directory',
-              operation: 'skill_load',
-              cwd: this.workspaceRoot,
-              errorName: error.name,
-              errorMessage: error.message,
-              metadata: { dirPath }
-            }
+          sdkLog(this.sdkLog, 'warn', {
+            component: 'skill',
+            event: 'skill.load.directory.error',
+            message: 'Failed to load skills directory',
+            operation: 'skill_load',
+            cwd: this.workspaceRoot,
+            errorName: error.name,
+            errorMessage: error.message,
+            metadata: { dirPath }
           });
         }
       }
@@ -365,40 +347,28 @@ ${modelSkillsText}`);
         await this.load(path);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        emitSDKLog({
-          logger: this.sdkLog?.logger,
-          logLevel: this.sdkLog?.logLevel,
-          redaction: this.sdkLog?.redaction,
-          level: 'warn',
-          event: {
-            component: 'skill',
-            event: 'skill.load.path.error',
-            message: 'Failed to load configured skill path',
-            operation: 'skill_load',
-            cwd: this.workspaceRoot,
-            errorName: error.name,
-            errorMessage: error.message,
-            metadata: { path }
-          }
+        sdkLog(this.sdkLog, 'warn', {
+          component: 'skill',
+          event: 'skill.load.path.error',
+          message: 'Failed to load configured skill path',
+          operation: 'skill_load',
+          cwd: this.workspaceRoot,
+          errorName: error.name,
+          errorMessage: error.message,
+          metadata: { path }
         });
       }
     }
 
     // 3. 输出汇总
     if (this.skills.size > 0) {
-      emitSDKLog({
-        logger: this.sdkLog?.logger,
-        logLevel: this.sdkLog?.logLevel,
-        redaction: this.sdkLog?.redaction,
-        level: 'info',
-        event: {
-          component: 'skill',
-          event: 'skill.initialized.summary',
-          message: 'Skills registry initialized',
-          operation: 'skill_load',
-          cwd: this.workspaceRoot,
-          metadata: { names: this.getNames() }
-        }
+      sdkLog(this.sdkLog, 'info', {
+        component: 'skill',
+        event: 'skill.initialized.summary',
+        message: 'Skills registry initialized',
+        operation: 'skill_load',
+        cwd: this.workspaceRoot,
+        metadata: { names: this.getNames() }
       });
     }
   }

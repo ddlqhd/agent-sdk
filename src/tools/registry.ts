@@ -1,6 +1,7 @@
 import { TOOL_USER_ABORTED_MESSAGE } from '../core/abort-constants.js';
+import { sdkLog } from '../core/log-context.js';
 import type {
-  SDKLogSink,
+  SDKLogContext,
   ToolDefinition,
   ToolExecutionContext,
   ToolExecutionPolicy,
@@ -12,17 +13,8 @@ import { OutputHandler, createOutputHandler } from './output-handler.js';
 import type { HookManager } from './hooks/manager.js';
 import type { HookContext } from './hooks/types.js';
 import type { ToolHookObserver } from '../core/callbacks.js';
-import { emitSDKLog } from '../core/logger.js';
-
 /** 在执行工具（含 Hook 管线）当下解析宿主日志上下文 */
-export type ToolSdkLogBinder = () =>
-  | (SDKLogSink & {
-      sessionId?: string;
-      runId?: string;
-      agentName?: string;
-      cwd?: string;
-    })
-  | undefined;
+export type ToolSdkLogBinder = () => SDKLogContext | undefined;
 
 /**
  * Tool 注册中心配置
@@ -318,27 +310,17 @@ export class ToolRegistry {
         });
 
         const logCtx = this.sdkLogBinder?.();
-        emitSDKLog({
-          logger: logCtx?.logger,
-          logLevel: logCtx?.logLevel,
-          redaction: logCtx?.redaction,
-          level: pre.allowed ? 'debug' : 'info',
-          event: {
-            component: 'hooks',
-            event: 'hook.decision',
-            message: pre.allowed ? 'Hooks allowed tool execution' : 'Hooks blocked tool execution',
-            cwd: logCtx?.cwd,
-            iteration: options?.iteration,
-            sessionId: logCtx?.sessionId ?? options?.sessionId,
-            runId: logCtx?.runId ?? options?.runId,
-            agentName: logCtx?.agentName ?? options?.agentName,
-            toolName: name,
-            toolCallId: options?.toolCallId,
-            metadata: {
-              hookEventType: 'preToolUse',
-              allowed: pre.allowed,
-              ...(pre.reason !== undefined ? { reason: pre.reason } : {})
-            }
+        sdkLog(logCtx, pre.allowed ? 'debug' : 'info', {
+          component: 'hooks',
+          event: 'hook.decision',
+          message: pre.allowed ? 'Hooks allowed tool execution' : 'Hooks blocked tool execution',
+          iteration: options?.iteration,
+          toolName: name,
+          toolCallId: options?.toolCallId,
+          metadata: {
+            hookEventType: 'preToolUse',
+            allowed: pre.allowed,
+            ...(pre.reason !== undefined ? { reason: pre.reason } : {})
           }
         });
 

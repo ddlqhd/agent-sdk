@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { emitSDKLog } from '../../core/logger.js';
+import { sdkLog } from '../../core/log-context.js';
 import type { LogEvent } from '../../core/types.js';
 import { loadHooksSettingsFromProject, loadHooksSettingsFromUser } from './loader.js';
 import { matchTool, matchesHookIfClause } from './hook-if.js';
@@ -229,17 +229,11 @@ export class HookManager {
     level: 'warn' | 'error',
     partial: Omit<LogEvent, 'source' | 'component'>
   ): void {
-    emitSDKLog({
-      logger: this.sdkLogContext?.logger,
-      logLevel: this.sdkLogContext?.logLevel,
-      redaction: this.sdkLogContext?.redaction,
-      level,
-      event: {
-        component: 'hooks',
-        ...partial,
-        cwd: partial.cwd ?? this.sdkLogContext?.cwd,
-        sessionId: partial.sessionId ?? this.sdkLogContext?.sessionId
-      }
+    sdkLog(this.sdkLogContext, level, {
+      ...partial,
+      component: 'hooks',
+      cwd: partial.cwd ?? this.sdkLogContext?.cwd,
+      sessionId: partial.sessionId ?? this.sdkLogContext?.sessionId
     });
   }
 
