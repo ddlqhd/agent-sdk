@@ -142,14 +142,16 @@ agent-sdk chat [options]
 
 ### tui
 
-全屏 Ink TUI（需安装可选依赖 `ink` 与 `react`）：
+全屏 Ink TUI（`optionalDependencies`：`ink`、`react`；本仓库 devDependencies 已包含以便构建）：
 
 ```bash
+# 消费者若未自动安装可选依赖：
 pnpm add ink react
+
 agent-sdk tui [options]
 ```
 
-选项与 `chat` 相同（`--resume`、`-s`、`--fork*` 等）。非 TTY 或缺少依赖时回退提示使用 `agent-sdk chat`。
+选项与 `chat` 相同（`--resume`、`-s`、`--fork*` 等）。支持流式对话、Esc 中断、`/help` 与 `/checkpoints` 模态（↑↓ Enter 回退）。非 TTY 或缺少依赖时提示使用 `agent-sdk chat`。
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 

@@ -5,6 +5,7 @@ import { createRunCommand } from './commands/chat.js';
 import { createToolsCommand } from './commands/tools.js';
 import { createSessionsCommand } from './commands/sessions.js';
 import { createMCPCommand } from './commands/mcp.js';
+import { createTuiCommand } from './commands/tui.js';
 
 // 动态移除 shebang（tsup 会添加）
 const isMainModule = process.argv[1]?.endsWith('cli/index.js') ||
@@ -25,6 +26,7 @@ if (isMainModule) {
   program.addCommand(createToolsCommand());
   program.addCommand(createSessionsCommand());
   program.addCommand(createMCPCommand());
+  program.addCommand(createTuiCommand());
 
   // 解析命令行参数
   program.parse();
@@ -32,4 +34,11 @@ if (isMainModule) {
 
 export type { CLIConfig } from './types.js';
 
-export { createChatCommand, createRunCommand, createToolsCommand, createSessionsCommand, createMCPCommand };
+export {
+  createChatCommand,
+  createRunCommand,
+  createToolsCommand,
+  createSessionsCommand,
+  createMCPCommand,
+  createTuiCommand
+};
