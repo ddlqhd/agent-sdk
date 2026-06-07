@@ -56,6 +56,21 @@ export function mergeTokenUsage(...usages: (TokenUsage | undefined)[]): TokenUsa
 }
 
 /**
+ * Strip trailing slashes from an API base URL so path joins do not produce `//` segments
+ * (OpenRouter and some gateways return 404 for e.g. `/api/v1//chat/completions`).
+ */
+export function normalizeApiBaseUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/, '');
+}
+
+/** Join API base URL and path with a single slash boundary. */
+export function joinApiUrl(baseUrl: string, path: string): string {
+  const base = normalizeApiBaseUrl(baseUrl);
+  const segment = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${segment}`;
+}
+
+/**
  * 基础模型适配器抽象类。具体提供商适配器应实现 {@link ModelAdapter.clone} / {@link ModelAdapter.setModel}
  * 以便子 Agent 等在换模时保留与父级一致的密钥与高级配置（见内置 OpenAI / Anthropic / Ollama）。
  */

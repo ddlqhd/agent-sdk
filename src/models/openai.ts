@@ -1,10 +1,11 @@
 import type {
+  ContentPart,
   ModelParams,
   ModelCapabilities,
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
-import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { BaseModelAdapter, joinApiUrl, normalizeApiBaseUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
   logModelRequestEnd,
@@ -32,6 +33,85 @@ export interface OpenAIConfig {
   extraBody?: Record<string, unknown>;
 }
 
+/** OpenRouter-style reasoning detail for assistant message replay. */
+export type OpenAIReasoningTextDetail = {
+  type: 'reasoning.text';
+  text: string;
+  signature?: string;
+};
+
+/**
+ * Split SDK assistant content into OpenRouter-compatible wire fields.
+ * Maps internal `{ type: 'thinking' }` parts to top-level `reasoning` / `reasoning_details`.
+ */
+export function splitOpenAIMessageContent(
+  content: string | ContentPart[]
+): {
+  content: string;
+  reasoning?: string;
+  reasoningDetails?: OpenAIReasoningTextDetail[];
+} {
+  if (typeof content === 'string') {
+    return { content };
+  }
+  if (!Array.isArray(content)) {
+    return { content: '' };
+  }
+
+  const thinkingParts: string[] = [];
+  const textParts: string[] = [];
+  let signature: string | undefined;
+
+  for (const part of content) {
+    if (part.type === 'thinking') {
+      if (part.thinking.length > 0) {
+        thinkingParts.push(part.thinking);
+      }
+      if (part.signature && !signature) {
+        signature = part.signature;
+      }
+    } else if (part.type === 'text') {
+      textParts.push(part.text);
+    }
+  }
+
+  const result: {
+    content: string;
+    reasoning?: string;
+    reasoningDetails?: OpenAIReasoningTextDetail[];
+  } = {
+    content: textParts.join('\n\n')
+  };
+
+  if (thinkingParts.length > 0) {
+    const reasoning = thinkingParts.join('\n\n');
+    result.reasoning = reasoning;
+    const detail: OpenAIReasoningTextDetail = { type: 'reasoning.text', text: reasoning };
+    if (signature) {
+      detail.signature = signature;
+    }
+    result.reasoningDetails = [detail];
+  }
+
+  return result;
+}
+
+/** Extract plain reasoning text from OpenRouter `reasoning_details` (reasoning.text entries). */
+export function reasoningTextFromDetails(details: unknown): string {
+  if (!Array.isArray(details)) {
+    return '';
+  }
+  const texts: string[] = [];
+  for (const item of details) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = item as { type?: string; text?: string };
+    if (entry.type === 'reasoning.text' && typeof entry.text === 'string' && entry.text.length > 0) {
+      texts.push(entry.text);
+    }
+  }
+  return texts.join('\n\n');
+}
+
 /**
  * OpenAI 模型适配器
  */
@@ -49,7 +129,9 @@ export class OpenAIAdapter extends BaseModelAdapter {
   constructor(config: OpenAIConfig = {}) {
     super();
     this.apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
-    this.baseUrl = config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    this.baseUrl = normalizeApiBaseUrl(
+      config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    );
     this.model = config.model || 'gpt-4o';
     this.organization = config.organization || process.env.OPENAI_ORG_ID;
     this.thinkingToggle = config.thinking;
@@ -80,6 +162,54 @@ export class OpenAIAdapter extends BaseModelAdapter {
       throw new Error('OpenAIAdapter.setModel: model id must be non-empty');
     }
     this.model = t;
+  }
+
+  /**
+   * Replay assistant history in OpenRouter format: `reasoning` + `reasoning_details` + string `content`.
+   */
+  protected override transformMessages(messages: ModelParams['messages']): unknown[] {
+    return messages.map(msg => {
+      if (msg.role === 'assistant') {
+        const split = splitOpenAIMessageContent(msg.content);
+        const transformed: Record<string, unknown> = {
+          role: 'assistant',
+          content: split.content
+        };
+        if (split.reasoning) {
+          transformed.reasoning = split.reasoning;
+          transformed.reasoning_details = split.reasoningDetails;
+        }
+        if (msg.toolCalls) {
+          transformed.tool_calls = msg.toolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string'
+                ? tc.arguments
+                : JSON.stringify(tc.arguments)
+            }
+          }));
+        }
+        return transformed;
+      }
+
+      return {
+        role: msg.role,
+        content: msg.content,
+        ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.name,
+            arguments: typeof tc.arguments === 'string'
+              ? tc.arguments
+              : JSON.stringify(tc.arguments)
+          }
+        }))}),
+        ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
+      };
+    });
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
@@ -148,10 +278,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
             if (!choice) continue;
             const delta = choice.delta ?? {};
 
-            // vLLM / 兼容网关：推理增量（thinking 语义）
+            // vLLM / OpenRouter / 兼容网关：推理增量（thinking 语义）
             const reasoningDelta =
               (typeof delta.reasoning === 'string' && delta.reasoning) ||
-              (typeof delta.reasoning_content === 'string' && delta.reasoning_content);
+              (typeof delta.reasoning_content === 'string' && delta.reasoning_content) ||
+              reasoningTextFromDetails(delta.reasoning_details);
             if (reasoningDelta) {
               reasoningBlockOpen = true;
               yield { type: 'thinking', content: reasoningDelta, ...raw };
@@ -306,6 +437,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
     const reasoningStr =
       (typeof msg.reasoning === 'string' && msg.reasoning) ||
       (typeof msg.reasoning_content === 'string' && msg.reasoning_content) ||
+      reasoningTextFromDetails(msg.reasoning_details) ||
       '';
     if (reasoningStr.length > 0) {
       result.thinking = reasoningStr;
@@ -388,7 +520,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
       headers['OpenAI-Organization'] = this.organization;
     }
     try {
-      const response = await globalThis.fetch(`${this.baseUrl}${path}`, {
+      const response = await globalThis.fetch(joinApiUrl(this.baseUrl, path), {
         method: 'POST',
         headers,
         body: JSON.stringify(body),

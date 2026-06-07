@@ -5,7 +5,7 @@ import type {
   CompletionResult,
   ContentPart
 } from '../core/types.js';
-import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { BaseModelAdapter, joinApiUrl, normalizeApiBaseUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
   logModelRequestEnd,
@@ -116,7 +116,9 @@ export class OllamaAdapter extends BaseModelAdapter {
 
   constructor(config: OllamaConfig = {}) {
     super();
-    this.baseUrl = config.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    this.baseUrl = normalizeApiBaseUrl(
+      config.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
+    );
     this.model = config.model || 'qwen3.5:0.8b';
     this.think = config.think;
     this.extraBody = config.extraBody;
@@ -376,7 +378,7 @@ export class OllamaAdapter extends BaseModelAdapter {
       params
     }, body);
     try {
-      const response = await globalThis.fetch(`${this.baseUrl}${path}`, {
+      const response = await globalThis.fetch(joinApiUrl(this.baseUrl, path), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

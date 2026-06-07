@@ -4,7 +4,7 @@ import type {
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
-import { BaseModelAdapter, toolsToModelSchema } from './base.js';
+import { BaseModelAdapter, joinApiUrl, normalizeApiBaseUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
   logModelRequestEnd,
@@ -245,7 +245,9 @@ export class AnthropicAdapter extends BaseModelAdapter {
   constructor(config: AnthropicConfig = {}) {
     super();
     this.apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY || '';
-    this.baseUrl = config.baseUrl || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
+    this.baseUrl = normalizeApiBaseUrl(
+      config.baseUrl || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+    );
     this.model = config.model || 'claude-sonnet-4-20250514';
     this.version = config.version || '2023-06-01';
     this.requestMetadata = config.metadata;
@@ -704,7 +706,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
       body,
       { httpMaxAttempts: this.fetchRetry.maxAttempts }
     );
-    const url = `${this.baseUrl}${path}`;
+    const url = joinApiUrl(this.baseUrl, path);
     const init: RequestInit = {
       method: 'POST',
       headers: {
