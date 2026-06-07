@@ -41,7 +41,7 @@ CLI 调试入口见 [`sdk-cli.md`](./sdk-cli.md)。
 ## 2. 源码级参考（Contributor）
 
 - Agent 生命周期：`src/core/agent.ts`
-- Subagent 委派执行：`examples/subagent-demo.ts`
+- Subagent 委派执行：`src/tools/builtin/subagent.ts`、`src/subagents/`
 - 类型定义全集：`src/core/types.ts`
 - 模型工厂与 provider 分发：`src/models/index.ts`
 - OpenAI 适配：`src/models/openai.ts`

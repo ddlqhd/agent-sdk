@@ -524,8 +524,6 @@ Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、
 
 成功时工具结果可带 **`metadata`**（如 `sessionId`、`subagentType`、`durationMs`、`usage`、`toolNames`、`description`；若请求中传了 **`model`** 则 **`subagentModelOverride`** 为传入的模型 id 字符串），便于观测与计费；失败路径亦可能含部分字段。
 
-示例见 **`examples/subagent-demo.ts`**（[`sdk-examples-index.md`](./sdk-examples-index.md)）。
-
 ## 14. 与 Web Demo 的对照
 
 仓库 **`examples/web-demo`** 演示如何将环境变量、MCP 配置、Skill 目录与 Agent 构造串起来；生产环境可复用同一模式（配置对象 + `userBasePath` / `cwd`）。索引与文件清单见 [`sdk-examples-index.md`](./sdk-examples-index.md) 第 1 节。
