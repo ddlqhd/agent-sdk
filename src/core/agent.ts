@@ -23,7 +23,12 @@ import {
   type MCPInitializationSummary,
   type AgentResourceInitStepResult,
   type CompressionStats,
-  type MCPServerInitializationResult
+  type MCPServerInitializationResult,
+  type ForkSessionOptions,
+  type ForkSessionResult,
+  type RewindSessionResult,
+  type RewindToCheckpointOptions,
+  type SessionCheckpoint
 } from '../core/types.js';
 import type { SubagentProfile } from '../subagents/types.js';
 import { randomUUID } from 'crypto';
@@ -86,6 +91,14 @@ export interface StreamOptions {
   signal?: AbortSignal;
   /** Pass through to {@link ModelParams.includeRawStreamEvents} (e.g. Anthropic `providerRaw` on chunks). */
   includeRawStreamEvents?: boolean;
+  /** With {@link StreamOptions.sessionId}: fork before streaming (see {@link Agent.forkSession}). */
+  forkSession?: boolean;
+}
+
+/** Options for {@link Agent.forkSession} */
+export interface AgentForkSessionOptions extends ForkSessionOptions {
+  /** When true, attach the forked session and reload in-memory messages (default false). */
+  switchToForked?: boolean;
 }
 
 /**
@@ -672,7 +685,9 @@ export class Agent {
 
   private async prepareStreamSession(options?: StreamOptions): Promise<void> {
     await this.initPromise;
-    if (options?.sessionId) {
+    if (options?.sessionId && options?.forkSession) {
+      await this.forkSession(options.sessionId, { switchToForked: true });
+    } else if (options?.sessionId) {
       const isSwitchingSession = this.sessionManager.sessionId !== options.sessionId;
       if (isSwitchingSession) {
         this.resetSessionState();
@@ -695,6 +710,39 @@ export class Agent {
       this.notifySessionCreate();
     }
     this.attachSdkLogToHooks();
+  }
+
+  private async reloadMessagesFromAttachedSession(options?: StreamOptions): Promise<void> {
+    while (this.messages[0]?.role === 'system') {
+      this.messages.shift();
+    }
+    this.messages = await this.sessionManager.loadActiveMessages();
+    this.appendInitialSystemMessages(options);
+    this.syncPersistedNonSystemFromMemory();
+    this.sessionUsage = this.contextManager
+      ? this.contextManager.resetUsage()
+      : Agent.createEmptySessionUsage();
+  }
+
+  private notifySessionFork(ctx: {
+    sourceSessionId: string;
+    sessionId: string;
+    messageCount: number;
+  }): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onSessionFork?.(ctx);
+    });
+  }
+
+  private notifySessionRewind(ctx: {
+    sessionId: string;
+    keptMessageCount: number;
+    droppedMessageCount: number;
+    keepThroughRawIndex?: number;
+  }): void {
+    this.safeLifecycleVoid(() => {
+      this.config.callbacks?.lifecycle?.onSessionRewind?.(ctx);
+    });
   }
 
   private countPersistableMessages(): number {
@@ -850,7 +898,7 @@ export class Agent {
         ...this.baseRunContext(),
         inputLength: input.length,
         processedInputLength: processedInput.length,
-        resumeSessionId: options?.sessionId
+        resumeSessionId: this.sessionManager.sessionId ?? options?.sessionId
       });
     });
   }
@@ -1643,6 +1691,71 @@ export class Agent {
    */
   getSessionManager(): SessionManager {
     return this.sessionManager;
+  }
+
+  /**
+   * List rewind checkpoints (all user prompts in raw transcript).
+   */
+  async listSessionCheckpoints(): Promise<SessionCheckpoint[]> {
+    return this.sessionManager.listSessionCheckpoints();
+  }
+
+  /**
+   * Rewind the attached session to a checkpoint (user prompt).
+   */
+  async rewindToCheckpoint(options: RewindToCheckpointOptions): Promise<RewindSessionResult> {
+    const result = await this.sessionManager.rewindToCheckpoint(options);
+    await this.reloadMessagesFromAttachedSession();
+    const sessionId = this.sessionManager.sessionId;
+    if (sessionId) {
+      this.notifySessionRewind({
+        sessionId,
+        keptMessageCount: result.keptMessageCount,
+        droppedMessageCount: result.droppedMessageCount,
+        keepThroughRawIndex: result.keepThroughRawIndex
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Rewind by raw JSONL line index (must point to a user message row).
+   */
+  async rewindSession(keepThroughRawIndex: number): Promise<RewindSessionResult> {
+    return this.rewindToCheckpoint({ keepThroughRawIndex });
+  }
+
+  /**
+   * Fork a session into a new session id (source unchanged).
+   */
+  async forkSession(
+    sourceSessionId?: string,
+    options?: AgentForkSessionOptions
+  ): Promise<ForkSessionResult> {
+    const source = sourceSessionId ?? this.sessionManager.sessionId;
+    if (!source) {
+      throw new Error('forkSession requires sourceSessionId or an attached session');
+    }
+    const { switchToForked, ...forkOpts } = options ?? {};
+    const result = await this.sessionManager.forkSession(source, forkOpts);
+    this.notifySessionFork({
+      sourceSessionId: result.sourceSessionId,
+      sessionId: result.sessionId,
+      messageCount: result.messageCount
+    });
+    if (switchToForked) {
+      this.resetSessionState();
+      await this.sessionManager.attachSession(result.sessionId);
+      await this.reloadMessagesFromAttachedSession();
+    }
+    return result;
+  }
+
+  /**
+   * Active persistable message count (matches {@link SessionManager.loadActiveMessages}).
+   */
+  getActiveMessageCount(): number {
+    return this.messages.filter((m) => m.role !== 'system').length;
   }
 
   /**

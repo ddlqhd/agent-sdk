@@ -4,6 +4,7 @@ import type {
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
+  RewindEntry,
   SystemPromptSidecar
 } from '../core/types.js';
 
@@ -22,9 +23,9 @@ export class MemoryStorage implements StorageAdapter {
     const existing = this.sessions.get(sessionId) ?? [];
     const now = Date.now();
     const stamped = entries.map((e) => {
-      if ((e as SummaryEntry).$type === 'summary') {
-        const s = e as SummaryEntry;
-        return { ...s, timestamp: s.timestamp ?? now };
+      if ((e as SummaryEntry).$type === 'summary' || (e as RewindEntry).$type === 'rewind') {
+        const meta = e as SummaryEntry | RewindEntry;
+        return { ...meta, timestamp: meta.timestamp ?? now };
       }
       return {
         ...(e as object),

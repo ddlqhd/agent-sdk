@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'fs';
 import type {
   CompressionStats,
+  ContentPart,
+  ForkSessionOptions,
+  ForkSessionResult,
   Message,
+  RewindEntry,
+  RewindSessionResult,
+  RewindToCheckpointOptions,
+  SessionCheckpoint,
   SessionEntry,
   SessionInfo,
   StorageAdapter,
@@ -15,14 +23,111 @@ import {
   parseCompactionSyntheticUser
 } from '../core/compressor.js';
 import { createStorage } from './interface.js';
+import { JsonlStorage } from './jsonl.js';
+import { MemoryStorage } from './memory.js';
+
+const CHECKPOINT_ID_PREFIX = 'v1:';
+const CHECKPOINT_PREVIEW_MAX = 80;
+
+export function isSummaryEntry(e: SessionEntry): e is SummaryEntry {
+  return (e as SummaryEntry).$type === 'summary';
+}
+
+export function isRewindEntry(e: SessionEntry): e is RewindEntry {
+  return (e as RewindEntry).$type === 'rewind';
+}
+
+export function isPersistableMessageEntry(e: SessionEntry): e is Message & { $type?: 'message' } {
+  if (isSummaryEntry(e) || isRewindEntry(e)) {
+    return false;
+  }
+  const m = e as Message;
+  return m.role !== undefined && m.role !== 'system';
+}
+
+export function isUserCheckpointEntry(e: SessionEntry): boolean {
+  return isPersistableMessageEntry(e) && (e as Message).role === 'user';
+}
+
+export function encodeCheckpointId(sessionId: string, keepThroughRawIndex: number): string {
+  return `${CHECKPOINT_ID_PREFIX}${sessionId}:${keepThroughRawIndex}`;
+}
+
+export function decodeCheckpointId(checkpointId: string, expectedSessionId: string): number {
+  if (!checkpointId.startsWith(CHECKPOINT_ID_PREFIX)) {
+    throw new Error(`Invalid checkpointId: ${checkpointId}`);
+  }
+  const body = checkpointId.slice(CHECKPOINT_ID_PREFIX.length);
+  const colon = body.lastIndexOf(':');
+  if (colon <= 0) {
+    throw new Error(`Invalid checkpointId: ${checkpointId}`);
+  }
+  const sessionId = body.slice(0, colon);
+  const index = Number.parseInt(body.slice(colon + 1), 10);
+  if (sessionId !== expectedSessionId) {
+    throw new Error(
+      `checkpointId session mismatch: expected ${expectedSessionId}, got ${sessionId}`
+    );
+  }
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error(`Invalid checkpointId: ${checkpointId}`);
+  }
+  return index;
+}
+
+function summaryToUserMessage(s: SummaryEntry): Message {
+  const content =
+    s.summaryMode === 'llm'
+      ? formatSyntheticUserSummary(s.text)
+      : formatSyntheticFallbackNotice(s.text);
+  return { role: 'user', content };
+}
+
+function entryToMessage(e: SessionEntry): Message | null {
+  if (isSummaryEntry(e)) {
+    return summaryToUserMessage(e);
+  }
+  if (isRewindEntry(e)) {
+    return null;
+  }
+  const m = e as Message;
+  if (m.role === 'system') {
+    return null;
+  }
+  const { timestamp: _ts, ...rest } = m as Message & { timestamp?: number };
+  return rest as Message;
+}
 
 /**
- * 从磁盘原始条目重建「活动链」：自最后一个 {@link SummaryEntry} 起（含），之前忽略。
+ * Prefix walk from start through endInclusive (inclusive).
  */
-export function reconstructActiveMessages(entries: SessionEntry[]): Message[] {
+export function reconstructPrefixMessages(
+  entries: SessionEntry[],
+  endInclusive: number
+): Message[] {
+  const out: Message[] = [];
+  const end = Math.min(endInclusive, entries.length - 1);
+  for (let i = 0; i <= end; i++) {
+    const e = entries[i];
+    if (isSummaryEntry(e)) {
+      out.length = 0;
+      out.push(summaryToUserMessage(e));
+    } else if (isRewindEntry(e)) {
+      continue;
+    } else {
+      const m = entryToMessage(e);
+      if (m) {
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
+function reconstructSegmentFromLastSummary(entries: SessionEntry[]): Message[] {
   let start = 0;
   for (let i = entries.length - 1; i >= 0; i--) {
-    if ((entries[i] as SummaryEntry).$type === 'summary') {
+    if (isSummaryEntry(entries[i])) {
       start = i;
       break;
     }
@@ -30,23 +135,84 @@ export function reconstructActiveMessages(entries: SessionEntry[]): Message[] {
   const slice = entries.slice(start);
   const out: Message[] = [];
   for (const e of slice) {
-    if ((e as SummaryEntry).$type === 'summary') {
-      const s = e as SummaryEntry;
-      const content =
-        s.summaryMode === 'llm'
-          ? formatSyntheticUserSummary(s.text)
-          : formatSyntheticFallbackNotice(s.text);
-      out.push({ role: 'user', content });
+    if (isSummaryEntry(e)) {
+      out.length = 0;
+      out.push(summaryToUserMessage(e));
+    } else if (isRewindEntry(e)) {
+      continue;
     } else {
-      const m = e as Message;
-      if (m.role === 'system') {
-        continue;
+      const m = entryToMessage(e);
+      if (m) {
+        out.push(m);
       }
-      const { timestamp: _ts, ...rest } = m as Message & { timestamp?: number };
-      out.push(rest as Message);
     }
   }
   return out;
+}
+
+function findLastRewindIndex(entries: SessionEntry[]): number {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (isRewindEntry(entries[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 从磁盘原始条目重建活动链（含 rewind prefix + tail 语义）。
+ */
+export function reconstructActiveMessages(entries: SessionEntry[]): Message[] {
+  const rewindIdx = findLastRewindIndex(entries);
+  if (rewindIdx < 0) {
+    return reconstructSegmentFromLastSummary(entries);
+  }
+  const rewind = entries[rewindIdx] as RewindEntry;
+  const prefix = reconstructPrefixMessages(entries, rewind.keepThroughRawIndex);
+  const tailSlice = entries.slice(rewindIdx + 1);
+  if (tailSlice.length === 0) {
+    return prefix;
+  }
+  const tailActive = reconstructSegmentFromLastSummary(tailSlice);
+  return [...prefix, ...tailActive];
+}
+
+function formatCheckpointPreview(content: string | ContentPart[]): string {
+  if (typeof content === 'string') {
+    if (content.length <= CHECKPOINT_PREVIEW_MAX) {
+      return content;
+    }
+    return `${content.slice(0, CHECKPOINT_PREVIEW_MAX)}…`;
+  }
+  return '[multimodal]';
+}
+
+export function listSessionCheckpointsFromRaw(
+  sessionId: string,
+  entries: SessionEntry[]
+): SessionCheckpoint[] {
+  const checkpoints: SessionCheckpoint[] = [];
+  let userTurnIndex = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!isUserCheckpointEntry(e)) {
+      continue;
+    }
+    const m = e as Message;
+    const summariesAfter = entries.filter(
+      (row, idx) => idx > i && isSummaryEntry(row)
+    ).length;
+    const ts = (m as Message & { timestamp?: number }).timestamp;
+    checkpoints.push({
+      checkpointId: encodeCheckpointId(sessionId, i),
+      userTurnIndex,
+      preview: formatCheckpointPreview(m.content),
+      ...(ts !== undefined ? { timestamp: ts } : {}),
+      ...(summariesAfter > 0 ? { summariesAfter } : {})
+    });
+    userTurnIndex++;
+  }
+  return checkpoints;
 }
 
 /** 将 {@link Message} 转为可写入 JSONL 的条目（不写 system） */
@@ -74,6 +240,75 @@ export function buildSummaryEntry(
     stats,
     timestamp
   };
+}
+
+export function buildRewindEntry(
+  keepThroughRawIndex: number,
+  timestamp: number = Date.now()
+): RewindEntry {
+  return {
+    $type: 'rewind',
+    keepThroughRawIndex,
+    timestamp
+  };
+}
+
+function resolveForkThroughRawIndex(
+  entries: SessionEntry[],
+  sessionId: string,
+  options: ForkSessionOptions
+): number | undefined {
+  if (options.throughRawIndex !== undefined) {
+    return options.throughRawIndex;
+  }
+  if (options.checkpointId !== undefined) {
+    return decodeCheckpointId(options.checkpointId, sessionId);
+  }
+  if (options.userTurnIndex !== undefined) {
+    return resolveUserTurnIndexToRaw(entries, options.userTurnIndex);
+  }
+  return undefined;
+}
+
+function resolveUserTurnIndexToRaw(entries: SessionEntry[], userTurnIndex: number): number {
+  let count = 0;
+  for (let i = 0; i < entries.length; i++) {
+    if (isUserCheckpointEntry(entries[i])) {
+      if (count === userTurnIndex) {
+        return i;
+      }
+      count++;
+    }
+  }
+  throw new Error(`userTurnIndex ${userTurnIndex} not found in session transcript`);
+}
+
+function resolveRewindKeepThroughRawIndex(
+  entries: SessionEntry[],
+  sessionId: string,
+  options: RewindToCheckpointOptions
+): number {
+  if (options.keepThroughRawIndex !== undefined) {
+    return options.keepThroughRawIndex;
+  }
+  if (options.checkpointId !== undefined) {
+    return decodeCheckpointId(options.checkpointId, sessionId);
+  }
+  if (options.userTurnIndex !== undefined) {
+    return resolveUserTurnIndexToRaw(entries, options.userTurnIndex);
+  }
+  throw new Error(
+    'rewindToCheckpoint requires checkpointId, userTurnIndex, or keepThroughRawIndex'
+  );
+}
+
+function assertUserCheckpointRawIndex(entries: SessionEntry[], rawIndex: number): void {
+  if (rawIndex < 0 || rawIndex >= entries.length) {
+    throw new Error(`Invalid raw index ${rawIndex} for session transcript`);
+  }
+  if (!isUserCheckpointEntry(entries[rawIndex])) {
+    throw new Error(`Raw index ${rawIndex} is not a user message checkpoint`);
+  }
 }
 
 /**
@@ -149,6 +384,104 @@ export class SessionManager {
   async loadActiveMessages(): Promise<Message[]> {
     const raw = await this.loadRawEntries();
     return reconstructActiveMessages(raw);
+  }
+
+  async listSessionCheckpoints(): Promise<SessionCheckpoint[]> {
+    if (!this.currentSessionId) {
+      throw new Error('No session attached');
+    }
+    const entries = await this.loadRawEntries();
+    return listSessionCheckpointsFromRaw(this.currentSessionId, entries);
+  }
+
+  async rewindSession(keepThroughRawIndex: number): Promise<RewindSessionResult> {
+    if (!this.currentSessionId) {
+      throw new Error('No session attached');
+    }
+    const entries = await this.loadRawEntries();
+    assertUserCheckpointRawIndex(entries, keepThroughRawIndex);
+    const before = reconstructActiveMessages(entries).length;
+    const rewindEntry = buildRewindEntry(keepThroughRawIndex);
+    await this.appendEntries([rewindEntry]);
+    const after = reconstructActiveMessages([...entries, rewindEntry]).length;
+    return {
+      keepThroughRawIndex,
+      keptMessageCount: after,
+      droppedMessageCount: before - after
+    };
+  }
+
+  async rewindToCheckpoint(options: RewindToCheckpointOptions): Promise<RewindSessionResult> {
+    if (!this.currentSessionId) {
+      throw new Error('No session attached');
+    }
+    const entries = await this.loadRawEntries();
+    const keepThroughRawIndex = resolveRewindKeepThroughRawIndex(
+      entries,
+      this.currentSessionId,
+      options
+    );
+    return this.rewindSession(keepThroughRawIndex);
+  }
+
+  async forkSession(
+    sourceSessionId: string,
+    options: ForkSessionOptions = {}
+  ): Promise<ForkSessionResult> {
+    const exists = await this.storage.exists(sourceSessionId);
+    if (!exists) {
+      throw new Error(`session.fork: Session not found: ${sourceSessionId}`);
+    }
+    const newId = options.newSessionId ?? randomUUID();
+    if (options.newSessionId !== undefined && (await this.storage.exists(newId))) {
+      throw new Error(`session.fork: Session already exists: ${newId}`);
+    }
+    const entries = await this.storage.load(sourceSessionId);
+    const throughRawIndex = resolveForkThroughRawIndex(entries, sourceSessionId, options);
+    let messages: Message[];
+    if (throughRawIndex !== undefined) {
+      assertUserCheckpointRawIndex(entries, throughRawIndex);
+      messages = reconstructPrefixMessages(entries, throughRawIndex);
+    } else {
+      messages = reconstructActiveMessages(entries);
+    }
+    const messageEntries = messages.map((m) => messageToSessionEntry(m));
+    await this.storage.append(newId, messageEntries);
+    await this.copySystemSidecarIfPresent(sourceSessionId, newId);
+    return {
+      sessionId: newId,
+      sourceSessionId,
+      messageCount: messages.length
+    };
+  }
+
+  private async copySystemSidecarIfPresent(fromId: string, toId: string): Promise<void> {
+    if (!this.storage.saveSystemPrompt) {
+      return;
+    }
+    if (this.storage instanceof MemoryStorage) {
+      const side = this.storage.getSystemPromptSidecar(fromId);
+      if (side) {
+        await this.storage.saveSystemPrompt(toId, side.content, {
+          agentName: side.agentName,
+          cwd: side.cwd
+        });
+      }
+      return;
+    }
+    if (this.storage instanceof JsonlStorage) {
+      const sysPath = this.storage.getSystemSidecarFilePath(fromId);
+      try {
+        const raw = await fs.readFile(sysPath, 'utf-8');
+        const side = JSON.parse(raw) as SystemPromptSidecar;
+        await this.storage.saveSystemPrompt(toId, side.content, {
+          agentName: side.agentName,
+          cwd: side.cwd
+        });
+      } catch {
+        // no sidecar
+      }
+    }
   }
 
   async saveSystemPrompt(

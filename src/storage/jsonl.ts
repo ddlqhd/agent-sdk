@@ -6,6 +6,7 @@ import type {
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
+  RewindEntry,
   SystemPromptSidecar
 } from '../core/types.js';
 
@@ -37,9 +38,17 @@ export class JsonlStorage implements StorageAdapter {
     return join(this.basePath, `${safeId}.meta.json`);
   }
 
+  getBasePath(): string {
+    return this.basePath;
+  }
+
   private getSystemSidecarPath(sessionId: string): string {
     const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
     return join(this.basePath, `${safeId}.system.json`);
+  }
+
+  getSystemSidecarFilePath(sessionId: string): string {
+    return this.getSystemSidecarPath(sessionId);
   }
 
   private async ensureDir(): Promise<void> {
@@ -95,6 +104,9 @@ export class JsonlStorage implements StorageAdapter {
       if (parsed.$type === 'summary') {
         return parsed as unknown as SummaryEntry;
       }
+      if (parsed.$type === 'rewind') {
+        return parsed as unknown as RewindEntry;
+      }
       const { timestamp: _t, ...rest } = parsed;
       return rest as unknown as SessionEntry;
     } catch {
@@ -116,8 +128,8 @@ export class JsonlStorage implements StorageAdapter {
       entries
         .map((e) => {
       const rec =
-        (e as SummaryEntry).$type === 'summary'
-          ? { ...e, timestamp: (e as SummaryEntry).timestamp ?? now }
+        (e as SummaryEntry).$type === 'summary' || (e as RewindEntry).$type === 'rewind'
+          ? { ...e, timestamp: ((e as SummaryEntry | RewindEntry).timestamp ?? now) }
           : ({
               ...(e as unknown as Record<string, unknown>),
               timestamp: (e as { timestamp?: number }).timestamp ?? now

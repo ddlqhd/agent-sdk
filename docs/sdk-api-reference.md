@@ -33,6 +33,10 @@
 - `registerTool(tool)` / `registerTools(tools)`：注册工具
 - `getToolRegistry()`：获取工具注册中心
 - `getSessionManager()`：获取会话管理器
+- `listSessionCheckpoints()`：列出 raw 中全部 user prompt 回退锚点
+- `rewindToCheckpoint(options)` / `rewindSession(keepThroughRawIndex)`：对话回退（保留 checkpoint user 及之前消息）
+- `forkSession(sourceSessionId?, options?)`：分支新会话（`switchToForked?: true` 切换内存态）
+- `getActiveMessageCount()`：当前活动链非 system 消息条数
 - `connectMCP(config)` / `disconnectMCP(name)` / `disconnectAllMCP()`：MCP 生命周期
 - `loadSkill(path)` / `getSkillRegistry()`：Skill 管理
 - `getMessages()` / `clearMessages()`：消息历史
@@ -126,9 +130,17 @@
 - `getSessionStoragePath(userBasePath?)` / `getLatestSessionId(userBasePath?)`：会话目录与「最近会话 id」解析（与 CLI `--user-base-path` / `--resume` 一致）
 - `JsonlStorage` / `createJsonlStorage(basePath?)`
 - `MemoryStorage` / `createMemoryStorage()`
-- `SessionManager` / `createSessionManager(config?)`
+- `SessionManager` / `createSessionManager(config?)` — 另含 `forkSession`、`rewindSession`、`rewindToCheckpoint`、`listSessionCheckpoints`
+- Helpers：`buildRewindEntry`、`reconstructPrefixMessages`、`listSessionCheckpointsFromRaw`
 
-### Streaming
+#### Rewind 集成指南
+
+1. `const checkpoints = await agent.listSessionCheckpoints()` — 含压缩前仍留在 raw 中的 user prompt（`summariesAfter` 可选分组）。
+2. 用户选中 → `await agent.rewindToCheckpoint({ checkpointId: item.checkpointId })`（或 `{ userTurnIndex: k }`）。
+3. **Checkpoint 边界**：保留该 user 及之前所有消息；丢弃 raw 行号更大的同轮 assistant/tool 及之后轮次。
+4. **`checkpointId` 绑定 session**；切换 session 后须重新 list。
+5. **Fork**：`await agent.forkSession(sourceId, { switchToForked: true })` 或 `stream(input, { sessionId, forkSession: true })`。核心 fork 复制活动链干净 transcript，**≠** `@ddlqhd/agent-sdk-acp` 全量 raw 复制。
+
 
 第三方集成应以 **`Agent.stream`** 消费流式事件（见 [`sdk-overview.md`](./sdk-overview.md) 第 3 节）。
 

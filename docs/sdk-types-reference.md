@@ -55,6 +55,8 @@ interface StreamOptions {
   systemPrompt?: SystemPrompt;
   signal?: AbortSignal;
   includeRawStreamEvents?: boolean;
+  /** With sessionId: fork before stream (see Agent.forkSession). */
+  forkSession?: boolean;
 }
 ```
 
@@ -769,7 +771,24 @@ interface SummaryEntry {
   timestamp: number;
 }
 
-type SessionEntry = (Message & { $type?: 'message' }) | SummaryEntry;
+interface RewindEntry {
+  $type: 'rewind';
+  keepThroughRawIndex: number;
+  timestamp: number;
+}
+
+type SessionEntry =
+  | (Message & { $type?: 'message' })
+  | SummaryEntry
+  | RewindEntry;
+
+interface SessionCheckpoint {
+  checkpointId: string;
+  userTurnIndex: number;
+  preview: string;
+  timestamp?: number;
+  summariesAfter?: number;
+}
 
 interface SystemPromptSidecar {
   content: string;
@@ -793,8 +812,9 @@ interface StorageAdapter {
 }
 ```
 
-- **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }` 与保留的 `recent` 消息行，此前正文仍保留供审计。
-- **Resume 活动链**：`SessionManager.loadActiveMessages()` 从 **最后一个** `summary` 行起重建为 `Message[]`（summary 行变为 synthetic `user`），**不包含** system（system 每次 run 由 Agent 重建，并写入 `*.system.json` 侧车）。
+- **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }`；回退时追加 `{ $type: 'rewind', keepThroughRawIndex, ... }`。
+- **Resume 活动链**：无 rewind 时从**最后一个** `summary` 起重建；有 rewind 时 prefix（0..`keepThroughRawIndex`）+ tail（最后一条 rewind 之后，仍走 summary 语义）。**不包含** system。
+- **`SessionInfo.messageCount`**：raw JSONL 行数（含 summary/rewind），非 active 消息条数。
 
 `SessionInfo`:
 
@@ -808,4 +828,4 @@ interface SessionInfo {
 }
 ```
 
-`SessionManager` 主要方法：`createSession`、`attachSession`、`appendEntries`、`appendCompactionBoundary`、`loadRawEntries`、`loadActiveMessages`、`saveSystemPrompt`、`deleteSession`、`listSessions`。已移除 `saveMessages` / `resumeSession` / `appendMessage`（v2 breaking）。
+`SessionManager` 主要方法：`createSession`、`attachSession`、`appendEntries`、`appendCompactionBoundary`、`loadRawEntries`、`loadActiveMessages`、`listSessionCheckpoints`、`rewindSession`、`rewindToCheckpoint`、`forkSession`、`saveSystemPrompt`、`deleteSession`、`listSessions`。

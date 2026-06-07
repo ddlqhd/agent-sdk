@@ -9,7 +9,7 @@ export {
   DEFAULT_MAX_ITERATIONS,
   DEFAULT_SUBAGENT_TIMEOUT_MS
 } from './core/agent.js';
-export type { StreamOptions } from './core/agent.js';
+export type { StreamOptions, AgentForkSessionOptions } from './core/agent.js';
 export * from './core/types.js';
 export { mergeProcessEnv, mergeMcpStdioEnv } from './core/process-env-merge.js';
 export { TOOL_USER_ABORTED_MESSAGE } from './core/abort-constants.js';
@@ -103,10 +103,17 @@ export {
   SessionManager,
   createSessionManager,
   reconstructActiveMessages,
+  reconstructPrefixMessages,
   messageToSessionEntry,
-  buildSummaryEntry
+  buildSummaryEntry,
+  buildRewindEntry,
+  listSessionCheckpointsFromRaw,
+  encodeCheckpointId,
+  decodeCheckpointId,
+  isPersistableMessageEntry,
+  isUserCheckpointEntry
 } from './storage/index.js';
-export type { JsonlStorageConfig } from './storage/jsonl.js';
+export type { JsonlStorageConfig, SessionManagerConfig } from './storage/index.js';
 
 // Streaming
 export {

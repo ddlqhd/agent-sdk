@@ -498,10 +498,58 @@ export interface SummaryEntry {
   timestamp: number;
 }
 
-/** 会话中一行：普通消息或 summary 元条目 */
+/**
+ * JSONL 中的对话回退锚点（append-only；活动链由最后一个 rewind 决定 prefix + tail）
+ */
+export interface RewindEntry {
+  $type: 'rewind';
+  /** append-only JSONL 中保留到的 inclusive raw 行索引（指向 user 消息行） */
+  keepThroughRawIndex: number;
+  timestamp: number;
+}
+
+/** 会话中一行：普通消息、summary 或 rewind 元条目 */
 export type SessionEntry =
   | (Message & { $type?: 'message' })
-  | SummaryEntry;
+  | SummaryEntry
+  | RewindEntry;
+
+/** {@link SessionManager.listSessionCheckpoints} 返回的可回退 user prompt */
+export interface SessionCheckpoint {
+  checkpointId: string;
+  /** 0-based：raw 中第 k 条 user 消息 */
+  userTurnIndex: number;
+  preview: string;
+  timestamp?: number;
+  /** 该 checkpoint 之后 raw 中还有几条 summary 行（多次压缩 UI 分组） */
+  summariesAfter?: number;
+}
+
+export interface ForkSessionOptions {
+  newSessionId?: string;
+  /** 复制到 inclusive raw 行；省略 = 复制当前活动链 */
+  throughRawIndex?: number;
+  checkpointId?: string;
+  userTurnIndex?: number;
+}
+
+export interface ForkSessionResult {
+  sessionId: string;
+  sourceSessionId: string;
+  messageCount: number;
+}
+
+export interface RewindSessionResult {
+  keepThroughRawIndex: number;
+  keptMessageCount: number;
+  droppedMessageCount: number;
+}
+
+export interface RewindToCheckpointOptions {
+  checkpointId?: string;
+  userTurnIndex?: number;
+  keepThroughRawIndex?: number;
+}
 
 /**
  * {@link SessionManager.saveSystemPrompt} 侧车文件内容

@@ -9,6 +9,7 @@
 - **Logging**: `ModelParams.logContext` preferred over separate `logger` / `logLevel` / `redaction` on model requests.
 - **Docs**: [sdk-log-events.md](./docs/sdk-log-events.md), [sdk-observability-matrix.md](./docs/sdk-observability-matrix.md), [sdk-observability-spike.md](./docs/sdk-observability-spike.md).
 - **Observability**: `publishSdkDiagnostic` and `SDK_DIAGNOSTIC_CHANNELS` (`node:diagnostics_channel`, opt-in).
+- **Session fork & rewind**: `RewindEntry` in JSONL; `SessionManager.forkSession`, `rewindSession`, `rewindToCheckpoint`, `listSessionCheckpoints`; `Agent` mirrors with `forkSession`, `rewindToCheckpoint`, `listSessionCheckpoints`, `getActiveMessageCount`; `StreamOptions.forkSession` to fork before `stream`. Lifecycle: `onSessionFork`, `onSessionRewind`. See [`docs/sdk-api-reference.md`](./docs/sdk-api-reference.md) (Rewind 集成指南).
 
 ### Changed
 

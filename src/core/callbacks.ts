@@ -138,6 +138,17 @@ export interface AgentLifecycleCallbacks {
   onRunAbort?: (ctx: AgentRunContext & { iteration?: number }) => void;
   onSessionCreate?: (ctx: { sessionId?: string }) => void;
   onSessionResume?: (ctx: { sessionId: string; messageCount: number }) => void;
+  onSessionFork?: (ctx: {
+    sourceSessionId: string;
+    sessionId: string;
+    messageCount: number;
+  }) => void;
+  onSessionRewind?: (ctx: {
+    sessionId: string;
+    keptMessageCount: number;
+    droppedMessageCount: number;
+    keepThroughRawIndex?: number;
+  }) => void;
 
   onIterationStart?: (
     ctx: { iteration: number; messageCount: number; toolCount: number } & AgentRunContext
