@@ -17,6 +17,7 @@ import {
   resolveProvider,
   type ModelProvider
 } from './env.js';
+import { logInfo } from './logging.js';
 import { ensureSdkBuilt } from './paths.js';
 import { resolveAcpUserBase } from './user-base.js';
 
@@ -51,6 +52,12 @@ export async function buildSessionAgent(options: BuildSessionAgentOptions): Prom
       if (todos) {
         await options.eventBridge.emitPlanFromTodos(todos);
       }
+    },
+    onSessionFork: (ctx) => {
+      logInfo(
+        'session fork',
+        `${ctx.sourceSessionId} -> ${ctx.sessionId} (${ctx.messageCount} messages)`
+      );
     }
   };
 

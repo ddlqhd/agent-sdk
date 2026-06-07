@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { SessionManager, reconstructActiveMessages } from '../../src/storage/session.js';
+import { MemoryStorage } from '../../src/storage/memory.js';
+import { replaySessionHistory } from '../../packages/agent-sdk-acp/src/history-replay.js';
 import {
   buildToolCallStart,
   getToolKind,
@@ -165,6 +168,47 @@ describe('mapAcpMcpServers', () => {
       }
     ]);
     expect(mapped).toBeUndefined();
+  });
+});
+
+describe('replaySessionHistory', () => {
+  it('replays user and assistant only (skips tool)', async () => {
+    const updates: unknown[] = [];
+    const conn = {
+      sessionUpdate: async (u: unknown) => {
+        updates.push(u);
+      }
+    } as never;
+    await replaySessionHistory(conn, 'sess-fork', [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi' },
+      { role: 'tool', content: 'ignored', toolCallId: 't1' }
+    ]);
+    expect(updates).toHaveLength(2);
+  });
+});
+
+describe('acp fork active chain alignment', () => {
+  it('forkSession copies active chain after rewind, not raw audit rows', async () => {
+    const sm = new SessionManager({ type: 'memory' });
+    sm.createSession('source-acp');
+    await sm.appendEntries([
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a2' }
+    ]);
+    await sm.rewindToCheckpoint({ userTurnIndex: 0 });
+    const rawLen = (await sm.loadRawEntries()).length;
+    expect(rawLen).toBeGreaterThan(3);
+
+    const forked = await sm.forkSession('source-acp', { newSessionId: 'fork-acp' });
+    const mem = sm.getStorage() as MemoryStorage;
+    const forkRaw = mem.export()['fork-acp'] ?? [];
+    const forkActive = reconstructActiveMessages(forkRaw);
+    expect(forkRaw.every((e) => (e as { $type?: string }).$type !== 'rewind')).toBe(true);
+    expect(forkActive.map((m) => m.content)).toEqual(['u1']);
+    expect(forked.messageCount).toBe(1);
   });
 });
 

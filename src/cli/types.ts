@@ -58,4 +58,13 @@ export interface CLIConfig {
 
   /** 与 `AgentModelConfig.thinkingLevel` 对齐；由各 adapter 按需使用。 */
   thinkingLevel?: 'low' | 'medium' | 'high';
+
+  /** Stream/run 前 fork 当前 session（需 --session 或 --resume） */
+  fork?: boolean;
+
+  /** Stream/run 前 fork 到指定 checkpoint */
+  forkCheckpointId?: string;
+
+  /** Stream/run 前 fork 到 0-based user turn */
+  forkUserTurnIndex?: number;
 }

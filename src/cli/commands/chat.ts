@@ -20,6 +20,8 @@ import {
 import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from '../utils/ask-user-question.js';
 import { getLatestSessionId, getSessionStoragePath } from '../../storage/session-path.js';
+import { formatTable } from '../utils/output.js';
+import type { AgentForkSessionOptions, StreamOptions } from '../../core/agent.js';
 
 function parseThinkingCli(value?: string): boolean {
   if (value === undefined || value === '') return true;
@@ -68,7 +70,128 @@ function addModelOptions(cmd: Command): Command {
     .option(
       '--log-file <path>',
       'JSONL log file path (default: <userBase>/.claude/logs/agent-sdk-<date>.log; AGENT_SDK_LOG_FILE overrides)'
+    )
+    .option('--fork', 'Fork session before streaming (requires --session or --resume)')
+    .option('--fork-checkpoint-id <id>', 'Fork at checkpoint before streaming')
+    .option('--fork-user-turn-index <n>', 'Fork at 0-based user turn before streaming', parseInt);
+}
+
+/** Attach JSONL session before slash commands (e.g. chat --resume before first stream). */
+async function ensureChatSessionAttached(agent: Agent, sessionId: string): Promise<void> {
+  const sm = agent.getSessionManager();
+  if (sm.sessionId === sessionId) {
+    return;
+  }
+  try {
+    await sm.attachSession(sessionId);
+  } catch {
+    sm.createSession(sessionId);
+  }
+}
+
+async function applyPreStreamFork(
+  agent: Agent,
+  sessionId: string | undefined,
+  options: CLIConfig
+): Promise<string | undefined> {
+  const wantsFork =
+    options.fork || options.forkCheckpointId !== undefined || options.forkUserTurnIndex !== undefined;
+  if (!wantsFork) {
+    return sessionId;
+  }
+  if (!sessionId) {
+    throw new Error('--fork / --fork-checkpoint-id / --fork-user-turn-index require --session or --resume');
+  }
+  const forkOpts: AgentForkSessionOptions = { switchToForked: true };
+  if (options.forkCheckpointId) forkOpts.checkpointId = options.forkCheckpointId;
+  if (options.forkUserTurnIndex !== undefined) forkOpts.userTurnIndex = options.forkUserTurnIndex;
+  const result = await agent.forkSession(sessionId, forkOpts);
+  console.log(
+    chalk.gray(
+      `Forked ${result.sourceSessionId} → ${result.sessionId} (${result.messageCount} messages)`
+    )
+  );
+  return result.sessionId;
+}
+
+function buildStreamOptions(
+  sessionId: string | undefined,
+  signal?: AbortSignal
+): StreamOptions {
+  return { sessionId, signal };
+}
+
+async function handleChatSlashCommand(
+  agent: Agent,
+  input: string,
+  sessionId: string | undefined
+): Promise<{ handled: true; sessionId: string | undefined } | { handled: false }> {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) {
+    return { handled: false };
+  }
+  const parts = trimmed.split(/\s+/);
+  const cmd = parts[0]!.slice(1).toLowerCase();
+  const args = parts.slice(1).join(' ').trim();
+
+  if (sessionId) {
+    await ensureChatSessionAttached(agent, sessionId);
+  }
+
+  if (cmd === 'checkpoints') {
+    const checkpoints = await agent.listSessionCheckpoints();
+    if (checkpoints.length === 0) {
+      console.log(chalk.gray('No checkpoints (attach a session with messages first).'));
+    } else {
+      console.log(chalk.cyan('\nCheckpoints (userTurnIndex is 0-based):\n'));
+      console.log(
+        formatTable(
+          checkpoints.map((c) => ({
+            turn: c.userTurnIndex,
+            preview: c.preview,
+            summariesAfter: c.summariesAfter ?? 0
+          })),
+          [
+            { key: 'turn', header: 'Turn', width: 6 },
+            { key: 'preview', header: 'Preview', width: 50 },
+            { key: 'summariesAfter', header: 'Summaries', width: 10 }
+          ]
+        )
+      );
+    }
+    return { handled: true, sessionId };
+  }
+
+  if (cmd === 'rewind') {
+    if (!args) {
+      console.log(chalk.yellow('Usage: /rewind <userTurnIndex>  (0-based, see /checkpoints)'));
+      return { handled: true, sessionId };
+    }
+    const n = Number.parseInt(args, 10);
+    if (!Number.isInteger(n) || n < 0) {
+      console.log(chalk.red(`Invalid userTurnIndex: ${args}`));
+      return { handled: true, sessionId };
+    }
+    const result = await agent.rewindToCheckpoint({ userTurnIndex: n });
+    console.log(chalk.green(`Rewound: kept ${result.keptMessageCount}, dropped ${result.droppedMessageCount}`));
+    console.log(
+      chalk.yellow('Terminal output above may be stale; Agent context matches the rewound session.')
     );
+    return { handled: true, sessionId };
+  }
+
+  if (cmd === 'fork') {
+    const result = await agent.forkSession(sessionId, { switchToForked: true });
+    console.log(
+      chalk.green(`Forked ${result.sourceSessionId} → ${result.sessionId} (${result.messageCount} messages)`)
+    );
+    console.log(
+      chalk.yellow('Terminal output above may be stale; continue in the forked session.')
+    );
+    return { handled: true, sessionId: result.sessionId };
+  }
+
+  return { handled: false };
 }
 
 function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
@@ -186,7 +309,13 @@ export function createChatCommand(): Command {
       }
       console.log(chalk.gray('Type "exit" or "quit" to end the session'));
       console.log(chalk.gray('Press ESC to interrupt streaming'));
-      console.log(chalk.gray('Use /skill-name to invoke a skill\n'));
+      console.log(chalk.gray('Use /skill-name to invoke a skill'));
+      console.log(chalk.gray('Session: /checkpoints, /rewind <n>, /fork\n'));
+
+      sessionId = await applyPreStreamFork(agent, sessionId, options);
+      if (sessionId) {
+        await ensureChatSessionAttached(agent, sessionId);
+      }
 
       const readline = await import('readline');
       // terminal: false avoids readline's raw mode + emitKeypressEvents on stdin. We toggle raw
@@ -215,6 +344,12 @@ export function createChatCommand(): Command {
 
           if (!input.trim()) continue;
 
+          const slash = await handleChatSlashCommand(agent, input, sessionId);
+          if (slash.handled) {
+            sessionId = slash.sessionId;
+            continue;
+          }
+
           // Close outer readline for the assistant turn so tools (e.g. AskUserQuestion) can attach
           // their own readline to stdin without duplicate echo. Recreate in finally.
           let releasedOuterReadline = false;
@@ -230,7 +365,7 @@ export function createChatCommand(): Command {
             process.stdout.write(chalk.blue('\nAssistant: '));
 
             if (options.stream === false) {
-              const result = await agent.run(input, { sessionId });
+              const result = await agent.run(input, buildStreamOptions(sessionId));
               console.log(result.content);
               if (result.usage) {
                 console.log(`\n${formatUsage(result.usage)}`);
@@ -259,10 +394,10 @@ export function createChatCommand(): Command {
               try {
                 const formatter = createStreamFormatter({ verbose: options.verbose });
 
-                for await (const event of agent.stream(input, {
-                  sessionId,
-                  signal: abortController.signal
-                })) {
+                for await (const event of agent.stream(
+                  input,
+                  buildStreamOptions(sessionId, abortController.signal)
+                )) {
                   if (interrupted) break;
 
                   if (event.type === 'tool_call' && event.name === 'AskUserQuestion') {
@@ -379,20 +514,22 @@ export function createRunCommand(): Command {
         const initResult = await agent.waitForInit();
         reportMCPInitResult(initResult.mcp);
 
+        sessionId = await applyPreStreamFork(agent, sessionId, options);
+
         try {
           if (options.output === 'json') {
-            const result = await agent.run(prompt, { sessionId });
+            const result = await agent.run(prompt, buildStreamOptions(sessionId));
             console.log(JSON.stringify(result, null, 2));
           } else if (options.stream !== false) {
             const formatter = createStreamFormatter({ verbose: options.verbose });
-            for await (const event of agent.stream(prompt, { sessionId })) {
+            for await (const event of agent.stream(prompt, buildStreamOptions(sessionId))) {
               const output = formatter.format(event);
               if (output) process.stdout.write(output);
             }
             const tail = formatter.finalize();
             if (tail) process.stdout.write(tail);
           } else {
-            const result = await agent.run(prompt, { sessionId });
+            const result = await agent.run(prompt, buildStreamOptions(sessionId));
             console.log(result.content);
             if (result.usage) {
               console.log(`\n${formatUsage(result.usage)}`);

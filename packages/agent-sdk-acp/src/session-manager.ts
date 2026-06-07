@@ -5,7 +5,6 @@ import {
   SessionManager,
   getSessionStoragePath,
   type Agent,
-  type SessionEntry,
   type SessionInfo
 } from '@ddlqhd/agent-sdk';
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
@@ -142,37 +141,75 @@ export class AcpSessionManager {
   }
 
   async forkSession(sourceSessionId: string, mcpServers?: acp.McpServer[]): Promise<AcpSessionState> {
+    this.cancelPrompt(sourceSessionId);
     const inMemory = this.sessions.get(sourceSessionId);
     let cwd: string;
     let editMode: EditApprovalMode = 'default';
-    let entries: SessionEntry[];
+    let sourceAgent: Agent;
+    let tempSourceAgent: Agent | null = null;
 
     if (inMemory) {
       cwd = inMemory.cwd;
       editMode = inMemory.editMode;
-      entries = await inMemory.agent.getSessionManager().getStorage().load(sourceSessionId);
+      sourceAgent = inMemory.agent;
     } else {
       const exists = await this.probeSessionExists(sourceSessionId);
       if (!exists) {
         throw new Error(`Session not found: ${sourceSessionId}`);
       }
-      const storage = new SessionManager({
-        type: 'jsonl',
-        basePath: this.sessionStorageBase()
-      }).getStorage();
-      entries = await storage.load(sourceSessionId);
       cwd = (await this.readSessionCwdFromSidecar(sourceSessionId)) ?? process.cwd();
+      const eventBridge = new EventBridge(this.connection, sourceSessionId);
+      const permissionCtx = createPermissionContext(sourceSessionId, cwd, 'default', this.connection);
+      tempSourceAgent = await buildSessionAgent({
+        cwd,
+        sessionId: sourceSessionId,
+        permissionCtx,
+        eventBridge,
+        userBasePath: resolveAcpUserBase(),
+        mcpServers: mapAcpMcpServers(mcpServers)
+      });
+      await tempSourceAgent.getSessionManager().attachSession(sourceSessionId);
+      sourceAgent = tempSourceAgent;
     }
 
     const newId = randomUUID();
-    const forked = await this.createSession(cwd, newId, {
-      editMode,
-      mcpServers
-    });
-    if (entries.length > 0) {
-      await forked.agent.getSessionManager().appendEntries(entries);
+    try {
+      await sourceAgent.forkSession(sourceSessionId, { newSessionId: newId, switchToForked: false });
+
+      const eventBridge = new EventBridge(this.connection, newId);
+      const permissionCtx = createPermissionContext(newId, cwd, editMode, this.connection);
+      const forkedAgent = await buildSessionAgent({
+        cwd,
+        sessionId: newId,
+        permissionCtx,
+        eventBridge,
+        userBasePath: resolveAcpUserBase(),
+        mcpServers: mapAcpMcpServers(mcpServers)
+      });
+      await forkedAgent.getSessionManager().attachSession(newId);
+      const messages = await forkedAgent.getSessionManager().loadActiveMessages();
+      await replaySessionHistory(this.connection, newId, messages);
+
+      const state: AcpSessionState = {
+        sessionId: newId,
+        cwd,
+        agent: forkedAgent,
+        eventBridge,
+        editMode,
+        permissionCtx,
+        abortController: null
+      };
+      this.sessions.set(newId, state);
+      return state;
+    } finally {
+      if (tempSourceAgent) {
+        try {
+          await tempSourceAgent.destroy();
+        } catch (e) {
+          logError(`destroy temp source agent ${sourceSessionId}`, e);
+        }
+      }
     }
-    return forked;
   }
 
   async listSessions(cwd?: string | null, cursor?: string | null): Promise<acp.ListSessionsResponse> {

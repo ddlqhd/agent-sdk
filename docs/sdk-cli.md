@@ -67,6 +67,9 @@ npx @ddlqhd/agent-sdk tools test Read -a "{}"
 # 会话管理（与 chat/run 使用相同存储时须传相同 --user-base-path）
 npx @ddlqhd/agent-sdk sessions list
 npx @ddlqhd/agent-sdk sessions show <session-id>
+npx @ddlqhd/agent-sdk sessions checkpoints <session-id>
+npx @ddlqhd/agent-sdk sessions rewind <session-id> --user-turn-index 0
+npx @ddlqhd/agent-sdk sessions fork <source-id>
 npx @ddlqhd/agent-sdk sessions delete <session-id>
 npx @ddlqhd/agent-sdk sessions clear
 
@@ -105,7 +108,12 @@ agent-sdk chat [options]
   --log-level <level>      Agent SDK 日志级别 (debug|info|warn|error|silent；chat/run 默认: info)
   --log-file <path>        SDK JSONL 日志文件路径（默认 <userBase>/.claude/logs/agent-sdk-<date>.log；
                            可被环境变量 AGENT_SDK_LOG_FILE 覆盖；--log-level=silent 时不写文件）
+  --fork                   在 stream/run 前先 fork 当前会话（需 -s 或 --resume）
+  --fork-checkpoint-id <id>  在 stream/run 前 fork 到指定 checkpoint
+  --fork-user-turn-index <n> 在 stream/run 前 fork 到 0-based user turn
 ```
+
+交互式 chat 还支持会话斜杠命令：`/checkpoints`、`/rewind <n>`（**n 为 0-based**）、`/fork`。rewind/fork 后终端已打印的历史可能过时，以 Agent 内存为准。
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 
@@ -148,10 +156,13 @@ agent-sdk tools test <tool-name>     # 用 JSON 参数试跑工具（-a / --args
 管理会话历史。
 
 ```bash
-agent-sdk sessions list [options]    # 列出所有会话
-agent-sdk sessions show <id>         # 查看会话内容（默认展示最近若干条消息）
-agent-sdk sessions delete <id>       # 删除会话（可加 -f / --force 跳过确认）
-agent-sdk sessions clear             # 清空全部会话（可加 -f / --force 跳过确认）
+agent-sdk sessions list [options]           # 列出所有会话
+agent-sdk sessions show <id>                  # 查看会话（默认活动链；--raw 含 summary/rewind 审计行）
+agent-sdk sessions checkpoints <id>           # 列出可回退 user prompt（0-based userTurnIndex）
+agent-sdk sessions rewind <id> [options]    # 磁盘回退（不 sync 其他进程中的 Agent 内存）
+agent-sdk sessions fork <sourceId> [options]  # 分支新会话
+agent-sdk sessions delete <id>                # 删除会话（可加 -f / --force 跳过确认）
+agent-sdk sessions clear                      # 清空全部会话（可加 -f / --force 跳过确认）
 
 list 选项:
   --user-base-path <path>  与 chat/run 一致，用于解析会话 JSONL 目录
@@ -161,13 +172,26 @@ list 选项:
 show 选项:
   --user-base-path <path>  同上
   -l, --limit <n>          展示消息条数上限（默认 50）
+  --raw                    全量 append-only transcript（含 Compaction / Rewind 行）
+
+checkpoints / rewind / fork 选项:
+  --user-base-path <path>  同上
+  -f, --format <format>    输出格式 (table, json)
+  --checkpoint-id <id>       rewind 或 fork 到 checkpoint（三选一）
+  --user-turn-index <n>      0-based user prompt 索引（三选一）
+  --keep-through-raw-index <n>  raw JSONL 行号，须为 user 行（rewind；三选一）
+  --new-id <id>              fork 目标 session id（可选，默认 UUID）
 
 delete / clear 选项:
   --user-base-path <path>  同上
   -f, --force               跳过确认提示
 ```
 
-注意：`sessions list` 的 `-f` 表示 **format**；`sessions delete` / `sessions clear` 的 `-f` 表示 **force**，与 list 不同。
+注意：
+
+- `sessions list` 的 **Entries** 为 raw JSONL 行数（含 summary/rewind），非活动消息条数。
+- `sessions list` 的 `-f` 表示 **format**；`sessions delete` / `sessions clear` 的 `-f` 表示 **force**。
+- 离线 `sessions rewind` 只改 JSONL；正在运行的 chat/web-demo 须用 `Agent.rewindToCheckpoint`（交互式 `/rewind` 或 web-demo UI）。
 
 ### mcp
 

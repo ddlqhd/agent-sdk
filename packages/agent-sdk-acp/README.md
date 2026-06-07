@@ -38,7 +38,8 @@ node packages/agent-sdk-acp/dist/entry.js --check
 - **ACP methods**: `initialize`, `session/new`, `session/load`, `session/list`, `session/fork`, `session/close`, `session/prompt`, `session/cancel`, `session/set_mode`
 - **Streaming**: `Agent.stream()` → `session/update`
 - **Permissions**: `canUseTool` → `session/request_permission`
-- **Sessions**: per-session `Agent`, jsonl persistence, history replay on `session/load`
+- **Sessions**: per-session `Agent`, jsonl persistence, history replay on `session/load` and `session/fork` (active-chain head via core `Agent.forkSession`)
+- **Rewind**: not exposed over ACP (protocol has no rewind semantic); use CLI or [web-demo](../../examples/web-demo)
 - **Edit modes**: `default` / `accept_edits` / `dont_ask`
 - **MCP**: ACP `stdio`/`http` servers mapped to `AgentConfig.mcpServers`; also loads `{cwd}/.claude/mcp_config.json` when present
 
@@ -68,3 +69,4 @@ node packages/agent-sdk-acp/dist/entry.js --check
 - `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or system-prompt sidecars when available.
 - `AskUserQuestion` is disabled (no interactive resolver in stdio mode).
 - Edit mode is not persisted across `session/load` (defaults to `default`).
+- `session/fork` copies the **active message chain** at head (after rewind/compaction), not the full raw transcript with audit rows.

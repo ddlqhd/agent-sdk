@@ -1,6 +1,8 @@
 import type { AskUserQuestionAnswer, AskUserQuestionItem } from '@ddlqhd/agent-sdk';
 import { chatPreview } from '../../shared/log-utils.js';
+import type { ChatHistoryItem } from '../../shared/message-text.js';
 import type { ClientMessage, ModelProvider, ServerMessage, SessionListItem } from '../../shared/ws-protocol.js';
+import type { SessionCheckpoint } from '@ddlqhd/agent-sdk';
 
 const connStatus = document.querySelector<HTMLParagraphElement>('#conn-status')!;
 const btnReconnect = document.querySelector<HTMLButtonElement>('#btn-reconnect')!;
@@ -11,7 +13,10 @@ const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
 const btnSessionNew = document.querySelector<HTMLButtonElement>('#btn-session-new')!;
 const btnSessionList = document.querySelector<HTMLButtonElement>('#btn-session-list')!;
+const btnSessionFork = document.querySelector<HTMLButtonElement>('#btn-session-fork')!;
+const btnSessionCheckpoints = document.querySelector<HTMLButtonElement>('#btn-session-checkpoints')!;
 const sessionListEl = document.querySelector<HTMLUListElement>('#session-list')!;
+const checkpointListEl = document.querySelector<HTMLUListElement>('#checkpoint-list')!;
 const chatLog = document.querySelector<HTMLDivElement>('#chat-log')!;
 const formChat = document.querySelector<HTMLFormElement>('#form-chat')!;
 const chatInput = document.querySelector<HTMLTextAreaElement>('#chat-input')!;
@@ -71,6 +76,15 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'sessions:list':
       console.log(`${LOG_PREFIX} send sessions:list`);
+      break;
+    case 'sessions:checkpoints':
+      console.log(`${LOG_PREFIX} send sessions:checkpoints sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
+      break;
+    case 'sessions:rewind':
+      console.log(`${LOG_PREFIX} send sessions:rewind sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
+      break;
+    case 'sessions:fork':
+      console.log(`${LOG_PREFIX} send sessions:fork sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
       break;
     case 'sessions:new':
       console.log(`${LOG_PREFIX} send sessions:new sessionId=${msg.sessionId ?? '(auto)'}`);
@@ -450,6 +464,28 @@ function handleServerMessage(msg: ServerMessage): void {
       btnSend.disabled = false;
       clearChatLog();
       clearInspectorLogs();
+      checkpointListEl.hidden = true;
+      checkpointListEl.innerHTML = '';
+      return;
+    case 'sessions:history':
+      renderChatHistory(msg.messages);
+      return;
+    case 'sessions:checkpoints':
+      renderCheckpointList(msg.checkpoints);
+      return;
+    case 'sessions:rewind':
+      currentSessionId = msg.sessionId;
+      refreshSessionLabel();
+      renderChatHistory(msg.messages);
+      appendEventLine('sessions:rewind', msg.result);
+      return;
+    case 'sessions:fork':
+      currentSessionId = msg.sessionId;
+      refreshSessionLabel();
+      renderChatHistory(msg.messages);
+      appendEventLine('sessions:fork', msg.result);
+      checkpointListEl.hidden = true;
+      checkpointListEl.innerHTML = '';
       return;
     default:
       appendEventLine('unknown', msg);
@@ -785,6 +821,74 @@ function appendEventLine(kind: string, payload: unknown): void {
   eventLog.scrollTop = eventLog.scrollHeight;
 }
 
+function renderChatHistory(messages: ChatHistoryItem[]): void {
+  clearChatLog();
+  clearInspectorLogs();
+  for (const m of messages) {
+    appendChatMessage(m.role, m.text);
+  }
+}
+
+function renderCheckpointList(checkpoints: SessionCheckpoint[]): void {
+  checkpointListEl.innerHTML = '';
+  if (checkpoints.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = '无检查点';
+    checkpointListEl.appendChild(li);
+    checkpointListEl.hidden = false;
+    return;
+  }
+  for (const c of checkpoints) {
+    const li = document.createElement('li');
+    const preview = document.createElement('div');
+    preview.className = 'checkpoint-preview';
+    preview.textContent = c.preview;
+    const meta = document.createElement('div');
+    meta.className = 'checkpoint-meta';
+    const turn = document.createElement('span');
+    turn.className = 'checkpoint-badge';
+    turn.textContent = `#${c.userTurnIndex}`;
+    meta.appendChild(turn);
+    if (c.summariesAfter && c.summariesAfter > 0) {
+      const sum = document.createElement('span');
+      sum.className = 'checkpoint-badge';
+      sum.textContent = `压缩×${c.summariesAfter}`;
+      meta.appendChild(sum);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'checkpoint-actions';
+    const btnRewind = document.createElement('button');
+    btnRewind.type = 'button';
+    btnRewind.className = 'btn btn-secondary';
+    btnRewind.textContent = '回退';
+    btnRewind.addEventListener('click', () => {
+      send({
+        type: 'sessions:rewind',
+        sessionId: currentSessionId,
+        userTurnIndex: c.userTurnIndex
+      });
+    });
+    const btnFork = document.createElement('button');
+    btnFork.type = 'button';
+    btnFork.className = 'btn btn-secondary';
+    btnFork.textContent = '分支';
+    btnFork.addEventListener('click', () => {
+      send({
+        type: 'sessions:fork',
+        sessionId: currentSessionId,
+        userTurnIndex: c.userTurnIndex
+      });
+    });
+    actions.appendChild(btnRewind);
+    actions.appendChild(btnFork);
+    li.appendChild(preview);
+    li.appendChild(meta);
+    li.appendChild(actions);
+    checkpointListEl.appendChild(li);
+  }
+  checkpointListEl.hidden = false;
+}
+
 function renderSessionList(sessions: SessionListItem[]): void {
   sessionListEl.innerHTML = '';
   for (const s of sessions) {
@@ -878,6 +982,14 @@ btnSessionNew.addEventListener('click', () => {
 
 btnSessionList.addEventListener('click', () => {
   send({ type: 'sessions:list' });
+});
+
+btnSessionFork.addEventListener('click', () => {
+  send({ type: 'sessions:fork', sessionId: currentSessionId });
+});
+
+btnSessionCheckpoints.addEventListener('click', () => {
+  send({ type: 'sessions:checkpoints', sessionId: currentSessionId });
 });
 
 formChat.addEventListener('submit', (e) => {

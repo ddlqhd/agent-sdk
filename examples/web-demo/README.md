@@ -52,7 +52,8 @@ The server prints the resolved log file path on startup, e.g. `[web-demo] SDK lo
 - **Models**: OpenAI, Anthropic, Ollama via `createModel` / `Agent`
 - **Streaming**: `Agent.stream()` → serialized `StreamEvent`s in the event panel
 - **Non-streaming**: optional `Agent.run()` checkbox
-- **Sessions**: new / list / resume; storage **memory** or **jsonl** (under a temp or custom user base path)
+- **Sessions**: new / list / resume / fork; storage **memory** or **jsonl** (under a temp or custom user base path)
+- **Fork & rewind**: checkpoint list in the sidebar; rewind or fork at a user prompt; resume loads chat history into the UI
 - **Tools**: all built-ins plus **DemoCalculator** (custom `createTool` example); **safe** mode strips `isDangerous` built-ins (e.g. **Bash**)
 - **AskUserQuestion**: server injects `AgentConfig.askUserQuestion` via WebSocket — the UI opens a modal to submit structured answers while the tool call is pending
 - **Skills**: [`demo-fixtures/.claude/skills/DemoSkill/SKILL.md`](demo-fixtures/.claude/skills/DemoSkill/SKILL.md) — try asking the model to use the **Skill** tool with `DemoSkill`

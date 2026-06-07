@@ -14,6 +14,7 @@ import type {
 } from '@ddlqhd/agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
+import { messagesToChatHistory, type ChatHistoryItem } from '../shared/message-text.js';
 import { chatPreview, truncateForLog } from '../shared/log-utils.js';
 import {
   buildAgent,
@@ -168,6 +169,31 @@ wss.on('connection', (socket: WebSocket) => {
     return agent;
   }
 
+  async function loadChatHistory(agent: Agent): Promise<ChatHistoryItem[]> {
+    const messages = await agent.getSessionManager().loadActiveMessages();
+    return messagesToChatHistory(messages);
+  }
+
+  async function sendSessionHistory(sessionId: string, agent: Agent): Promise<void> {
+    const messages = await loadChatHistory(agent);
+    sendJson(socket, { type: 'sessions:history', sessionId, messages });
+  }
+
+  async function resolveSessionAgent(sessionId: string): Promise<Agent | null> {
+    let agent = state.agentsBySession.get(sessionId);
+    if (agent) return agent;
+    if (!state.runtimeConfig) return null;
+    agent = await createConfiguredAgent();
+    try {
+      await agent.getSessionManager().attachSession(sessionId);
+    } catch {
+      await agent.destroy();
+      return null;
+    }
+    state.agentsBySession.set(sessionId, agent);
+    return agent;
+  }
+
   function abortSessionRequests(sessionId: string | null): void {
     if (!sessionId) return;
     let aborted = false;
@@ -295,8 +321,10 @@ wss.on('connection', (socket: WebSocket) => {
           }
           if (state.agentsBySession.has(msg.sessionId)) {
             state.activeSessionId = msg.sessionId;
+            const existing = state.agentsBySession.get(msg.sessionId)!;
             console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (existing runtime)`);
             sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
+            await sendSessionHistory(msg.sessionId, existing);
             return;
           }
           const agent = await createConfiguredAgent();
@@ -315,6 +343,91 @@ wss.on('connection', (socket: WebSocket) => {
           state.activeSessionId = msg.sessionId;
           console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (loaded)`);
           sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
+          await sendSessionHistory(msg.sessionId, agent);
+          return;
+        }
+
+        case 'sessions:checkpoints': {
+          const sessionId = msg.sessionId ?? state.activeSessionId;
+          if (!sessionId) {
+            sendJson(socket, { type: 'error', message: 'No active session.' });
+            return;
+          }
+          const agent = await resolveSessionAgent(sessionId);
+          if (!agent) {
+            sendJson(socket, { type: 'error', message: `Session not found: ${sessionId}` });
+            return;
+          }
+          const checkpoints = await agent.listSessionCheckpoints();
+          sendJson(socket, { type: 'sessions:checkpoints', sessionId, checkpoints });
+          return;
+        }
+
+        case 'sessions:rewind': {
+          const sessionId = msg.sessionId ?? state.activeSessionId;
+          if (!sessionId) {
+            sendJson(socket, { type: 'error', message: 'No active session.' });
+            return;
+          }
+          abortSessionRequests(sessionId);
+          const agent = await resolveSessionAgent(sessionId);
+          if (!agent) {
+            sendJson(socket, { type: 'error', message: `Session not found: ${sessionId}` });
+            return;
+          }
+          const rewindOpts =
+            msg.checkpointId !== undefined
+              ? { checkpointId: msg.checkpointId }
+              : msg.userTurnIndex !== undefined
+                ? { userTurnIndex: msg.userTurnIndex }
+                : null;
+          if (!rewindOpts) {
+            sendJson(socket, {
+              type: 'error',
+              message: 'Specify checkpointId or userTurnIndex for rewind.'
+            });
+            return;
+          }
+          const result = await agent.rewindToCheckpoint(rewindOpts);
+          const messages = await loadChatHistory(agent);
+          sendJson(socket, { type: 'sessions:rewind', sessionId, result, messages });
+          return;
+        }
+
+        case 'sessions:fork': {
+          const sourceSessionId = msg.sessionId ?? state.activeSessionId;
+          if (!sourceSessionId) {
+            sendJson(socket, { type: 'error', message: 'No active session.' });
+            return;
+          }
+          abortSessionRequests(sourceSessionId);
+          const sourceAgent = await resolveSessionAgent(sourceSessionId);
+          if (!sourceAgent) {
+            sendJson(socket, { type: 'error', message: `Session not found: ${sourceSessionId}` });
+            return;
+          }
+          const forkOpts: {
+            newSessionId?: string;
+            checkpointId?: string;
+            userTurnIndex?: number;
+          } = {};
+          if (msg.newSessionId) forkOpts.newSessionId = msg.newSessionId;
+          if (msg.checkpointId) forkOpts.checkpointId = msg.checkpointId;
+          if (msg.userTurnIndex !== undefined) forkOpts.userTurnIndex = msg.userTurnIndex;
+
+          const result = await sourceAgent.forkSession(sourceSessionId, forkOpts);
+          const newAgent = await createConfiguredAgent();
+          await newAgent.getSessionManager().attachSession(result.sessionId);
+          state.agentsBySession.set(result.sessionId, newAgent);
+          state.activeSessionId = result.sessionId;
+          const messages = await loadChatHistory(newAgent);
+          sendJson(socket, {
+            type: 'sessions:fork',
+            sessionId: result.sessionId,
+            sourceSessionId: result.sourceSessionId,
+            result,
+            messages
+          });
           return;
         }
 
@@ -374,7 +487,8 @@ wss.on('connection', (socket: WebSocket) => {
             let lastUsage: TokenUsage | undefined;
             for await (const event of targetAgent.stream(msg.text, {
               sessionId: requestedSessionId,
-              signal: ac.signal
+              signal: ac.signal,
+              forkSession: msg.forkSession === true
             })) {
               if (event.type === 'text_delta') {
                 finalText += event.content;

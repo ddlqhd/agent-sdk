@@ -67,3 +67,4 @@ See [`packages/agent-sdk-acp/README.md`](../../packages/agent-sdk-acp/README.md)
 - `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or system-prompt sidecars when available.
 - `AskUserQuestion` is disabled (no interactive resolver in stdio mode).
 - Edit mode is not persisted across `session/load` (defaults to `default`).
+- `session/fork` uses the core SDK active-chain fork (not full raw JSONL copy). **Rewind** is not available over ACP; use CLI or web-demo.
