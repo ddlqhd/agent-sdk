@@ -179,4 +179,12 @@ describe('StreamChunkProcessor', () => {
     for (const e of p.flush()) types.push(e.type);
     expect(types).toEqual(['thinking_start', 'thinking', 'thinking_end']);
   });
+
+  it('emits thinking event for signature-only chunk', () => {
+    const p = new StreamChunkProcessor();
+    const events = p.processChunk({ type: 'thinking', signature: 'sig-only' });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ type: 'thinking_start', signature: 'sig-only' });
+    expect(events[1]).toMatchObject({ type: 'thinking', content: '', signature: 'sig-only' });
+  });
 });

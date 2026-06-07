@@ -349,15 +349,19 @@ export class AnthropicAdapter extends BaseModelAdapter {
                     ...raw
                   };
                 } else if (data.content_block?.type === 'thinking') {
-                  currentThinkingBlock = {
-                    signature: data.content_block.signature
-                  };
-                  yield {
-                    type: 'thinking',
-                    content: data.content_block.thinking,
-                    signature: currentThinkingBlock.signature,
-                    ...raw
-                  };
+                  const startSig = data.content_block.signature;
+                  currentThinkingBlock = {};
+                  if (typeof startSig === 'string' && startSig.length > 0) {
+                    currentThinkingBlock.signature = startSig;
+                  }
+                  const thinkingChunk: StreamChunk = { type: 'thinking', ...raw };
+                  if (data.content_block.thinking) {
+                    thinkingChunk.content = data.content_block.thinking;
+                  }
+                  if (currentThinkingBlock.signature) {
+                    thinkingChunk.signature = currentThinkingBlock.signature;
+                  }
+                  yield thinkingChunk;
                 }
                 break;
 
@@ -371,6 +375,16 @@ export class AnthropicAdapter extends BaseModelAdapter {
                     signature: currentThinkingBlock?.signature,
                     ...raw
                   };
+                } else if (data.delta?.type === 'signature_delta') {
+                  const sig = data.delta.signature;
+                  if (typeof sig === 'string' && sig.length > 0) {
+                    if (currentThinkingBlock) {
+                      currentThinkingBlock.signature = sig;
+                    } else {
+                      currentThinkingBlock = { signature: sig };
+                    }
+                    yield { type: 'thinking', signature: sig, ...raw };
+                  }
                 } else if (data.delta?.type === 'input_json_delta' && currentToolCall) {
                   currentToolCall.input += data.delta.partial_json;
                   yield {
@@ -645,7 +659,10 @@ export class AnthropicAdapter extends BaseModelAdapter {
         const contentParts: any[] = [];
         for (const part of msg.content) {
           if (part.type === 'thinking') {
-            contentParts.push(part);
+            if (part.thinking && part.signature) {
+              contentParts.push(part);
+            }
+            continue;
           } else if (part.type === 'text') {
             contentParts.push({ type: 'text', text: (part as any).text });
           } else {

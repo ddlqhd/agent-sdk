@@ -88,7 +88,7 @@ describe('Agent aborted-run persistence', () => {
     expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
   });
 
-  it('preserves thinking and emits partialContent when aborted during streaming', async () => {
+  it('preserves text-only assistant message when aborted without thinking signature', async () => {
     const model: ModelAdapter = {
       name: 'abort-mid-stream-thinking',
       async *stream(_params: ModelParams): AsyncIterable<StreamChunk> {
@@ -129,12 +129,52 @@ describe('Agent aborted-run persistence', () => {
     const persisted = await loadActiveForManager(agent.getSessionManager());
     const assistantMsg = [...persisted].reverse().find(m => m.role === 'assistant');
     expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.content).toBe('partial');
+    expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
+  });
+
+  it('perserves thinking with signature when aborted after signature arrives', async () => {
+    const model: ModelAdapter = {
+      name: 'abort-mid-stream-thinking-signed',
+      async *stream(_params: ModelParams): AsyncIterable<StreamChunk> {
+        yield { type: 'thinking', content: 'thought' };
+        yield { type: 'thinking', signature: 'sig-abort' };
+        yield { type: 'text', content: 'partial' };
+        await new Promise(resolve => setTimeout(resolve, 5));
+        yield { type: 'done' };
+      },
+      async complete() {
+        return { content: 'x' };
+      }
+    };
+    const agent = new Agent({
+      model,
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      exclusiveTools: [],
+      storage: { type: 'memory' }
+    });
+    await agent.waitForInit();
+
+    const ac = new AbortController();
+    for await (const event of agent.stream('ping', { signal: ac.signal })) {
+      if (event.type === 'text_delta') {
+        ac.abort();
+      }
+    }
+
+    const persisted = await loadActiveForManager(agent.getSessionManager());
+    const assistantMsg = [...persisted].reverse().find(m => m.role === 'assistant');
+    expect(assistantMsg).toBeDefined();
     expect(Array.isArray(assistantMsg!.content)).toBe(true);
     if (Array.isArray(assistantMsg!.content)) {
-      expect(assistantMsg!.content[0]).toMatchObject({ type: 'thinking', thinking: 'thought' });
+      expect(assistantMsg!.content[0]).toMatchObject({
+        type: 'thinking',
+        thinking: 'thought',
+        signature: 'sig-abort'
+      });
       expect(assistantMsg!.content[1]).toMatchObject({ type: 'text', text: 'partial' });
     }
-    expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
   });
 
   it('persists once in AbortError catch path', async () => {

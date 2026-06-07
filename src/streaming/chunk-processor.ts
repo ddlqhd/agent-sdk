@@ -143,7 +143,7 @@ export class StreamChunkProcessor {
           if (opensBlock) {
             events.push({
               type: 'thinking_start',
-              ...(chunk.signature !== undefined ? { signature: chunk.signature } : {})
+              ...(chunk.signature ? { signature: chunk.signature } : {})
             });
             this.inThinkingBlock = true;
           }
@@ -152,6 +152,12 @@ export class StreamChunkProcessor {
           events.push({
             type: 'thinking',
             content: chunk.content,
+            signature: chunk.signature
+          });
+        } else if (chunk.signature) {
+          events.push({
+            type: 'thinking',
+            content: '',
             signature: chunk.signature
           });
         }

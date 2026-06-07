@@ -914,8 +914,10 @@ export class Agent {
       state.assistantContent += out.content;
     }
     if (out.type === 'thinking') {
-      state.thinkingContent += out.content;
-      if (out.signature !== undefined && !state.thinkingSignature) {
+      if (out.content) {
+        state.thinkingContent += out.content;
+      }
+      if (out.signature) {
         state.thinkingSignature = out.signature;
       }
     }
@@ -959,9 +961,9 @@ export class Agent {
         role: 'assistant',
         content: assistantContent
       };
-      if (thinkingContent) {
+      if (thinkingContent && thinkingSignature) {
         assistantMessage.content = [
-          { type: 'thinking', thinking: thinkingContent, signature: thinkingSignature || '' },
+          { type: 'thinking', thinking: thinkingContent, signature: thinkingSignature },
           { type: 'text', text: assistantContent }
         ];
       }
@@ -972,7 +974,7 @@ export class Agent {
       role: 'assistant',
       content: assistantContent
     };
-    if (thinkingContent) {
+    if (thinkingContent && thinkingSignature) {
       const contentParts: any[] = [
         {
           type: 'thinking',
