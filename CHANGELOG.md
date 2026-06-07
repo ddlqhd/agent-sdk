@@ -13,6 +13,7 @@
 - **CLI**: `sessions checkpoints` / `rewind` / `fork`; `sessions show --raw` displays rewind rows; `chat`/`run` `--fork*` flags; interactive `/checkpoints`, `/rewind`, `/fork`.
 - **CLI**: slash command registry (`/help`, `/status`, `/sessions`, `/new`, `/details`, `/compact`, `/export`, `/editor`); terminal replay after rewind/fork; `!` shell prefix; `sessions list --with-active`; optional `agent-sdk tui` (Ink).
 - **CLI TUI**: slash command dropdown (builtins + skills, alias prefix filter, scroll window), persistent status bar, `/status` and `/sessions` modals; thinking and tool trace stream display; `withCapturedConsoleLog` for slash output; shared `collectSessionStatus` for classic and TUI.
+- **CLI TUI**: OpenCode-style message blocks with left border colors for user, assistant, thinking, tool call/result/error; tool lines use `Name: value` format; `>` input prompt.
 - **Web demo**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
 
 ### Changed

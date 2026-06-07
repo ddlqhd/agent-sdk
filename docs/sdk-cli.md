@@ -157,7 +157,9 @@ agent-sdk tui [options]
 
 **状态栏**（header 下方常驻）：`sess`（会话短 id）、`msgs`（活跃消息数）、`chk`（checkpoint 数）、`in`/`out`（累计 token）、`verbose`、`streaming…`。
 
-**工具输出**：流式与历史重放均显示 `🔧` 工具调用与 `✓`/`✗` 结果（非 verbose 截断，与 `chat` 流式一致）；`/details` 切换 verbose 后下次对话展示完整参数与结果。
+**消息块**（OpenCode 风格）：每条消息为左侧色条块，无 `user:`/`assistant:` 前缀。user / thinking 为灰色边框；assistant 为青色；工具调用为黄色、`Name: value` 摘要；工具结果为绿色 dim、`Result:` 前缀；工具错误为红色、`Error: message`。流式 thinking 与 assistant 缓冲使用相同块样式。
+
+**工具输出**：流式与历史重放均显示工具调用与结果（非 verbose 截断参数与结果，与 `chat` 流式一致）；`/details` 切换 verbose 后下次对话展示完整参数与结果。输入提示符为 `>`。
 
 **模态**（Esc 关闭）：
 

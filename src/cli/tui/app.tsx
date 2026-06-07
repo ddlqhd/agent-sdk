@@ -27,9 +27,9 @@ import { SessionPicker } from './components/modals/SessionPicker.js';
 import { stripAnsi, withCapturedConsoleLog } from './capture-console.js';
 import { createEmptyStreamBuffers, reduceStreamEvent } from './stream-buffers.js';
 import {
-  formatToolCallText,
-  formatToolErrorText,
-  formatToolResultText
+  toolLineFromCall,
+  toolLineFromError,
+  toolLineFromResult
 } from './format-tool-events.js';
 
 interface TuiAppProps {
@@ -94,7 +94,8 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
     setLines(
       messagesToTerminalLines(messages, { verbose, toolTrace: true }).map((l) => ({
         role: l.role as ChatLine['role'],
-        text: l.text
+        text: l.text,
+        toolKind: l.toolKind
       }))
     );
   }, [agent, verbose]);
@@ -137,6 +138,7 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
       const userLine: ChatLine = { role: 'user', text };
       setLines((prev) => [...prev, userLine]);
       let buffers = createEmptyStreamBuffers();
+      const erroredToolCallIds = new Set<string>();
       try {
         const processed = await agent.processInput(text);
         const prompt = processed.invoked ? processed.prompt : text;
@@ -144,30 +146,23 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
           if (event.type === 'tool_call') {
             setLines((prev) => [
               ...prev,
-              {
-                role: 'tool',
-                text: formatToolCallText(verbose, event.id, event.name, event.arguments)
-              }
-            ]);
-            continue;
-          }
-          if (event.type === 'tool_result') {
-            setLines((prev) => [
-              ...prev,
-              {
-                role: 'tool',
-                text: formatToolResultText(verbose, event.toolCallId, event.result)
-              }
+              toolLineFromCall(verbose, event.name, event.arguments)
             ]);
             continue;
           }
           if (event.type === 'tool_error') {
+            erroredToolCallIds.add(event.toolCallId);
             setLines((prev) => [
               ...prev,
-              {
-                role: 'tool',
-                text: formatToolErrorText(verbose, event.toolCallId, event.error)
-              }
+              toolLineFromError(verbose, event.error)
+            ]);
+            continue;
+          }
+          if (event.type === 'tool_result') {
+            if (erroredToolCallIds.has(event.toolCallId)) continue;
+            setLines((prev) => [
+              ...prev,
+              toolLineFromResult(verbose, event.result)
             ]);
             continue;
           }

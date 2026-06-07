@@ -9,9 +9,11 @@ interface InputAreaProps {
 export function InputArea({ input, streaming }: InputAreaProps): React.ReactElement {
   return (
     <Box borderStyle="single" paddingX={1}>
-      <Text color="green">{streaming ? '…' : '› '}</Text>
+      <Text bold color="cyan">
+        {streaming ? ' ' : '> '}
+      </Text>
       <Text>{input}</Text>
-      <Text dimColor>{streaming ? '' : '█'}</Text>
+      <Text dimColor>{streaming ? '…' : '█'}</Text>
     </Box>
   );
 }

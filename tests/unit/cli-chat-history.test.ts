@@ -34,6 +34,21 @@ describe('messagesToTerminalLines', () => {
     ]);
   });
 
+  it('replays persisted tool errors with toolKind error', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'ok',
+        toolCalls: [{ id: 'tc1', name: 'Read', arguments: { path: '/missing' } }]
+      },
+      { role: 'tool', content: 'Error: file missing', toolCallId: 'tc1' }
+    ];
+    const lines = messagesToTerminalLines(messages, { toolTrace: true });
+    expect(lines.some((l) => l.role === 'tool' && l.toolKind === 'error' && l.text === 'Error: file missing')).toBe(
+      true
+    );
+  });
+
   it('includes formatted tool trace when toolTrace is true without verbose', () => {
     const messages: Message[] = [
       {
@@ -44,8 +59,12 @@ describe('messagesToTerminalLines', () => {
       { role: 'tool', content: 'file body', toolCallId: 'tc1' }
     ];
     const lines = messagesToTerminalLines(messages, { toolTrace: true });
-    expect(lines.some((l) => l.role === 'tool' && l.text.includes('🔧 Read'))).toBe(true);
-    expect(lines.some((l) => l.role === 'tool' && l.text.startsWith('✓ [tc1]'))).toBe(true);
+    expect(lines.some((l) => l.role === 'tool' && l.toolKind === 'call' && l.text === 'Read: /a')).toBe(
+      true
+    );
+    expect(lines.some((l) => l.role === 'tool' && l.toolKind === 'result' && l.text === 'file body')).toBe(
+      true
+    );
   });
 
   it('includes tool rows when verbose', () => {

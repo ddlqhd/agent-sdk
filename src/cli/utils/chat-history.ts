@@ -1,13 +1,15 @@
 import chalk from 'chalk';
 import type { ContentPart, Message } from '../../core/types.js';
+import type { ToolLineKind } from '../tui/types.js';
 import {
   formatToolCallText,
-  formatToolResultText
+  toolLineFromPersistedToolMessage
 } from '../tui/format-tool-events.js';
 
 export interface TerminalHistoryLine {
   role: string;
   text: string;
+  toolKind?: ToolLineKind;
 }
 
 export interface ChatHistoryPrintOptions {
@@ -88,12 +90,18 @@ export function messagesToTerminalLines(
       }
       if (msg.toolCalls?.length && (verbose || toolTrace)) {
         for (const tc of msg.toolCalls) {
-          lines.push({
-            role: 'tool',
-            text: toolTrace
-              ? formatToolCallText(verbose, tc.id, tc.name, tc.arguments)
-              : `${tc.name}(${JSON.stringify(tc.arguments)})`
-          });
+          lines.push(
+            toolTrace
+              ? {
+                  role: 'tool',
+                  text: formatToolCallText(verbose, tc.name, tc.arguments),
+                  toolKind: 'call' as const
+                }
+              : {
+                  role: 'tool',
+                  text: `${tc.name}(${JSON.stringify(tc.arguments)})`
+                }
+          );
         }
       }
       continue;
@@ -101,13 +109,12 @@ export function messagesToTerminalLines(
 
     if (msg.role === 'tool' && (verbose || toolTrace)) {
       const content = formatMessageContent(msg.content);
-      const toolCallId = msg.toolCallId ?? 'unknown';
-      lines.push({
-        role: 'tool',
-        text: toolTrace
-          ? formatToolResultText(verbose, toolCallId, content)
-          : content
-      });
+      if (toolTrace) {
+        const line = toolLineFromPersistedToolMessage(verbose, content);
+        lines.push({ role: 'tool', text: line.text, toolKind: line.toolKind });
+      } else {
+        lines.push({ role: 'tool', text: content });
+      }
     }
   }
 
