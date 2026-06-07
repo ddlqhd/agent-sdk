@@ -113,7 +113,43 @@ agent-sdk chat [options]
   --fork-user-turn-index <n> 在 stream/run 前 fork 到 0-based user turn
 ```
 
-交互式 chat 还支持会话斜杠命令：`/checkpoints`、`/rewind <n>`（**n 为 0-based**）、`/fork`。rewind/fork 后终端已打印的历史可能过时，以 Agent 内存为准。
+#### 交互式斜杠命令（chat）
+
+输入 `/help` 查看完整列表。常用命令：
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 命令表 |
+| `/status` | 本地会话统计（model、tokens、checkpoints、最近一轮预览） |
+| `/session` | 简短会话摘要 |
+| `/sessions` | 交互式切换 JSONL 会话（编号 / id 前缀 / 预览过滤） |
+| `/new` | 新会话（别名 `/clear`，仅 UI，不删磁盘旧文件） |
+| `/checkpoints` | 可回退 user prompt 列表 |
+| `/rewind <n>` | 回退到 0-based user turn，**终端自动重放**活动链 |
+| `/fork` / `/fork <n>` | 分支会话（可选 checkpoint turn），重放历史 |
+| `/details` | 切换运行时 verbose（等同 `-v`，无需重启） |
+| `/compact` | 手动上下文压缩（需启用 `contextManagement`） |
+| `/export [path]` | 导出活动链为 Markdown |
+| `/editor` | 在 `$EDITOR` 中撰写下一条消息 |
+| `/exit` | 退出（别名 `/quit`、`/q`） |
+
+其他输入：
+
+- `!cmd` — 在 agent `cwd` 执行 shell，输出附在下一条 user 消息前（TTY only，首次有安全提示）
+- `/skill-name` — 调用已安装 skill（与内置斜杠命令区分：未知 `/foo` 会提示错误）
+
+`--resume` / `-s` 恢复会话时，若有历史会自动重放终端对话。rewind/fork 后同样重放，与 Agent 内存一致。
+
+### tui
+
+全屏 Ink TUI（需安装可选依赖 `ink` 与 `react`）：
+
+```bash
+pnpm add ink react
+agent-sdk tui [options]
+```
+
+选项与 `chat` 相同（`--resume`、`-s`、`--fork*` 等）。非 TTY 或缺少依赖时回退提示使用 `agent-sdk chat`。
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 
@@ -168,6 +204,7 @@ list 选项:
   --user-base-path <path>  与 chat/run 一致，用于解析会话 JSONL 目录
   -f, --format <format>    输出格式 (table, json)
   -l, --limit <n>          列出会话条数上限（默认 20）
+  --with-active            额外计算 Active 列（活动链消息数，较慢）
 
 show 选项:
   --user-base-path <path>  同上

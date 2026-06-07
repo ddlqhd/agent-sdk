@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { SessionManager, isRewindEntry } from '../../storage/session.js';
 import { formatTable } from '../utils/output.js';
-import { getSessionStoragePath } from '../../storage/session-path.js';
+import { createCliSessionManager, listSessionsForPicker } from '../utils/session-cli.js';
 import type {
   Message,
   RewindToCheckpointOptions,
@@ -13,12 +13,7 @@ function addUserBasePathOption(cmd: Command): Command {
   return cmd.option('--user-base-path <path>', 'User base path (default: ~), must match chat/run');
 }
 
-function createCliSessionManager(userBasePath?: string): SessionManager {
-  return new SessionManager({
-    type: 'jsonl',
-    basePath: getSessionStoragePath(userBasePath)
-  });
-}
+export { listSessionsForPicker };
 
 function formatMessageContent(content: Message['content']): string {
   if (typeof content === 'string') {
@@ -75,14 +70,25 @@ export function createSessionsCommand(): Command {
       .description('List all sessions')
       .option('-l, --limit <n>', 'Limit number of sessions', parseInt, 20)
       .option('-f, --format <format>', 'Output format (table/json)', 'table')
+      .option('--with-active', 'Include active message count (slower)')
   ).action(async (options) => {
     const manager = createCliSessionManager(options.userBasePath);
     const sessions = await manager.listSessions();
 
     const limited = sessions.slice(0, options.limit);
 
+    let activeById = new Map<string, number>();
+    if (options.withActive) {
+      const picker = await listSessionsForPicker(options.userBasePath, options.limit, true);
+      activeById = new Map(picker.map((p) => [p.id, p.activeCount ?? 0]));
+    }
+
     if (options.format === 'json') {
-      console.log(JSON.stringify(limited, null, 2));
+      const out = limited.map((s) => ({
+        ...s,
+        ...(options.withActive ? { activeMessageCount: activeById.get(s.id) ?? 0 } : {})
+      }));
+      console.log(JSON.stringify(out, null, 2));
     } else {
       if (limited.length === 0) {
         console.log(chalk.gray('No sessions found'));
@@ -90,26 +96,39 @@ export function createSessionsCommand(): Command {
       }
 
       console.log(chalk.cyan('\n💬 Sessions\n'));
+      const columns = options.withActive
+        ? [
+            { key: 'id', header: 'ID', width: 36 },
+            { key: 'messages', header: 'Entries', width: 10 },
+            { key: 'active', header: 'Active', width: 8 },
+            { key: 'created', header: 'Created', width: 20 },
+            { key: 'updated', header: 'Updated', width: 20 }
+          ]
+        : [
+            { key: 'id', header: 'ID', width: 36 },
+            { key: 'messages', header: 'Entries', width: 10 },
+            { key: 'created', header: 'Created', width: 20 },
+            { key: 'updated', header: 'Updated', width: 20 }
+          ];
       console.log(
         formatTable(
           limited.map((s) => ({
             id: s.id,
             messages: s.messageCount,
+            ...(options.withActive ? { active: activeById.get(s.id) ?? '?' } : {}),
             created: new Date(s.createdAt).toLocaleString(),
             updated: new Date(s.updatedAt).toLocaleString()
           })),
-          [
-            { key: 'id', header: 'ID', width: 36 },
-            { key: 'messages', header: 'Entries', width: 10 },
-            { key: 'created', header: 'Created', width: 20 },
-            { key: 'updated', header: 'Updated', width: 20 }
-          ]
+          columns
         )
       );
       console.log(chalk.gray(`\nTotal: ${sessions.length} sessions`));
       console.log(
         chalk.gray('Note: Entries = raw JSONL line count (includes summary/rewind), not active messages.')
       );
+      if (options.withActive) {
+        console.log(chalk.gray('Active = current activity chain message count.'));
+      }
     }
   });
 

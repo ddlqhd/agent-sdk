@@ -11,6 +11,7 @@
 - **Observability**: `publishSdkDiagnostic` and `SDK_DIAGNOSTIC_CHANNELS` (`node:diagnostics_channel`, opt-in).
 - **Session fork & rewind**: `RewindEntry` in JSONL; `SessionManager.forkSession`, `rewindSession`, `rewindToCheckpoint`, `listSessionCheckpoints`; `Agent` mirrors with `forkSession`, `rewindToCheckpoint`, `listSessionCheckpoints`, `getActiveMessageCount`; `StreamOptions.forkSession` to fork before `stream`. Lifecycle: `onSessionFork`, `onSessionRewind`. See [`docs/sdk-api-reference.md`](./docs/sdk-api-reference.md) (Rewind 集成指南).
 - **CLI**: `sessions checkpoints` / `rewind` / `fork`; `sessions show --raw` displays rewind rows; `chat`/`run` `--fork*` flags; interactive `/checkpoints`, `/rewind`, `/fork`.
+- **CLI**: slash command registry (`/help`, `/status`, `/sessions`, `/new`, `/details`, `/compact`, `/export`, `/editor`); terminal replay after rewind/fork; `!` shell prefix; `sessions list --with-active`; optional `agent-sdk tui` (Ink).
 - **Web demo**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
 
 ### Changed

@@ -44,6 +44,12 @@ export interface CLIConfig {
    */
   logLevel?: SDKLogLevel;
 
+  /** 系统提示词 */
+  system?: string;
+
+  /** SDK JSONL 日志文件路径 */
+  logFile?: string;
+
   /** MCP 配置文件路径 */
   mcpConfig?: string;
 
