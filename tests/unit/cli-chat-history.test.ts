@@ -17,6 +17,37 @@ describe('messagesToTerminalLines', () => {
     ]);
   });
 
+  it('splits assistant thinking parts into separate lines', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'reasoning here' },
+          { type: 'text', text: 'answer' }
+        ]
+      }
+    ];
+    const lines = messagesToTerminalLines(messages);
+    expect(lines).toEqual([
+      { role: 'thinking', text: 'reasoning here' },
+      { role: 'assistant', text: 'answer' }
+    ]);
+  });
+
+  it('includes formatted tool trace when toolTrace is true without verbose', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'ok',
+        toolCalls: [{ id: 'tc1', name: 'Read', arguments: { path: '/a' } }]
+      },
+      { role: 'tool', content: 'file body', toolCallId: 'tc1' }
+    ];
+    const lines = messagesToTerminalLines(messages, { toolTrace: true });
+    expect(lines.some((l) => l.role === 'tool' && l.text.includes('🔧 Read'))).toBe(true);
+    expect(lines.some((l) => l.role === 'tool' && l.text.startsWith('✓ [tc1]'))).toBe(true);
+  });
+
   it('includes tool rows when verbose', () => {
     const messages: Message[] = [
       { role: 'user', content: 'go' },

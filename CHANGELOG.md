@@ -12,10 +12,12 @@
 - **Session fork & rewind**: `RewindEntry` in JSONL; `SessionManager.forkSession`, `rewindSession`, `rewindToCheckpoint`, `listSessionCheckpoints`; `Agent` mirrors with `forkSession`, `rewindToCheckpoint`, `listSessionCheckpoints`, `getActiveMessageCount`; `StreamOptions.forkSession` to fork before `stream`. Lifecycle: `onSessionFork`, `onSessionRewind`. See [`docs/sdk-api-reference.md`](./docs/sdk-api-reference.md) (Rewind 集成指南).
 - **CLI**: `sessions checkpoints` / `rewind` / `fork`; `sessions show --raw` displays rewind rows; `chat`/`run` `--fork*` flags; interactive `/checkpoints`, `/rewind`, `/fork`.
 - **CLI**: slash command registry (`/help`, `/status`, `/sessions`, `/new`, `/details`, `/compact`, `/export`, `/editor`); terminal replay after rewind/fork; `!` shell prefix; `sessions list --with-active`; optional `agent-sdk tui` (Ink).
+- **CLI TUI**: slash command dropdown (builtins + skills, alias prefix filter, scroll window), persistent status bar, `/status` and `/sessions` modals; thinking and tool trace stream display; `withCapturedConsoleLog` for slash output; shared `collectSessionStatus` for classic and TUI.
 - **Web demo**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
 
 ### Changed
 
+- **Agent**: assistant thinking blocks are persisted without a model signature when the provider omits one (e.g. Ollama); Anthropic replay still requires signature before resending to the API.
 - **agent-sdk-acp**: `session/fork` now uses core `Agent.forkSession` (active-chain head) instead of copying full raw JSONL; replays history to the client after fork. **Rewind is not exposed over ACP** (use CLI or web-demo).
 - Internal modules (Agent, tools, skills, MCP config, compressor, model request log) now emit via `sdkLog` and shared context; `HookManagerSdkLogContext` is an alias of `SDKLogContext`.
 - `loadMCPConfig` optional fourth argument is documented as `SDKLogContext` (internal parameter name `logCtx`; same type and position as before — **not** a breaking API change).

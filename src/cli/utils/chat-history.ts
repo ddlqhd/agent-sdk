@@ -1,5 +1,9 @@
 import chalk from 'chalk';
 import type { ContentPart, Message } from '../../core/types.js';
+import {
+  formatToolCallText,
+  formatToolResultText
+} from '../tui/format-tool-events.js';
 
 export interface TerminalHistoryLine {
   role: string;
@@ -34,39 +38,75 @@ function partsToText(parts: ContentPart[]): string {
     .join('\n');
 }
 
+function partsToTerminalLines(parts: ContentPart[]): TerminalHistoryLine[] {
+  const lines: TerminalHistoryLine[] = [];
+  for (const p of parts) {
+    if (p.type === 'thinking') {
+      const trimmed = p.thinking.trim();
+      if (trimmed) lines.push({ role: 'thinking', text: trimmed });
+    } else if (p.type === 'text') {
+      const trimmed = p.text.trim();
+      if (trimmed) lines.push({ role: 'assistant', text: trimmed });
+    } else if (p.type === 'image') {
+      lines.push({ role: 'assistant', text: `[image: ${p.imageUrl}]` });
+    }
+  }
+  return lines;
+}
+
+export interface MessagesToTerminalLinesOptions {
+  verbose?: boolean;
+  /** TUI: show tool call/result lines even when verbose is false */
+  toolTrace?: boolean;
+}
+
 /** Serialize active messages for terminal replay. */
 export function messagesToTerminalLines(
   messages: Message[],
-  options: { verbose?: boolean } = {}
+  options: MessagesToTerminalLinesOptions = {}
 ): TerminalHistoryLine[] {
   const verbose = options.verbose === true;
+  const toolTrace = options.toolTrace === true;
   const lines: TerminalHistoryLine[] = [];
 
   for (const msg of messages) {
     if (msg.role === 'system') continue;
 
-    if (msg.role === 'user' || msg.role === 'assistant') {
-      const text =
-        typeof msg.content === 'string' ? msg.content : partsToText(msg.content);
+    if (msg.role === 'user') {
+      const text = typeof msg.content === 'string' ? msg.content : partsToText(msg.content);
       const trimmed = text.trim();
-      if (trimmed) {
-        lines.push({ role: msg.role, text: trimmed });
+      if (trimmed) lines.push({ role: 'user', text: trimmed });
+      continue;
+    }
+
+    if (msg.role === 'assistant') {
+      if (Array.isArray(msg.content)) {
+        lines.push(...partsToTerminalLines(msg.content));
+      } else {
+        const trimmed = msg.content.trim();
+        if (trimmed) lines.push({ role: 'assistant', text: trimmed });
       }
-      if (verbose && msg.role === 'assistant' && msg.toolCalls?.length) {
+      if (msg.toolCalls?.length && (verbose || toolTrace)) {
         for (const tc of msg.toolCalls) {
           lines.push({
             role: 'tool',
-            text: `${tc.name}(${JSON.stringify(tc.arguments)})`
+            text: toolTrace
+              ? formatToolCallText(verbose, tc.id, tc.name, tc.arguments)
+              : `${tc.name}(${JSON.stringify(tc.arguments)})`
           });
         }
       }
       continue;
     }
 
-    if (msg.role === 'tool' && verbose) {
+    if (msg.role === 'tool' && (verbose || toolTrace)) {
+      const content = formatMessageContent(msg.content);
+      const toolCallId = msg.toolCallId ?? 'unknown';
       lines.push({
         role: 'tool',
-        text: formatMessageContent(msg.content)
+        text: toolTrace
+          ? formatToolResultText(verbose, toolCallId, content)
+          : content
       });
     }
   }

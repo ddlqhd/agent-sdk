@@ -10,6 +10,7 @@ import {
   type MCPServerConfig,
   type ContextManagerConfig,
   type Message,
+  type ContentPart,
   type ModelAdapter,
   type ToolDefinition,
   type ToolExecutionContext,
@@ -1009,9 +1010,13 @@ export class Agent {
         role: 'assistant',
         content: assistantContent
       };
-      if (thinkingContent && thinkingSignature) {
+      if (thinkingContent) {
         assistantMessage.content = [
-          { type: 'thinking', thinking: thinkingContent, signature: thinkingSignature },
+          {
+            type: 'thinking',
+            thinking: thinkingContent,
+            ...(thinkingSignature ? { signature: thinkingSignature } : {})
+          },
           { type: 'text', text: assistantContent }
         ];
       }
@@ -1022,12 +1027,12 @@ export class Agent {
       role: 'assistant',
       content: assistantContent
     };
-    if (thinkingContent && thinkingSignature) {
-      const contentParts: any[] = [
+    if (thinkingContent) {
+      const contentParts: ContentPart[] = [
         {
           type: 'thinking',
           thinking: thinkingContent,
-          signature: thinkingSignature
+          ...(thinkingSignature ? { signature: thinkingSignature } : {})
         }
       ];
       if (assistantContent.trim()) {

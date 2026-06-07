@@ -151,7 +151,24 @@ pnpm add ink react
 agent-sdk tui [options]
 ```
 
-选项与 `chat` 相同（`--resume`、`-s`、`--fork*` 等）。支持流式对话、Esc 中断、`/help` 与 `/checkpoints` 模态（↑↓ Enter 回退）。非 TTY 或缺少依赖时提示使用 `agent-sdk chat`。
+选项与 `chat` 相同（`--resume`、`-s`、`--fork*` 等）。支持流式对话、Esc 中断流式输出。
+
+**斜杠下拉**：输入 `/` 唤起内置命令与可 invoke 的 Skills 列表；`↑↓` 选择；`Tab` 或 `Enter` **仅补全**到输入框（不立即执行）；补全后再次 `Enter` 才发送。带参命令（如 `/rewind`）补全后保留尾随空格。
+
+**状态栏**（header 下方常驻）：`sess`（会话短 id）、`msgs`（活跃消息数）、`chk`（checkpoint 数）、`in`/`out`（累计 token）、`verbose`、`streaming…`。
+
+**工具输出**：流式与历史重放均显示 `🔧` 工具调用与 `✓`/`✗` 结果（非 verbose 截断，与 `chat` 流式一致）；`/details` 切换 verbose 后下次对话展示完整参数与结果。
+
+**模态**（Esc 关闭）：
+
+| 命令 | 操作 |
+|------|------|
+| `/help` | 命令列表 |
+| `/status`、`/session` | 完整会话状态 |
+| `/sessions` | ↑↓ 选择会话，Enter 切换并重放 |
+| `/checkpoints` | ↑↓ 选择，Enter 回退 |
+
+非 TTY 或缺少 `ink`/`react` 时提示使用 `agent-sdk chat`。
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 

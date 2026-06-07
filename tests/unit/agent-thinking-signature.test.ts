@@ -58,7 +58,7 @@ describe('Agent thinking signature persistence', () => {
     }
   });
 
-  it('omits thinking block from history when signature never arrived', async () => {
+  it('persists thinking block without signature when provider omits it', async () => {
     let turn = 0;
     let capturedMessages: Message[] | undefined;
 
@@ -98,6 +98,10 @@ describe('Agent thinking signature persistence', () => {
     }
 
     const assistant = capturedMessages!.find(m => m.role === 'assistant');
-    expect(assistant!.content).toBe('hello');
+    expect(Array.isArray(assistant!.content)).toBe(true);
+    if (Array.isArray(assistant!.content)) {
+      expect(assistant!.content[0]).toMatchObject({ type: 'thinking', thinking: 'trace' });
+      expect(assistant!.content[1]).toMatchObject({ type: 'text', text: 'hello' });
+    }
   });
 });

@@ -88,7 +88,7 @@ describe('Agent aborted-run persistence', () => {
     expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
   });
 
-  it('preserves text-only assistant message when aborted without thinking signature', async () => {
+  it('perserves assistant message with thinking when aborted without thinking signature', async () => {
     const model: ModelAdapter = {
       name: 'abort-mid-stream-thinking',
       async *stream(_params: ModelParams): AsyncIterable<StreamChunk> {
@@ -129,7 +129,10 @@ describe('Agent aborted-run persistence', () => {
     const persisted = await loadActiveForManager(agent.getSessionManager());
     const assistantMsg = [...persisted].reverse().find(m => m.role === 'assistant');
     expect(assistantMsg).toBeDefined();
-    expect(assistantMsg!.content).toBe('partial');
+    expect(assistantMsg!.content).toEqual([
+      { type: 'thinking', thinking: 'thought' },
+      { type: 'text', text: 'partial' }
+    ]);
     expect(persisted).toContainEqual({ role: 'user', content: '[User interrupted the response]' });
   });
 

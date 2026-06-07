@@ -1,13 +1,36 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { Agent } from '../../core/agent.js';
 import type { CLIConfig } from '../types.js';
 import type { ChatLine, TuiModal } from './types.js';
 import { messagesToTerminalLines } from '../utils/chat-history.js';
 import { handleSlashCommand, type SlashContext } from '../utils/slash-commands.js';
-import { SLASH_COMMANDS } from '../utils/slash-registry.js';
 import type { SessionCheckpoint } from '../../core/types.js';
 import { ensureChatSessionAttached } from '../utils/agent-bootstrap.js';
+import { listSessionsForPicker, type SessionPickerItem } from '../utils/session-cli.js';
+import { useSessionStatus } from './hooks/use-session-status.js';
+import {
+  buildSlashMenuItems,
+  filterSlashMenuItems,
+  slashMenuDropdownOpen
+} from './slash-menu.js';
+import { parseTuiModalCommand, tuiModalFromCommand } from './tui-command-route.js';
+import { TuiHeader } from './components/TuiHeader.js';
+import { ChatLog } from './components/ChatLog.js';
+import { InputArea } from './components/InputArea.js';
+import { SlashMenu } from './components/SlashMenu.js';
+import { StatusBar } from './components/StatusBar.js';
+import { HelpPanel } from './components/modals/HelpPanel.js';
+import { CheckpointPanel } from './components/modals/CheckpointPanel.js';
+import { StatusPanel } from './components/modals/StatusPanel.js';
+import { SessionPicker } from './components/modals/SessionPicker.js';
+import { stripAnsi, withCapturedConsoleLog } from './capture-console.js';
+import { createEmptyStreamBuffers, reduceStreamEvent } from './stream-buffers.js';
+import {
+  formatToolCallText,
+  formatToolErrorText,
+  formatToolResultText
+} from './format-tool-events.js';
 
 interface TuiAppProps {
   agent: Agent;
@@ -24,48 +47,133 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [streamBuf, setStreamBuf] = useState('');
+  const [thinkingBuf, setThinkingBuf] = useState('');
   const [status, setStatus] = useState('');
   const [verbose, setVerbose] = useState(options.verbose === true);
   const [modal, setModal] = useState<TuiModal>('none');
   const [checkpoints, setCheckpoints] = useState<SessionCheckpoint[]>([]);
-  const [sessionPickerIdx, setSessionPickerIdx] = useState(0);
+  const [sessions, setSessions] = useState<SessionPickerItem[]>([]);
+  const [checkpointsIdx, setCheckpointsIdx] = useState(0);
+  const [sessionsIdx, setSessionsIdx] = useState(0);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [menuDismissed, setMenuDismissed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+
+  const { snapshot, refresh: refreshStatus } = useSessionStatus({
+    agent,
+    sessionId,
+    verbose,
+    streaming,
+    cwd
+  });
+
+  const allMenuItems = useMemo(
+    () => buildSlashMenuItems(agent.getSkillRegistry().getUserInvocableSkills()),
+    [agent]
+  );
+
+  const filteredMenuItems = useMemo(
+    () => filterSlashMenuItems(allMenuItems, input),
+    [allMenuItems, input]
+  );
+
+  const menuOpen =
+    !menuDismissed &&
+    !streaming &&
+    modal === 'none' &&
+    slashMenuDropdownOpen(input, filteredMenuItems);
+
+  useEffect(() => {
+    setMenuIndex(0);
+    setMenuDismissed(false);
+  }, [input]);
 
   const reloadLines = useCallback(async () => {
     const messages = await agent.getSessionManager().loadActiveMessages();
     setLines(
-      messagesToTerminalLines(messages, { verbose }).map((l) => ({
+      messagesToTerminalLines(messages, { verbose, toolTrace: true }).map((l) => ({
         role: l.role as ChatLine['role'],
         text: l.text
       }))
     );
   }, [agent, verbose]);
 
+  const syncFromSession = useCallback(async () => {
+    await reloadLines();
+    await refreshStatus();
+  }, [reloadLines, refreshStatus]);
+
   useEffect(() => {
-    void reloadLines();
-  }, [reloadLines]);
+    void syncFromSession();
+  }, [syncFromSession]);
+
+  const openModal = useCallback(
+    async (kind: TuiModal) => {
+      if (kind === 'checkpoints') {
+        const cps = await agent.listSessionCheckpoints();
+        setCheckpoints(cps);
+        setCheckpointsIdx(0);
+      } else if (kind === 'sessions') {
+        const items = await listSessionsForPicker(options.userBasePath, 20);
+        setSessions(items);
+        setSessionsIdx(0);
+      } else if (kind === 'status') {
+        await refreshStatus();
+      }
+      setModal(kind);
+    },
+    [agent, options.userBasePath, refreshStatus]
+  );
 
   const runStream = useCallback(
     async (text: string) => {
       setStreaming(true);
       setStreamBuf('');
+      setThinkingBuf('');
       setStatus('Streaming… (Esc to cancel)');
       const ac = new AbortController();
       abortRef.current = ac;
       const userLine: ChatLine = { role: 'user', text };
       setLines((prev) => [...prev, userLine]);
-      let assistant = '';
+      let buffers = createEmptyStreamBuffers();
       try {
         const processed = await agent.processInput(text);
         const prompt = processed.invoked ? processed.prompt : text;
         for await (const event of agent.stream(prompt, { sessionId, signal: ac.signal })) {
-          if (event.type === 'text_delta') {
-            assistant += event.content;
-            setStreamBuf(assistant);
+          if (event.type === 'tool_call') {
+            setLines((prev) => [
+              ...prev,
+              {
+                role: 'tool',
+                text: formatToolCallText(verbose, event.id, event.name, event.arguments)
+              }
+            ]);
+            continue;
           }
-        }
-        if (assistant.trim()) {
-          setLines((prev) => [...prev, { role: 'assistant', text: assistant }]);
+          if (event.type === 'tool_result') {
+            setLines((prev) => [
+              ...prev,
+              {
+                role: 'tool',
+                text: formatToolResultText(verbose, event.toolCallId, event.result)
+              }
+            ]);
+            continue;
+          }
+          if (event.type === 'tool_error') {
+            setLines((prev) => [
+              ...prev,
+              {
+                role: 'tool',
+                text: formatToolErrorText(verbose, event.toolCallId, event.error)
+              }
+            ]);
+            continue;
+          }
+          buffers = reduceStreamEvent(buffers, event);
+          setThinkingBuf(buffers.thinking);
+          setStreamBuf(buffers.assistant);
         }
       } catch (err) {
         if (!ac.signal.aborted) {
@@ -74,63 +182,85 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
       } finally {
         setStreaming(false);
         setStreamBuf('');
-        setStatus('');
+        setThinkingBuf('');
+        setStatus((prev) => (prev === 'Streaming… (Esc to cancel)' ? '' : prev));
         abortRef.current = null;
         const sid = agent.getSessionManager().sessionId;
         if (sid) setSessionId(sid);
+        await syncFromSession();
       }
     },
-    [agent, sessionId]
+    [agent, sessionId, verbose, syncFromSession]
+  );
+
+  const applySlashResult = useCallback(
+    async (slash: Awaited<ReturnType<typeof handleSlashCommand>>): Promise<boolean> => {
+      if (!slash.handled) return false;
+      if (slash.exit) {
+        await onExit();
+        exit();
+        return true;
+      }
+      if (slash.sessionId !== undefined) setSessionId(slash.sessionId);
+      if (slash.verbose !== undefined) setVerbose(slash.verbose);
+      if (slash.replayHistory) await syncFromSession();
+      if (slash.pendingUserInput) {
+        await runStream(slash.pendingUserInput);
+      }
+      return true;
+    },
+    [onExit, exit, syncFromSession, runStream]
   );
 
   const submit = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if (!text || streaming || busyRef.current) return;
     setInput('');
+    setMenuDismissed(false);
+    busyRef.current = true;
 
-    if (text.startsWith('/')) {
-      const slashCtx: SlashContext = {
-        sessionId,
-        verbose,
-        userBasePath: options.userBasePath,
-        cwd,
-        askLine: async () => '',
-        onReplay: async (opts) => {
-          if (opts?.verbose !== undefined) setVerbose(opts.verbose);
-          await reloadLines();
+    try {
+      const modalCmd = parseTuiModalCommand(text);
+      if (modalCmd) {
+        await openModal(tuiModalFromCommand(modalCmd));
+        return;
+      }
+
+      if (text.startsWith('/')) {
+        const slashCtx: SlashContext = {
+          sessionId,
+          verbose,
+          userBasePath: options.userBasePath,
+          cwd,
+          askLine: async () => '',
+          onReplay: async (opts) => {
+            if (opts?.verbose !== undefined) setVerbose(opts.verbose);
+            await syncFromSession();
+          }
+        };
+        const { result: slash, logs } = await withCapturedConsoleLog(() =>
+          handleSlashCommand(agent, text, slashCtx)
+        );
+        if (logs.length > 0) {
+          setStatus(stripAnsi(logs.join(' ')).slice(0, 240));
         }
-      };
-      const slash = await handleSlashCommand(agent, text, slashCtx);
-      if (slash.handled) {
-        if (slash.exit) {
-          await onExit();
-          exit();
+        if (await applySlashResult(slash)) return;
+
+        const skill = await agent.processInput(text);
+        if (skill.invoked) {
+          await runStream(text);
           return;
         }
-        if (slash.sessionId !== undefined) setSessionId(slash.sessionId);
-        if (slash.verbose !== undefined) setVerbose(slash.verbose);
-        if (slash.replayHistory) await reloadLines();
-        if (slash.pendingUserInput) {
-          await runStream(slash.pendingUserInput);
-        }
-        if (text === '/help' || text.startsWith('/help ')) setModal('help');
-        if (text === '/checkpoints' || text.startsWith('/checkpoints')) {
-          const cps = await agent.listSessionCheckpoints();
-          setCheckpoints(cps);
-          setModal('checkpoints');
-        }
+        setStatus('Unknown command. Type /help');
         return;
       }
-      const skill = await agent.processInput(text);
-      if (skill.invoked) {
-        await runStream(text);
-        return;
-      }
-      setStatus('Unknown command. Type /help');
-      return;
-    }
 
-    await runStream(text);
+      await runStream(text);
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      busyRef.current = false;
+    }
   }, [
     input,
     streaming,
@@ -139,11 +269,18 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
     options.userBasePath,
     cwd,
     agent,
-    reloadLines,
+    syncFromSession,
     runStream,
-    onExit,
-    exit
+    openModal,
+    applySlashResult
   ]);
+
+  const applyMenuCompletion = useCallback(() => {
+    const item = filteredMenuItems[menuIndex];
+    if (!item) return;
+    setInput(item.insertText);
+    setMenuDismissed(true);
+  }, [filteredMenuItems, menuIndex]);
 
   useInput((inputKey, key) => {
     if (key.escape && streaming && abortRef.current) {
@@ -151,29 +288,66 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
       setStatus('Interrupted');
       return;
     }
+
     if (modal !== 'none') {
       if (key.escape) {
         setModal('none');
         return;
       }
-      if (modal === 'checkpoints' && key.upArrow) {
-        setSessionPickerIdx((i) => Math.max(0, i - 1));
-      }
-      if (modal === 'checkpoints' && key.downArrow) {
-        setSessionPickerIdx((i) => Math.min(checkpoints.length - 1, i + 1));
-      }
-      if (modal === 'checkpoints' && key.return) {
-        const cp = checkpoints[sessionPickerIdx];
-        if (cp) {
-          void (async () => {
-            await agent.rewindToCheckpoint({ userTurnIndex: cp.userTurnIndex });
-            await reloadLines();
-            setModal('none');
-          })();
+      // help/status are non-blocking overlays; only pickers capture navigation keys.
+      if (modal === 'checkpoints' || modal === 'sessions') {
+        if (modal === 'checkpoints') {
+          if (key.upArrow) setCheckpointsIdx((i) => Math.max(0, i - 1));
+          if (key.downArrow) setCheckpointsIdx((i) => Math.min(checkpoints.length - 1, i + 1));
+          if (key.return) {
+            const cp = checkpoints[checkpointsIdx];
+            if (cp) {
+              void (async () => {
+                await agent.rewindToCheckpoint({ userTurnIndex: cp.userTurnIndex });
+                await syncFromSession();
+                setModal('none');
+              })();
+            }
+          }
         }
+        if (modal === 'sessions') {
+          if (key.upArrow) setSessionsIdx((i) => Math.max(0, i - 1));
+          if (key.downArrow) setSessionsIdx((i) => Math.min(sessions.length - 1, i + 1));
+          if (key.return) {
+            const picked = sessions[sessionsIdx];
+            if (picked) {
+              void (async () => {
+                await ensureChatSessionAttached(agent, picked.id);
+                setSessionId(picked.id);
+                await syncFromSession();
+                setModal('none');
+              })();
+            }
+          }
+        }
+        return;
       }
-      return;
     }
+
+    if (menuOpen) {
+      if (key.escape) {
+        setMenuDismissed(true);
+        return;
+      }
+      if (key.upArrow) {
+        setMenuIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setMenuIndex((i) => Math.min(filteredMenuItems.length - 1, i + 1));
+        return;
+      }
+      if (key.tab || (key.return && filteredMenuItems.length > 0)) {
+        applyMenuCompletion();
+        return;
+      }
+    }
+
     if (key.return) {
       void submit();
       return;
@@ -188,65 +362,32 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
   });
 
   const modelName = agent.getModel().name;
-  const sidShort = sessionId ? sessionId.slice(0, 8) + '…' : 'new';
 
   return (
     <Box flexDirection="column" height="100%">
-      <Box borderStyle="single" paddingX={1}>
-        <Text>
-          Agent SDK TUI | {modelName} | session {sidShort} | /help Esc=close modal
-        </Text>
-      </Box>
+      <TuiHeader modelName={modelName} cwd={cwd} />
+      <StatusBar snapshot={snapshot} streaming={streaming} />
       {status ? (
         <Box paddingX={1}>
           <Text color="yellow">{status}</Text>
         </Box>
       ) : null}
-      <Box flexDirection="column" flexGrow={1} paddingX={1} overflow="hidden">
-        {lines.map((line, i) => (
-          <Text key={`${i}-${line.role}`} wrap="wrap">
-            <Text color={line.role === 'user' ? 'green' : line.role === 'assistant' ? 'blue' : 'gray'}>
-              {line.role}:{' '}
-            </Text>
-            {line.text}
-          </Text>
-        ))}
-        {streaming && streamBuf ? (
-          <Text wrap="wrap">
-            <Text color="blue">assistant: </Text>
-            {streamBuf}
-          </Text>
-        ) : null}
-      </Box>
-      {modal === 'help' ? (
-        <Box flexDirection="column" borderStyle="double" paddingX={1} marginY={1}>
-          <Text bold>Slash commands</Text>
-          {SLASH_COMMANDS.map((c) => (
-            <Text key={c.name}>
-              /{c.name} — {c.description}
-            </Text>
-          ))}
-        </Box>
-      ) : null}
+      <ChatLog
+        lines={lines}
+        streaming={streaming}
+        streamBuf={streamBuf}
+        thinkingBuf={thinkingBuf}
+      />
+      {modal === 'help' ? <HelpPanel /> : null}
+      {modal === 'status' ? <StatusPanel snapshot={snapshot} /> : null}
       {modal === 'checkpoints' ? (
-        <Box flexDirection="column" borderStyle="double" paddingX={1} marginY={1}>
-          <Text bold>Checkpoints (↑↓ Enter rewind, Esc close)</Text>
-          {checkpoints.length === 0 ? (
-            <Text dimColor>None</Text>
-          ) : (
-            checkpoints.map((c, i) => (
-              <Text key={c.checkpointId} color={i === sessionPickerIdx ? 'cyan' : undefined}>
-                #{c.userTurnIndex} {c.preview.slice(0, 50)}
-              </Text>
-            ))
-          )}
-        </Box>
+        <CheckpointPanel checkpoints={checkpoints} selectedIndex={checkpointsIdx} />
       ) : null}
-      <Box borderStyle="single" paddingX={1}>
-        <Text color="green">{streaming ? '…' : '› '}</Text>
-        <Text>{input}</Text>
-        <Text dimColor>{streaming ? '' : '█'}</Text>
-      </Box>
+      {modal === 'sessions' ? (
+        <SessionPicker sessions={sessions} selectedIndex={sessionsIdx} />
+      ) : null}
+      {menuOpen ? <SlashMenu items={filteredMenuItems} selectedIndex={menuIndex} /> : null}
+      <InputArea input={input} streaming={streaming} />
     </Box>
   );
 }

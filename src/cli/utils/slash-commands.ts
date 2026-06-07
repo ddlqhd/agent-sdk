@@ -14,7 +14,7 @@ import {
   resolveSlashCommandName
 } from './slash-registry.js';
 import { listSessionsForPicker, type SessionPickerItem } from './session-cli.js';
-import type { Message } from '../../core/types.js';
+import { collectSessionStatus } from './session-status.js';
 
 export type SlashResult =
   | { handled: false }
@@ -35,11 +35,6 @@ export interface SlashContext {
   cwd: string;
   askLine: (prompt: string) => Promise<string>;
   onReplay: (opts?: { verbose?: boolean }) => Promise<void>;
-}
-
-function previewText(content: Message['content']): string {
-  if (typeof content === 'string') return content.replace(/\s+/g, ' ').trim().slice(0, 80);
-  return '';
 }
 
 function parseSlashInput(input: string): { cmd: string; args: string } | null {
@@ -64,60 +59,47 @@ export function suggestSlashCommands(partial: string): void {
   console.log(chalk.gray(`Matching: ${matches.map((m) => `/${m.name}`).join(', ')}`));
 }
 
-async function printStatus(agent: Agent, sessionId: string | undefined, brief: boolean): Promise<void> {
-  const sm = agent.getSessionManager();
-  const sid = sessionId ?? sm.sessionId;
-  const model = agent.getModel();
-  let activeCount = 0;
-  let checkpoints = 0;
-  let lastUser = '';
-  let lastAssistant = '';
-
-  if (sid) {
-    try {
-      await ensureChatSessionAttached(agent, sid);
-      const messages = await sm.loadActiveMessages();
-      activeCount = messages.length;
-      const cps = await agent.listSessionCheckpoints();
-      checkpoints = cps.length;
-      const u = [...messages].reverse().find((m) => m.role === 'user');
-      const a = [...messages].reverse().find((m) => m.role === 'assistant');
-      if (u) lastUser = previewText(u.content);
-      if (a) lastAssistant = previewText(a.content);
-    } catch {
-      activeCount = agent.getActiveMessageCount();
-    }
-  }
+async function printStatus(
+  agent: Agent,
+  sessionId: string | undefined,
+  brief: boolean,
+  verbose: boolean,
+  cwd: string
+): Promise<void> {
+  const snap = await collectSessionStatus(agent, {
+    sessionId,
+    verbose,
+    streaming: false,
+    cwd
+  });
 
   if (brief) {
-    console.log(chalk.cyan(`Session: ${sid ?? '(none)'}`));
-    console.log(chalk.gray(`Model: ${model.name}  Messages: ${activeCount}`));
+    console.log(chalk.cyan(`Session: ${snap.sessionId ?? '(none)'}`));
+    console.log(chalk.gray(`Model: ${snap.modelName}  Messages: ${snap.activeMessageCount}`));
     return;
   }
 
-  const usage = agent.getSessionUsage();
-  const ctx = agent.getContextStatus();
   console.log(chalk.cyan('\nSession status\n'));
-  console.log(chalk.gray(`  session:     ${sid ?? '(none — next message creates one)'}`));
-  console.log(chalk.gray(`  model:       ${model.name}`));
-  console.log(chalk.gray(`  messages:    ${activeCount} active`));
-  console.log(chalk.gray(`  checkpoints: ${checkpoints}`));
+  console.log(chalk.gray(`  session:     ${snap.sessionId ?? '(none — next message creates one)'}`));
+  console.log(chalk.gray(`  model:       ${snap.modelName}`));
+  console.log(chalk.gray(`  messages:    ${snap.activeMessageCount} active`));
+  console.log(chalk.gray(`  checkpoints: ${snap.checkpointCount}`));
   console.log(
     chalk.gray(
-      `  tokens:      in=${usage.inputTokens} out=${usage.outputTokens} total=${usage.totalTokens}`
+      `  tokens:      in=${snap.usage.inputTokens} out=${snap.usage.outputTokens} total=${snap.usage.totalTokens}`
     )
   );
-  if (ctx) {
+  if (snap.context) {
     console.log(
       chalk.gray(
-        `  context:     used=${ctx.used} usable=${ctx.usable} compressions=${ctx.compressCount}`
+        `  context:     used=${snap.context.used} usable=${snap.context.usable} compressions=${snap.context.compressCount}`
       )
     );
   } else {
     console.log(chalk.gray('  context:     disabled'));
   }
-  if (lastUser) console.log(chalk.gray(`  last user:   ${lastUser}`));
-  if (lastAssistant) console.log(chalk.gray(`  last reply:  ${lastAssistant}`));
+  if (snap.lastUserPreview) console.log(chalk.gray(`  last user:   ${snap.lastUserPreview}`));
+  if (snap.lastAssistantPreview) console.log(chalk.gray(`  last reply:  ${snap.lastAssistantPreview}`));
   console.log('');
 }
 
@@ -257,11 +239,11 @@ export async function handleSlashCommand(
       return { handled: true, sessionId };
 
     case 'status':
-      await printStatus(agent, sessionId, false);
+      await printStatus(agent, sessionId, false, ctx.verbose, ctx.cwd);
       return { handled: true, sessionId };
 
     case 'session':
-      await printStatus(agent, sessionId, true);
+      await printStatus(agent, sessionId, true, ctx.verbose, ctx.cwd);
       return { handled: true, sessionId };
 
     case 'sessions': {
