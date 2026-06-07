@@ -11,9 +11,24 @@
 
 示例目录：`examples/web-demo/`。
 
-**与生产集成的对照方式**：`examples/web-demo/server/env.ts` 演示如何从环境变量组装模型与路径；`agent-factory.ts` 演示如何创建 `Agent`（含 MCP、Skill、Memory 路径等）；`demo-fixtures/mcp.demo.json` 与 `demo-fixtures/.claude/skills/` 演示配置文件与 Skill 目录的**真实布局**。将你在 Demo 里验证过的选项迁移到自有服务时，保持同一 `AgentConfig` 字段语义即可（详见 [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 14 节「与 Web Demo 的对照」）。
+## 1b. ACP Bridge（Zed / VS Code / JetBrains）
+
+包目录：`packages/agent-sdk-acp/`（`agent-sdk-acp` CLI + `agent.json`）。通过 **stdio JSON-RPC** 将 `Agent.stream()` 暴露为 [Agent Client Protocol](https://agentclientprotocol.com/) 服务。
+
+**与生产集成的对照方式**：`packages/agent-sdk-acp/src/agent-factory.ts` 演示如何从环境变量组装 `Agent`（含 MCP、Skill、Memory、`userBasePath`）；`examples/web-demo/server/env.ts` 提供另一套 Web 集成对照。未设置 `AGENT_SDK_ACP_USER_BASE` 时，会话默认写入稳定的 `tmpdir()/agent-sdk-acp`（非随机临时目录）。
 
 文件清单：
+
+- `packages/agent-sdk-acp/src/entry.ts`
+- `packages/agent-sdk-acp/src/server.ts`
+- `packages/agent-sdk-acp/src/session-manager.ts`
+- `packages/agent-sdk-acp/src/agent-factory.ts`
+- `packages/agent-sdk-acp/src/event-bridge.ts`
+- `packages/agent-sdk-acp/src/permissions.ts`
+- `packages/agent-sdk-acp/src/mcp-map.ts`
+- `packages/agent-sdk-acp/agent.json`
+
+Web Demo 对照：
 
 - `examples/web-demo/package.json`
 - `examples/web-demo/server/agent-factory.ts`

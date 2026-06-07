@@ -1,0 +1,61 @@
+{
+  "name": "@ddlqhd/agent-sdk-acp",
+  "version": "0.1.0",
+  "description": "ACP stdio bridge for @ddlqhd/agent-sdk (Zed / VS Code / JetBrains)",
+  "type": "module",
+  "bin": {
+    "agent-sdk-acp": "./dist/entry.js"
+  },
+  "files": [
+    "dist",
+    "agent.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build",
+    "start": "node dist/entry.js",
+    "check": "node dist/entry.js --check"
+  },
+  "keywords": [
+    "acp",
+    "agent-client-protocol",
+    "agent",
+    "zed",
+    "agent-sdk"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddlqhd/agent-sdk.git",
+    "directory": "packages/agent-sdk-acp"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.25.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@ddlqhd/agent-sdk": "workspace:*",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "@ddlqhd/agent-sdk": ">=2.0.0",
+    "@agentclientprotocol/sdk": ">=0.25.0",
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ddlqhd/agent-sdk": {
+      "optional": false
+    },
+    "@agentclientprotocol/sdk": {
+      "optional": false
+    },
+    "zod": {
+      "optional": false
+    }
+  }
+}

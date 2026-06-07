@@ -1,0 +1,15 @@
+{
+  "id": "agent-sdk",
+  "name": "Agent SDK",
+  "version": "0.1.0",
+  "description": "TypeScript Agent SDK with multi-model support, MCP, skills, and ACP editor integration.",
+  "repository": "https://github.com/ddlqhd/agent-sdk",
+  "website": "https://github.com/ddlqhd/agent-sdk/tree/main/packages/agent-sdk-acp",
+  "license": "MIT",
+  "distribution": {
+    "npm": {
+      "package": "@ddlqhd/agent-sdk-acp",
+      "args": ["agent-sdk-acp"]
+    }
+  }
+}

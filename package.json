@@ -38,7 +38,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "build:acp": "pnpm --filter @ddlqhd/agent-sdk-acp build"
   },
   "keywords": [
     "agent",

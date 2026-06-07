@@ -67,7 +67,31 @@ importers:
         specifier: ^4.0.0
         version: 4.3.6
 
+  packages/agent-sdk-acp:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^0.25.0
+        version: 0.25.0(zod@4.3.6)
+      zod:
+        specifier: ^4.0.0
+        version: 4.3.6
+    devDependencies:
+      '@ddlqhd/agent-sdk':
+        specifier: workspace:*
+        version: link:../..
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.37
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
 packages:
+
+  '@agentclientprotocol/sdk@0.25.0':
+    resolution: {integrity: sha512-wU1VgXNtMvdVotX49txc3WJUDV+/QbLpsgjMvFhlRmp37osdLbI7L7y+iwAlQATwfjLxcv1r1p3ZxZBcXlGhcQ==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -1476,6 +1500,10 @@ packages:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@0.25.0(zod@4.3.6)':
+    dependencies:
+      zod: 4.3.6
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
