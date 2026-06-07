@@ -5,7 +5,7 @@ import type {
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
-import { BaseModelAdapter, joinApiUrl, normalizeApiBaseUrl, toolsToModelSchema } from './base.js';
+import { BaseModelAdapter, ensureApiVersionSuffix, joinApiUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
   logModelRequestEnd,
@@ -19,6 +19,10 @@ import {
  */
 export interface OpenAIConfig {
   apiKey?: string;
+  /**
+   * API version root (should include `/v1`, e.g. `https://api.openai.com/v1`).
+   * If no trailing `/vN` segment is present, default `v1` is appended automatically.
+   */
   baseUrl?: string;
   model?: string;
   organization?: string;
@@ -129,8 +133,8 @@ export class OpenAIAdapter extends BaseModelAdapter {
   constructor(config: OpenAIConfig = {}) {
     super();
     this.apiKey = config.apiKey || process.env.OPENAI_API_KEY || '';
-    this.baseUrl = normalizeApiBaseUrl(
-      config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    this.baseUrl = ensureApiVersionSuffix(
+      config.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com'
     );
     this.model = config.model || 'gpt-4o';
     this.organization = config.organization || process.env.OPENAI_ORG_ID;

@@ -4,6 +4,7 @@ export {
   BaseModelAdapter,
   joinApiUrl,
   normalizeApiBaseUrl,
+  ensureApiVersionSuffix,
   zodToJsonSchema,
   toolsToModelSchema,
   mergeTokenUsage

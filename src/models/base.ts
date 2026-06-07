@@ -70,6 +70,22 @@ export function joinApiUrl(baseUrl: string, path: string): string {
   return `${base}${segment}`;
 }
 
+/** Matches a trailing API version segment such as `/v1`, `/v2`, or `/v10`. */
+const VERSION_SUFFIX_RE = /\/v\d+$/;
+
+/**
+ * Ensure base URL ends with `/{version}` when the adapter appends resource paths below the version root.
+ * If the URL already ends with any `/vN` segment (`/v1`, `/v2`, `/v10`, etc.) it is returned unchanged;
+ * otherwise the default `version` (typically `v1`) is appended.
+ */
+export function ensureApiVersionSuffix(baseUrl: string, version = 'v1'): string {
+  const base = normalizeApiBaseUrl(baseUrl);
+  if (VERSION_SUFFIX_RE.test(base)) {
+    return base;
+  }
+  return `${base}/${version}`;
+}
+
 /**
  * 基础模型适配器抽象类。具体提供商适配器应实现 {@link ModelAdapter.clone} / {@link ModelAdapter.setModel}
  * 以便子 Agent 等在换模时保留与父级一致的密钥与高级配置（见内置 OpenAI / Anthropic / Ollama）。

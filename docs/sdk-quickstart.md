@@ -24,7 +24,7 @@ OPENAI_ORG_ID=org-xxx
 
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-xxx
-ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
 
 # Ollama
 OLLAMA_BASE_URL=http://localhost:11434
@@ -38,8 +38,10 @@ OLLAMA_BASE_URL=http://localhost:11434
 | OpenAI | `OPENAI_BASE_URL` | `baseUrl` | `https://api.openai.com/v1` |
 | OpenAI | `OPENAI_ORG_ID` | `organization` | - |
 | Anthropic | `ANTHROPIC_API_KEY` | `apiKey` | - |
-| Anthropic | `ANTHROPIC_BASE_URL` | `baseUrl` | `https://api.anthropic.com` |
+| Anthropic | `ANTHROPIC_BASE_URL` | `baseUrl` | `https://api.anthropic.com/v1` |
 | Ollama | `OLLAMA_BASE_URL` | `baseUrl` | `http://localhost:11434` |
+
+OpenAI 与 Anthropic 的 `baseUrl` 均指向**版本根路径**（推荐显式包含 `/v1`，如 `https://api.openai.com/v1`）。若末尾没有 `/vN` 段（如只写 `https://api.openai.com`），SDK 会自动追加 `/v1`；已含 `/v2`、`/v10` 等版本后缀时则保持不变。
 
 ### 代码中传入工厂函数
 
@@ -54,7 +56,7 @@ const openai = createOpenAI({
 
 const anthropic = createAnthropic({
   apiKey: 'sk-ant-xxx',
-  baseUrl: 'https://api.anthropic.com',
+  baseUrl: 'https://api.anthropic.com/v1',
   model: 'claude-sonnet-4-20250514'
 });
 

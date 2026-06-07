@@ -4,7 +4,7 @@ import type {
   StreamChunk,
   CompletionResult
 } from '../core/types.js';
-import { BaseModelAdapter, joinApiUrl, normalizeApiBaseUrl, toolsToModelSchema } from './base.js';
+import { BaseModelAdapter, ensureApiVersionSuffix, joinApiUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
   logModelRequestEnd,
@@ -201,6 +201,10 @@ async function drainResponseBody(response: Response): Promise<void> {
  */
 export interface AnthropicConfig {
   apiKey?: string;
+  /**
+   * API version root (should include `/v1`, e.g. `https://api.anthropic.com/v1`).
+   * If no trailing `/vN` segment is present, default `v1` is appended automatically.
+   */
   baseUrl?: string;
   model?: string;
   version?: string;
@@ -245,7 +249,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
   constructor(config: AnthropicConfig = {}) {
     super();
     this.apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY || '';
-    this.baseUrl = normalizeApiBaseUrl(
+    this.baseUrl = ensureApiVersionSuffix(
       config.baseUrl || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
     );
     this.model = config.model || 'claude-sonnet-4-20250514';
@@ -286,7 +290,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
     const body = this.buildRequestBody(params, true);
-    const response = await this.fetch('/v1/messages', body, 'stream', params);
+    const response = await this.fetch('/messages', body, 'stream', params);
 
     if (!response.ok) {
       const error = await response.text();
@@ -461,7 +465,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
               {
                 provider: 'anthropic',
                 model: this.model,
-                path: '/v1/messages',
+                path: '/messages',
                 operation: 'stream',
                 params
               },
@@ -480,7 +484,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   async complete(params: ModelParams): Promise<CompletionResult> {
     const body = this.buildRequestBody(params, false);
-    const response = await this.fetch('/v1/messages', body, 'complete', params);
+    const response = await this.fetch('/messages', body, 'complete', params);
 
     if (!response.ok) {
       const error = await response.text();
