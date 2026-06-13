@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ContextManager } from '../../src/core/context-manager.js';
+import { ContextManager, runIterationCompaction } from '../../src/core/context-manager.js';
 import { SummarizationCompressor } from '../../src/core/compressor.js';
 import type { Message, ModelAdapter, SessionTokenUsage } from '../../src/core/types.js';
 
@@ -111,18 +111,63 @@ describe('ContextManager', () => {
       expect(result.stats.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should reset usage after compression', () => {
+    it('should reset only contextTokens after compression', () => {
       const model = createMockModel();
       const manager = new ContextManager(model);
 
-      const resetUsage = manager.resetUsage();
+      const before: SessionTokenUsage = {
+        contextTokens: 7_000,
+        inputTokens: 5_000,
+        outputTokens: 2_000,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 50,
+        totalTokens: 7_000
+      };
 
-      expect(resetUsage.contextTokens).toBe(0);
-      expect(resetUsage.inputTokens).toBe(0);
-      expect(resetUsage.outputTokens).toBe(0);
-      expect(resetUsage.cacheReadTokens).toBe(0);
-      expect(resetUsage.cacheWriteTokens).toBe(0);
-      expect(resetUsage.totalTokens).toBe(0);
+      const after = manager.resetContextTokens(before);
+
+      expect(after.contextTokens).toBe(0);
+      expect(after.inputTokens).toBe(5_000);
+      expect(after.outputTokens).toBe(2_000);
+      expect(after.cacheReadTokens).toBe(100);
+      expect(after.cacheWriteTokens).toBe(50);
+    });
+  });
+
+  describe('runIterationCompaction', () => {
+    it('preserves cumulative input/output when compression runs', async () => {
+      const model = createMockModel({ contextLength: 10_000, maxOutputTokens: 2_000 });
+      const mockCompressor = {
+        compress: vi.fn().mockResolvedValue([
+          { role: 'system', content: 'System prompt' },
+          { role: 'user', content: 'compressed summary' }
+        ])
+      };
+      const manager = new ContextManager(model, { compressor: mockCompressor });
+
+      const messages: Message[] = [
+        { role: 'system', content: 'System prompt' },
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi' }
+      ];
+      const usage: SessionTokenUsage = {
+        contextTokens: 7_000,
+        inputTokens: 5_000,
+        outputTokens: 2_000,
+        cacheReadTokens: 100,
+        cacheWriteTokens: 50,
+        totalTokens: 7_000
+      };
+
+      const result = await runIterationCompaction(manager, messages, usage);
+
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0]?.type).toBe('context_compressed');
+      expect(result.usage.contextTokens).toBe(0);
+      expect(result.usage.inputTokens).toBe(5_000);
+      expect(result.usage.outputTokens).toBe(2_000);
+      expect(result.usage.cacheReadTokens).toBe(100);
+      expect(result.usage.cacheWriteTokens).toBe(50);
     });
   });
 

@@ -626,9 +626,16 @@ export class Agent {
   private resetSessionState(): void {
     this.messages = [];
     this.persistedNonSystemCount = 0;
-    this.sessionUsage = this.contextManager
-      ? this.contextManager.resetUsage()
-      : Agent.createEmptySessionUsage();
+    this.sessionUsage = Agent.createEmptySessionUsage();
+  }
+
+  /** Map session cumulative usage to {@link TokenUsage} for stream events and callbacks. */
+  private sessionUsageAsTokenUsage(): TokenUsage {
+    return {
+      promptTokens: this.sessionUsage.inputTokens,
+      completionTokens: this.sessionUsage.outputTokens,
+      totalTokens: this.sessionUsage.inputTokens + this.sessionUsage.outputTokens
+    };
   }
 
   /**
@@ -721,8 +728,8 @@ export class Agent {
     this.appendInitialSystemMessages(options);
     this.syncPersistedNonSystemFromMemory();
     this.sessionUsage = this.contextManager
-      ? this.contextManager.resetUsage()
-      : Agent.createEmptySessionUsage();
+      ? this.contextManager.resetContextTokens(this.sessionUsage)
+      : { ...this.sessionUsage, contextTokens: 0 };
   }
 
   private notifySessionFork(ctx: {
@@ -958,7 +965,7 @@ export class Agent {
   /**
    * Side effects on aggregated token usage when yielding a stream event (`streamOut`).
    */
-  private applyModelStreamEventToState(out: StreamEvent, state: ModelStreamState, totalUsage: TokenUsage): void {
+  private applyModelStreamEventToState(out: StreamEvent, state: ModelStreamState): void {
     if (out.type === 'text_delta') {
       state.assistantContent += out.content;
     }
@@ -981,13 +988,22 @@ export class Agent {
     if (out.type === 'model_usage') {
       const usage = out.usage;
       if (usage.promptTokens > 0) {
-        totalUsage.promptTokens = usage.promptTokens;
         this.sessionUsage.contextTokens = usage.promptTokens;
         this.sessionUsage.inputTokens += usage.promptTokens;
       }
-      totalUsage.completionTokens += usage.completionTokens;
-      totalUsage.totalTokens = totalUsage.promptTokens + totalUsage.completionTokens;
-      this.sessionUsage.outputTokens += usage.completionTokens;
+      if (usage.completionTokens > 0) {
+        this.sessionUsage.outputTokens += usage.completionTokens;
+      }
+      const extended = usage as TokenUsage & {
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+      };
+      if (extended.cacheReadTokens && extended.cacheReadTokens > 0) {
+        this.sessionUsage.cacheReadTokens += extended.cacheReadTokens;
+      }
+      if (extended.cacheWriteTokens && extended.cacheWriteTokens > 0) {
+        this.sessionUsage.cacheWriteTokens += extended.cacheWriteTokens;
+      }
     }
   }
 
@@ -1210,15 +1226,14 @@ export class Agent {
     chunkProcessor: StreamChunkProcessor;
     iteration: number;
     state: ModelStreamState;
-    totalUsage: TokenUsage;
     persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
   }): AsyncGenerator<StreamEvent, void, undefined> {
-    const { chunkProcessor, iteration, state, totalUsage, persistOnAbortIfNeeded } = args;
+    const { chunkProcessor, iteration, state, persistOnAbortIfNeeded } = args;
 
     for (const event of chunkProcessor.flush()) {
       const out = this.streamOut(event, iteration);
       yield out;
-      this.applyModelStreamEventToState(out, state, totalUsage);
+      this.applyModelStreamEventToState(out, state);
     }
 
     const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
@@ -1237,13 +1252,13 @@ export class Agent {
 
     await persistOnAbortIfNeeded(iteration);
 
-    this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: totalUsage });
+    this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: this.sessionUsageAsTokenUsage() });
     this.notifyRunAbort(iteration);
 
     yield this.streamOut(
       {
         type: 'end',
-        usage: totalUsage,
+        usage: this.sessionUsageAsTokenUsage(),
         timestamp: Date.now(),
         reason: 'aborted',
         partialContent: state.assistantContent
@@ -1256,13 +1271,11 @@ export class Agent {
     modelParams: ModelParams;
     iteration: number;
     signal?: AbortSignal;
-    totalUsage: TokenUsage;
     persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
     outcome: { kind: 'ok' | 'aborted' | 'fatal' };
     state: ModelStreamState;
   }): AsyncGenerator<StreamEvent, void, undefined> {
-    const { modelParams, iteration, signal, totalUsage, persistOnAbortIfNeeded, outcome, state } =
-      args;
+    const { modelParams, iteration, signal, persistOnAbortIfNeeded, outcome, state } = args;
     const chunkProcessor = new StreamChunkProcessor({ emitTextBoundaries: true });
 
     const upstream = this.config.model!.stream(modelParams);
@@ -1273,7 +1286,6 @@ export class Agent {
           chunkProcessor,
           iteration,
           state,
-          totalUsage,
           persistOnAbortIfNeeded
         });
         outcome.kind = 'aborted';
@@ -1284,7 +1296,7 @@ export class Agent {
       for (const event of events) {
         const out = this.streamOut(event, iteration);
         yield out;
-        this.applyModelStreamEventToState(out, state, totalUsage);
+        this.applyModelStreamEventToState(out, state);
         if (out.type === 'end' && out.reason === 'error' && out.error) {
           this.emitAgentError(out.error, { phase: 'model', iteration });
           this.notifyModelRequestError(out.error, iteration);
@@ -1304,7 +1316,7 @@ export class Agent {
     for (const event of chunkProcessor.flush()) {
       const out = this.streamOut(event, iteration);
       yield out;
-      this.applyModelStreamEventToState(out, state, totalUsage);
+      this.applyModelStreamEventToState(out, state);
     }
     outcome.kind = 'ok';
   }
@@ -1356,7 +1368,6 @@ export class Agent {
   }
 
   private async *yieldSuccessfulRunTermination(
-    totalUsage: TokenUsage,
     iteration: number,
     maxIterations: number
   ): AsyncGenerator<StreamEvent, void, undefined> {
@@ -1391,17 +1402,18 @@ export class Agent {
 
     const finishedByIterationCap = iteration >= maxIterations;
     const sessionIterations = finishedByIterationCap ? maxIterations : iteration + 1;
+    const usage = this.sessionUsageAsTokenUsage();
 
     yield this.streamOut({
       type: 'session_summary',
-      usage: totalUsage,
+      usage,
       iterations: sessionIterations
     });
 
     this.emitRunEnd({
       reason: finishedByIterationCap ? 'max_iterations' : 'complete',
       iterations: sessionIterations,
-      usage: totalUsage
+      usage
     });
     yield this.streamOut({
       type: 'end',
@@ -1416,9 +1428,9 @@ export class Agent {
         : 'Agent turn completed',
       finishReason: finishedByIterationCap ? 'max_iterations' : 'complete',
       usage: {
-        promptTokens: totalUsage.promptTokens,
-        completionTokens: totalUsage.completionTokens,
-        totalTokens: totalUsage.totalTokens
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens
       },
       metadata: {
         iterations: sessionIterations
@@ -1428,10 +1440,10 @@ export class Agent {
 
   private async *yieldEarlyAbortBeforeModel(args: {
     iteration: number;
-    totalUsage: TokenUsage;
     persistOnAbortIfNeeded: (iterationForContext?: number) => Promise<void>;
   }): AsyncGenerator<StreamEvent, void, undefined> {
-    const { iteration, totalUsage, persistOnAbortIfNeeded } = args;
+    const { iteration, persistOnAbortIfNeeded } = args;
+    const usage = this.sessionUsageAsTokenUsage();
     this.log('info', {
       component: 'agent',
       event: 'agent.run.aborted',
@@ -1439,13 +1451,13 @@ export class Agent {
       iteration,
       finishReason: 'aborted'
     });
-    this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage: totalUsage });
+    this.emitRunEnd({ reason: 'aborted', iterations: iteration, usage });
     this.notifyRunAbort(iteration);
     await persistOnAbortIfNeeded(iteration);
     yield this.streamOut(
       {
         type: 'end',
-        usage: totalUsage,
+        usage,
         timestamp: Date.now(),
         reason: 'aborted'
       },
@@ -1515,16 +1527,11 @@ export class Agent {
 
       try {
         const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
-        let totalUsage: TokenUsage = {
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0
-        };
 
         let iteration = 0;
         for (; iteration < maxIterations; iteration++) {
           if (signal?.aborted) {
-            yield* this.yieldEarlyAbortBeforeModel({ iteration, totalUsage, persistOnAbortIfNeeded });
+            yield* this.yieldEarlyAbortBeforeModel({ iteration, persistOnAbortIfNeeded });
             return;
           }
 
@@ -1543,7 +1550,6 @@ export class Agent {
             modelParams,
             iteration,
             signal,
-            totalUsage,
             persistOnAbortIfNeeded,
             outcome,
             state
@@ -1592,7 +1598,7 @@ export class Agent {
           this.notifyIterationEnd(iteration, true);
         }
 
-        yield* this.yieldSuccessfulRunTermination(totalUsage, iteration, maxIterations);
+        yield* this.yieldSuccessfulRunTermination(iteration, maxIterations);
       } catch (error) {
         yield* this.yieldStreamCatchError(error, persistOnAbortIfNeeded);
       }
@@ -2058,7 +2064,7 @@ export class Agent {
 
     const result = await this.contextManager.compress(this.messages);
     this.messages = result.messages;
-    this.sessionUsage = this.contextManager.resetUsage();
+    this.sessionUsage = this.contextManager.resetContextTokens(this.sessionUsage);
 
     try {
       await this.persistCompactionToStorage(result.stats);

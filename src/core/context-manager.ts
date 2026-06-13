@@ -178,17 +178,10 @@ export class ContextManager {
   }
 
   /**
-   * 重置 token 使用量 (压缩后调用)
+   * 压缩或 rewind 后：仅重置用于压缩判断的 contextTokens，保留会话累计 input/output。
    */
-  resetUsage(): SessionTokenUsage {
-    return {
-      contextTokens: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      totalTokens: 0,
-    };
+  resetContextTokens(usage: SessionTokenUsage): SessionTokenUsage {
+    return { ...usage, contextTokens: 0 };
   }
 
   /**
@@ -221,7 +214,7 @@ export async function runIterationCompaction(
   const result = await cm.compress(pruned);
   return {
     messages: result.messages,
-    usage: cm.resetUsage(),
+    usage: cm.resetContextTokens(usage),
     events: [
       {
         type: 'context_compressed',

@@ -574,7 +574,7 @@ interface StreamEventAnnotations {
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `usage` | `TokenUsage` | **本轮流式运行的权威累计用量**（成功路径上应以此为准） |
+| `usage` | `TokenUsage` | **当前会话累计用量**（`promptTokens` = 累计 input，`completionTokens` = 累计 output，`totalTokens` = 二者之和；与 `Agent.getSessionUsage()` 映射一致） |
 | `iterations` | `number` | **本轮 `stream` 调用内已完成的模型回合数**（一次「把消息交给模型并得到回复」计为 1；触顶时为配置的上限 `maxIterations`） |
 
 **时机**：在持久化消息成功后、最终 `end`（`reason: 'complete'` 或 **`max_iterations`**）之前发出。会话 id 见注解 `sessionId`，见上文 `StreamEventAnnotations`。
@@ -595,14 +595,14 @@ interface StreamEventAnnotations {
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `timestamp` | `number` | 结束时间 |
-| `usage` | `TokenUsage`（可选） | 中止等路径上可能携带当前累计用量 |
+| `usage` | `TokenUsage`（可选） | 中止等路径上携带**当前会话累计用量**（映射规则同 `session_summary.usage`） |
 | `reason` | `'complete' \| 'aborted' \| 'error' \| 'max_iterations'`（可选） | 省略或与 `complete` 视为正常结束；**`max_iterations`** 表示工具循环达到 `maxIterations` 上限 |
 | `error` | `Error`（可选） | 未捕获异常或模型流致命错误 |
 | `partialContent` | `string`（可选） | 用户中断时已生成的助手文本 |
 
 **时机与注意**：
 
-- **正常完成（`reason: 'complete'`）或触顶（`reason: 'max_iterations'`）**：累计用量以 **`session_summary`** 为准（若存在）；`end` 上通常不带 `usage`。
+- **正常完成（`reason: 'complete'`）或触顶（`reason: 'max_iterations'`）**：累计用量以 **`session_summary`** 为准（会话累计；`end` 上通常不带 `usage`）。
 - **中止（`reason: 'aborted'`）**：含迭代开头 `signal` 已中止、流式中途中止、`AbortError` 等；可带 `partialContent`。
 - **错误（`reason: 'error'`）**：含模型流处理出的致命错误（如 chunk 映射为 `end`+error）以及 `Agent.stream` 的 `catch`。若在进入 **`session_summary` 之前**因模型致命错误返回，则**不会**收到 `session_summary`（与成功路径不同）。
 

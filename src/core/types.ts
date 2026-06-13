@@ -671,7 +671,7 @@ export type StreamEvent = (
     }
   | {
       type: 'session_summary';
-      /** Authoritative cumulative usage for the completed run (prefer over end.usage when both exist). */
+      /** Session cumulative usage (maps input/output to TokenUsage prompt/completion fields). */
       usage: TokenUsage;
       /** Number of model rounds completed in this stream call (not message count). */
       iterations: number;
@@ -680,7 +680,7 @@ export type StreamEvent = (
       type: 'end';
       timestamp: number;
       /**
-       * Optional usage (e.g. aborted mid-stream). When a session_summary event was emitted, use its usage for totals.
+       * Optional session cumulative usage (e.g. on abort). Maps like session_summary.usage.
        */
       usage?: TokenUsage;
       /** Omitted or `complete` = normal completion; `max_iterations` = hit `AgentConfig.maxIterations`. */
