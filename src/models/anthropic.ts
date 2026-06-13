@@ -107,6 +107,74 @@ export function applyAnthropicThinking(option: AnthropicThinkingOption): {
   }
 }
 
+/** Anthropic Messages API streaming `usage` slice (message_start / message_delta). */
+export type AnthropicUsageSlice = {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+};
+
+/**
+ * Full context size: billable input plus cache reads (Anthropic semantics).
+ * @internal Exported for unit tests.
+ */
+export function computeActualInputTokens(u: AnthropicUsageSlice): number {
+  return (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+}
+
+function pickUsageField(
+  deltaVal: number | undefined,
+  startVal: number | undefined,
+  treatZeroAsAbsent: boolean
+): number | undefined {
+  if (deltaVal != null && (!treatZeroAsAbsent || deltaVal !== 0)) {
+    return deltaVal;
+  }
+  return startVal;
+}
+
+/**
+ * Merge `message_start` and `message_delta` usage per field: delta when present,
+ * otherwise start. `input_tokens` treats 0 as absent; cache fields treat 0 as valid.
+ * @internal Exported for unit tests.
+ */
+export function mergeAnthropicInputUsage(
+  start: AnthropicUsageSlice | undefined,
+  delta: AnthropicUsageSlice
+): AnthropicUsageSlice {
+  return {
+    input_tokens: pickUsageField(delta.input_tokens, start?.input_tokens, true),
+    cache_read_input_tokens: pickUsageField(
+      delta.cache_read_input_tokens,
+      start?.cache_read_input_tokens,
+      false
+    ),
+    cache_creation_input_tokens: pickUsageField(
+      delta.cache_creation_input_tokens,
+      start?.cache_creation_input_tokens,
+      false
+    )
+  };
+}
+
+/**
+ * Resolve merged input/cache from start + delta; output tokens from delta only.
+ * @internal Exported for unit tests.
+ */
+export function resolveAnthropicStreamUsage(
+  start: AnthropicUsageSlice | undefined,
+  delta: AnthropicUsageSlice
+): {
+  inputSource: AnthropicUsageSlice;
+  outputTokens: number;
+} {
+  return {
+    inputSource: mergeAnthropicInputUsage(start, delta),
+    outputTokens: delta.output_tokens ?? 0
+  };
+}
+
 function isAbortError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === 'AbortError') {
     return true;
@@ -306,6 +374,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
     let buffer = '';
     let currentToolCall: { id: string; name: string; input: string } | null = null;
     let currentThinkingBlock: { signature?: string } | null = null;
+    let pendingStartUsage: AnthropicUsageSlice | undefined;
 
     try {
       while (true) {
@@ -421,42 +490,47 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
               case 'message_start':
                 if (data.message?.usage) {
-                  const usage = data.message.usage;
-                  // Anthropic 的 input_tokens 已扣除缓存命中的部分
-                  // 完整的上下文大小 = input_tokens + cache_read_input_tokens
-                  const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
-                  yield {
-                    type: 'metadata',
-                    usagePhase: 'input',
-                    metadata: {
-                      usage: {
-                        promptTokens: actualInputTokens,
-                        completionTokens: 0,
-                        totalTokens: actualInputTokens,
-                        // 传递缓存信息
-                        cacheReadTokens: usage.cache_read_input_tokens || 0,
-                        cacheWriteTokens: usage.cache_creation_input_tokens || 0
-                      }
-                    },
-                    ...raw
-                  };
+                  pendingStartUsage = data.message.usage as AnthropicUsageSlice;
                 }
                 break;
 
               case 'message_delta':
                 if (data.usage) {
-                  yield {
-                    type: 'metadata',
-                    usagePhase: 'output',
-                    metadata: {
-                      usage: {
-                        promptTokens: 0,
-                        completionTokens: data.usage.output_tokens,
-                        totalTokens: data.usage.output_tokens
-                      }
-                    },
-                    ...raw
-                  };
+                  const { inputSource, outputTokens } = resolveAnthropicStreamUsage(
+                    pendingStartUsage,
+                    data.usage as AnthropicUsageSlice
+                  );
+                  const actualInputTokens = computeActualInputTokens(inputSource);
+                  if (actualInputTokens > 0) {
+                    yield {
+                      type: 'metadata',
+                      usagePhase: 'input',
+                      metadata: {
+                        usage: {
+                          promptTokens: actualInputTokens,
+                          completionTokens: 0,
+                          totalTokens: actualInputTokens,
+                          cacheReadTokens: inputSource.cache_read_input_tokens ?? 0,
+                          cacheWriteTokens: inputSource.cache_creation_input_tokens ?? 0
+                        }
+                      },
+                      ...raw
+                    };
+                  }
+                  if (outputTokens > 0) {
+                    yield {
+                      type: 'metadata',
+                      usagePhase: 'output',
+                      metadata: {
+                        usage: {
+                          promptTokens: 0,
+                          completionTokens: outputTokens,
+                          totalTokens: outputTokens
+                        }
+                      },
+                      ...raw
+                    };
+                  }
                 }
                 break;
             }
