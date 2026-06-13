@@ -116,4 +116,38 @@ describe('Agent session usage', () => {
     expect(usage.outputTokens).toBe(100);
     expect(usage.totalTokens).toBe(350);
   });
+
+  it('rewind preserves cumulative input/output and clears contextTokens', async () => {
+    const agent = new Agent({
+      model: usageModel([
+        { input: 100, output: 50 },
+        { input: 150, output: 60 }
+      ]),
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      exclusiveTools: [],
+      storage: { type: 'memory' },
+      contextManagement: false
+    });
+    await agent.waitForInit();
+
+    for await (const _ of agent.stream('first')) {
+      /* drain */
+    }
+    for await (const _ of agent.stream('second')) {
+      /* drain */
+    }
+
+    const beforeRewind = agent.getSessionUsage();
+    expect(beforeRewind.inputTokens).toBe(250);
+    expect(beforeRewind.outputTokens).toBe(110);
+    expect(beforeRewind.contextTokens).toBe(150);
+
+    await agent.rewindToCheckpoint({ userTurnIndex: 0 });
+
+    const afterRewind = agent.getSessionUsage();
+    expect(afterRewind.inputTokens).toBe(250);
+    expect(afterRewind.outputTokens).toBe(110);
+    expect(afterRewind.contextTokens).toBe(0);
+  });
 });

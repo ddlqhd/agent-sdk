@@ -66,6 +66,7 @@ export class AcpSessionManager {
       userBasePath,
       mcpServers: mapAcpMcpServers(options?.mcpServers)
     });
+    eventBridge.setSessionUsageProvider(() => agent.getSessionUsage());
     agent.getSessionManager().createSession(id);
 
     const state: AcpSessionState = {
@@ -109,6 +110,7 @@ export class AcpSessionManager {
       userBasePath,
       mcpServers: mapAcpMcpServers(mcpServers)
     });
+    eventBridge.setSessionUsageProvider(() => agent.getSessionUsage());
 
     const manager = agent.getSessionManager();
     await manager.attachSession(sessionId);
@@ -168,6 +170,7 @@ export class AcpSessionManager {
         userBasePath: resolveAcpUserBase(),
         mcpServers: mapAcpMcpServers(mcpServers)
       });
+      eventBridge.setSessionUsageProvider(() => tempSourceAgent!.getSessionUsage());
       await tempSourceAgent.getSessionManager().attachSession(sourceSessionId);
       sourceAgent = tempSourceAgent;
     }
@@ -186,6 +189,7 @@ export class AcpSessionManager {
         userBasePath: resolveAcpUserBase(),
         mcpServers: mapAcpMcpServers(mcpServers)
       });
+      eventBridge.setSessionUsageProvider(() => forkedAgent.getSessionUsage());
       await forkedAgent.getSessionManager().attachSession(newId);
       const messages = await forkedAgent.getSessionManager().loadActiveMessages();
       await replaySessionHistory(this.connection, newId, messages);

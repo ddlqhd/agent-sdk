@@ -25,7 +25,7 @@
 
 ## 与 `maxIterations` 的关系
 
-若对话需要过多轮工具才能完成，可能触及 `maxIterations`。此时会在 **`session_summary` 之后**收到 `end`，且 **`reason: 'max_iterations'`**（用量仍以 `session_summary.usage` 为准）。生产环境可结合 [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)「工具调用循环过多」一节调参。
+若对话需要过多轮工具才能完成，可能触及 `maxIterations`。此时会在 **`session_summary` 之后**收到 `end`，且 **`reason: 'max_iterations'`**（`session_summary.usage` 为**会话累计**用量；`iterations` 为本轮 stream 的模型回合数）。生产环境可结合 [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)「工具调用循环过多」一节调参。
 
 ## 取消与 `StreamOptions.signal`
 

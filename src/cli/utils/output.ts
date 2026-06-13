@@ -313,6 +313,7 @@ export function formatUsage(usage: TokenUsage, config: OutputConfig = {}): strin
  * - Input: 累计输入消耗
  * - Output: 累计输出消耗
  * - Total: 累计总消耗 (Input + Output)
+ * - Cache: 明细字段（如 Anthropic cache read/write），不计入 Total 的二次求和
  */
 export function formatSessionUsage(usage: SessionTokenUsage, config: OutputConfig = {}): string {
   const { color = true } = config;

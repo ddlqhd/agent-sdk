@@ -252,7 +252,7 @@ for await (const event of agent.stream(userInput, { includeRawStreamEvents: fals
       // 流式 token 统计（可按需展示）
       break;
     case 'session_summary':
-      // 权威 usage / iterations（成功完成前）；sessionId 见事件顶层注解字段
+      // 会话累计 usage / 本轮 iterations；sessionId 见事件顶层注解字段
       break;
     case 'end':
       // 完成收尾

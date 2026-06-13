@@ -243,4 +243,85 @@ describe('EventBridge', () => {
     });
     expect(sent.length).toBe(countAfterStart);
   });
+
+  it('model_usage input phase sends context occupancy as used', async () => {
+    const sent: unknown[] = [];
+    const fakeConn = {
+      sessionUpdate: async (update: unknown) => {
+        sent.push(update);
+      }
+    } as never;
+    const bridge = new EventBridge(fakeConn, 'sess-usage');
+    await bridge.handleStreamEvent({
+      type: 'model_usage',
+      usage: { promptTokens: 4200, completionTokens: 0, totalTokens: 4200 },
+      phase: 'input'
+    });
+    expect(sent).toHaveLength(1);
+    const update = (sent[0] as { update: unknown }).update;
+    expect(update).toMatchObject({
+      sessionUpdate: 'usage_update',
+      used: 4200
+    });
+  });
+
+  it('model_usage output phase does not send usage_update', async () => {
+    const sent: unknown[] = [];
+    const fakeConn = {
+      sessionUpdate: async (update: unknown) => {
+        sent.push(update);
+      }
+    } as never;
+    const bridge = new EventBridge(fakeConn, 'sess-usage');
+    await bridge.handleStreamEvent({
+      type: 'model_usage',
+      usage: { promptTokens: 0, completionTokens: 900, totalTokens: 900 },
+      phase: 'output'
+    });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('session_summary uses contextTokens from getSessionUsage', async () => {
+    const sent: unknown[] = [];
+    const fakeConn = {
+      sessionUpdate: async (update: unknown) => {
+        sent.push(update);
+      }
+    } as never;
+    const bridge = new EventBridge(fakeConn, 'sess-usage');
+    bridge.setSessionUsageProvider(() => ({
+      contextTokens: 8000,
+      inputTokens: 50_000,
+      outputTokens: 12_000,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 62_000
+    }));
+    await bridge.handleStreamEvent({
+      type: 'session_summary',
+      usage: { promptTokens: 50_000, completionTokens: 12_000, totalTokens: 62_000 },
+      iterations: 1
+    });
+    expect(sent).toHaveLength(1);
+    const update = (sent[0] as { update: unknown }).update;
+    expect(update).toMatchObject({
+      sessionUpdate: 'usage_update',
+      used: 8000
+    });
+  });
+
+  it('context_compressed does not send usage_update', async () => {
+    const sent: unknown[] = [];
+    const fakeConn = {
+      sessionUpdate: async (update: unknown) => {
+        sent.push(update);
+      }
+    } as never;
+    const bridge = new EventBridge(fakeConn, 'sess-usage');
+    await bridge.handleStreamEvent({
+      type: 'context_compressed',
+      stats: { originalMessageCount: 10, compressedMessageCount: 4, durationMs: 1 }
+    });
+    expect(sent).toHaveLength(0);
+  });
 });

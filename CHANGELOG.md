@@ -19,12 +19,15 @@
 ### Changed
 
 - **Agent**: assistant thinking blocks are persisted without a model signature when the provider omits one (e.g. Ollama); Anthropic replay still requires signature before resending to the API.
+- **Agent**: session token usage is tracked only in `sessionUsage`; compression and rewind reset `contextTokens` only (cumulative `inputTokens` / `outputTokens` preserved). `ContextManager.resetUsage` renamed to **`resetContextTokens`**.
+- **agent-sdk-acp**: `usage_update.used` reflects **context occupancy** (`contextTokens`), not session cumulative billing; `model_usage` output phase no longer emits `usage_update`.
 - **agent-sdk-acp**: `session/fork` now uses core `Agent.forkSession` (active-chain head) instead of copying full raw JSONL; replays history to the client after fork. **Rewind is not exposed over ACP** (use CLI or web-demo).
 - Internal modules (Agent, tools, skills, MCP config, compressor, model request log) now emit via `sdkLog` and shared context; `HookManagerSdkLogContext` is an alias of `SDKLogContext`.
 - `loadMCPConfig` optional fourth argument is documented as `SDKLogContext` (internal parameter name `logCtx`; same type and position as before — **not** a breaking API change).
 
 ### Breaking
 
+- **Agent token usage**: `session_summary.usage`, `onRunEnd.usage`, and `Agent.run().usage` now report **session cumulative** input/output (mapped to `TokenUsage.promptTokens` / `completionTokens`), not a per-`stream()` run snapshot. `iterations` still counts model rounds in the current `stream()` call. Compression and rewind no longer reset cumulative input/output; only `contextTokens` resets.
 - **Session storage**: `StorageAdapter` is now **append-only**. Implementations expose `append(sessionId, entries: SessionEntry[])` and `load()` returns **`SessionEntry[]`** (messages plus optional `{ $type: 'summary', ... }` compaction rows). **`save(sessionId, Message[])` is removed.** Jsonl transcripts are **append-only** with **logical truncation**: after compaction, new lines append `[summary, ...recent]`; **`loadActiveMessages()` / resume** reconstructs the chain from the **last** `summary` line only (older lines remain on disk for audit). **`SessionManager`**: removed **`saveMessages` / `appendMessage` / `resumeSession`**; use **`attachSession`**, **`loadRawEntries` / `loadActiveMessages`**, **`appendEntries`**, **`appendCompactionBoundary`**. System prompt is **not** stored in jsonl; **`saveSystemPrompt` sidecar** (`*.system.json`) holds the last primary system text for audit. **Existing pre-v2 session files are not migrated**—start fresh or re-run conversations.
 
 ### Changed

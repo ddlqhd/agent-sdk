@@ -30,13 +30,13 @@ node packages/agent-sdk-acp/dist/entry.js --check
 | `AGENT_SDK_ACP_PROVIDER` | `openai` / `anthropic` / `ollama` |
 | `AGENT_SDK_ACP_MODEL` | Override model id |
 | `AGENT_SDK_ACP_USER_BASE` | Storage root (default: stable `tmpdir()/agent-sdk-acp`) |
-| `AGENT_SDK_ACP_CONTEXT_SIZE` | Context window size for `usage_update` (default `200000`) |
+| `AGENT_SDK_ACP_CONTEXT_SIZE` | Context window size for `usage_update.size` (default `200000`); `used` reflects current context occupancy (`contextTokens`) |
 | `AGENT_SDK_LOG_LEVEL` | `debug` for verbose stderr |
 
 ## Capabilities
 
 - **ACP methods**: `initialize`, `session/new`, `session/load`, `session/list`, `session/fork`, `session/close`, `session/prompt`, `session/cancel`, `session/set_mode`
-- **Streaming**: `Agent.stream()` → `session/update`
+- **Streaming**: `Agent.stream()` → `session/update`; `usage_update.used` is **context occupancy** (not session cumulative billing)
 - **Permissions**: `canUseTool` → `session/request_permission`
 - **Sessions**: per-session `Agent`, jsonl persistence, history replay on `session/load` and `session/fork` (active-chain head via core `Agent.forkSession`)
 - **Rewind**: not exposed over ACP (protocol has no rewind semantic); use CLI or [web-demo](../../examples/web-demo)

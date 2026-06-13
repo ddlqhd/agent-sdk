@@ -1252,13 +1252,14 @@ export class Agent {
 
     await persistOnAbortIfNeeded(iteration);
 
-    this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage: this.sessionUsageAsTokenUsage() });
+    const usage = this.sessionUsageAsTokenUsage();
+    this.emitRunEnd({ reason: 'aborted', iterations: iteration + 1, usage });
     this.notifyRunAbort(iteration);
 
     yield this.streamOut(
       {
         type: 'end',
-        usage: this.sessionUsageAsTokenUsage(),
+        usage,
         timestamp: Date.now(),
         reason: 'aborted',
         partialContent: state.assistantContent

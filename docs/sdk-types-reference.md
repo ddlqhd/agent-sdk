@@ -41,11 +41,14 @@
 interface AgentResult {
   content: string;
   toolCalls?: Array<{ name: string; arguments: unknown; result: string }>;
+  /** Session cumulative usage (same mapping as `session_summary.usage`). */
   usage?: TokenUsage;
   sessionId: string;
   iterations: number;
 }
 ```
+
+`usage` 与 `session_summary.usage` 一致，为**会话累计** input/output（非单次 `stream` 快照）。`iterations` 为本轮 `run` 内完成的模型回合数。
 
 ### `StreamOptions`
 
@@ -295,6 +298,8 @@ interface SessionTokenUsage {
 }
 ```
 
+`cacheReadTokens` / `cacheWriteTokens` 为明细字段（如 Anthropic cache）；在 input 计量中可能已包含 cache read，**不与 `inputTokens` 相加作为 total**。
+
 ## 4. 工具层类型
 
 ### `ToolDefinition`
@@ -344,7 +349,7 @@ interface ToolExecutionContext {
 | `tool_result` / `tool_error` | 本地执行结果或错误 |
 | `thinking_start` / `thinking` / `thinking_end` | 扩展思考块边界与增量 |
 | `model_usage` | 模型侧用量片段 |
-| `session_summary` | 本轮累计用量与迭代数（成功路径权威用量） |
+| `session_summary` | 会话累计用量与迭代数（成功路径；`iterations` 为本轮 stream） |
 | `end` | 本轮结束（含 `reason`） |
 | `context_compressed` | 上下文压缩完成 |
 
@@ -360,8 +365,8 @@ interface TokenUsage {
 }
 ```
 
-- 用于 **`model_usage`** 的 `usage` 时：通常来自**当前一次模型流式响应**中适配器汇总的片段（同一轮内可出现多次；`phase` 区分输入/输出阶段时，便于对齐 Anthropic 等）。
-- 用于 **`session_summary`** 的 `usage` 时：在成功路径上为**本轮 `stream` 调用累计**的权威汇总（优先于随后 `end` 上可能存在的 `usage`）。
+- 用于 **`model_usage`** 的 `usage` 时：来自**当前一次模型流式响应**中适配器汇总的片段（同一轮内可出现多次；`phase` 区分输入/输出阶段时，便于对齐 Anthropic 等）。
+- 用于 **`session_summary`** / **`Agent.run().usage`** / abort 路径 **`end.usage`** 时：**当前会话累计用量**（`promptTokens` = 累计 input，`completionTokens` = 累计 output；与 `Agent.getSessionUsage()` 映射一致）。`iterations` 仍表示本轮 `stream` 内完成的模型回合数。
 
 ### 共用：`StreamEventAnnotations`
 

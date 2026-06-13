@@ -1,6 +1,6 @@
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
 import type * as acp from '@agentclientprotocol/sdk';
-import type { StreamEvent } from '@ddlqhd/agent-sdk';
+import type { SessionTokenUsage, StreamEvent } from '@ddlqhd/agent-sdk';
 import {
   buildToolCallComplete,
   buildToolCallProgress,
@@ -22,14 +22,28 @@ export class EventBridge {
   private readonly sdkToAcp = new Map<string, string>();
   private readonly toolMeta = new Map<string, { name: string; args: unknown }>();
   private readonly announcedTools = new Set<string>();
+  private getSessionUsage?: () => SessionTokenUsage;
 
   constructor(
     private readonly connection: AgentSideConnection,
     private readonly sessionId: string
   ) {}
 
+  /** Bind Agent session usage after the session Agent is constructed. */
+  setSessionUsageProvider(getSessionUsage: () => SessionTokenUsage): void {
+    this.getSessionUsage = getSessionUsage;
+  }
+
   private async send(update: acp.SessionUpdate): Promise<void> {
     await this.connection.sessionUpdate({ sessionId: this.sessionId, update });
+  }
+
+  private async sendUsageUpdate(used: number): Promise<void> {
+    await this.send({
+      sessionUpdate: 'usage_update',
+      used,
+      size: resolveContextSize(used)
+    });
   }
 
   async handleStreamEvent(event: StreamEvent): Promise<void> {
@@ -110,15 +124,15 @@ export class EventBridge {
         await this.send(buildToolCallComplete(meta.name, meta.args, msg, acpId, true));
         break;
       }
-      case 'model_usage':
+      case 'model_usage': {
+        if (event.phase === 'output' && event.usage.promptTokens === 0) break;
+        if (event.usage.promptTokens <= 0) break;
+        await this.sendUsageUpdate(event.usage.promptTokens);
+        break;
+      }
       case 'session_summary': {
-        const used =
-          event.usage.totalTokens ?? event.usage.promptTokens + event.usage.completionTokens;
-        await this.send({
-          sessionUpdate: 'usage_update',
-          used,
-          size: resolveContextSize(used)
-        });
+        const used = this.getSessionUsage?.().contextTokens ?? 0;
+        await this.sendUsageUpdate(used);
         break;
       }
       case 'context_compressed':
