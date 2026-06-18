@@ -151,4 +151,42 @@ describe('AnthropicAdapter thinking signature', () => {
     const assistantMsg = body.messages.find(m => m.role === 'assistant');
     expect(assistantMsg!.content).toEqual([thinkingBlock, { type: 'text', text: 'prior reply' }]);
   });
+
+  it('preserves omitted thinking (empty text) when signature is valid', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 1, output_tokens: 1 }
+        })
+      })
+    );
+
+    const thinkingBlock = {
+      type: 'thinking' as const,
+      thinking: '',
+      signature: 'sig-omitted'
+    };
+
+    const adapter = new AnthropicAdapter({ apiKey: 'sk-test' });
+    await adapter.complete({
+      messages: [
+        { role: 'user', content: 'hi' },
+        {
+          role: 'assistant',
+          content: [thinkingBlock, { type: 'text', text: 'prior reply' }]
+        },
+        { role: 'user', content: 'follow up' }
+      ]
+    });
+
+    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(init.body as string) as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const assistantMsg = body.messages.find(m => m.role === 'assistant');
+    expect(assistantMsg!.content).toEqual([thinkingBlock, { type: 'text', text: 'prior reply' }]);
+  });
 });

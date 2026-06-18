@@ -310,7 +310,7 @@ describe('AnthropicAdapter stream usage emission', () => {
     const chunks = await collectStream(new AnthropicAdapter({ apiKey: 'sk-ant' }));
     const inputMeta = chunks.find(c => c.type === 'metadata' && c.usagePhase === 'input');
     expect(inputMeta?.metadata?.usage).toMatchObject({
-      promptTokens: 150,
+      promptTokens: 160,
       cacheReadTokens: 100,
       cacheWriteTokens: 10
     });

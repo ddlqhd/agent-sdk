@@ -79,6 +79,8 @@ interface Message {
   content: string | ContentPart[];
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /** `role === 'tool'` 时映射 Anthropic `tool_result.is_error` */
+  isError?: boolean;
   name?: string;
   timestamp?: number;
 }
@@ -256,11 +258,13 @@ interface ModelParams {
 ```
 
 - **`sessionId`**：`Agent` 在每轮模型请求中都会传入，便于适配器与上游 API 关联会话。OpenAI / Ollama 适配器当前不读取该字段。
+- **`stopSequences`**：Anthropic 适配器映射为 Messages API 的 `stop_sequences`；OpenAI 映射为 `stop`。
 - **`logger` / `logLevel` / `redaction`**：`Agent` 会在内部模型调用时自动填入，用于让 provider 请求日志与宿主应用日志系统对接。
 - **Anthropic 请求 `metadata`**：在 `createAnthropic` / `AnthropicAdapter` 构造参数 `AnthropicConfig.metadata` 中设置（静态对象，或接收当次请求的 **`ModelParams`** 并返回普通对象的函数）。适配器将 `sessionId` 映射为 `user_id` 后，与解析后的 `metadata` **浅合并**（配置中的键可覆盖 `user_id`）。类型名为 `AnthropicRequestMetadata`（由 `@ddlqhd/agent-sdk/models` 导出）。详见 [Anthropic Messages `metadata`](https://docs.anthropic.com/en/api/messages)（`user_id` 须为不透明标识，勿传邮箱等 PII）。
 - **CreateModelConfig**（`createModel`）：`thinking?: boolean` 为统一开关（省略则不注入）；`thinkingLevel?: 'low' \| 'medium' \| 'high'` 仅在 `provider: 'ollama'` 时映射为请求的 `think`，若设置了则优先于 `thinking`；`extraBody?: Record<string, unknown>` 在最后浅合并。**Anthropic** / **OpenAI** 与各类型细节见前文；Anthropic **对象形态** thinking 仍需 `createAnthropic`。
 - **AgentConfig.modelConfig**：形状与 `CreateModelConfig` 对齐，Agent 内部 `createModel(modelConfig, env)` 构造适配器。
-- **Anthropic extended thinking**（`createAnthropic` / `AnthropicAdapter`）：`AnthropicConfig.thinking` 类型为 `AnthropicThinkingOption`：布尔时 `true` 映射为 `{ type: 'enabled', budget_tokens: 1024 }`，`false` 为 `{ type: 'disabled' }`；也可传官方对象，如 `{ type: 'enabled', budget_tokens: N }`、`{ type: 'disabled' }`、或 `adaptive` 模式。若 `adaptive` 且带 `effort`（`low` \| `medium` \| `high` \| `max`），会在请求中额外写入 `output_config.effort`。**省略** `thinking` 时不在请求体中带 `thinking`（与旧版一致）。`budget_tokens` 与模型/版本、以及是否采用 adaptive 的约束以 [Anthropic 文档](https://docs.anthropic.com/en/build-with-claude/extended-thinking) 为准。
+- **Anthropic extended thinking**（`createAnthropic` / `AnthropicAdapter`）：`AnthropicConfig.thinking` 类型为 `AnthropicThinkingOption`：布尔时 `true` 映射为 `{ type: 'enabled', budget_tokens: 1024 }`，`false` 为 `{ type: 'disabled' }`；也可传官方对象，如 `{ type: 'enabled', budget_tokens: N, display?: 'summarized' | 'omitted' }`、`{ type: 'disabled' }`、或 `{ type: 'adaptive', effort?, display? }`。若 `adaptive` 且带 `effort`（`low` \| `medium` \| `high` \| `xhigh` \| `max`），会在请求中额外写入 `output_config.effort`。**省略** `thinking` 时不在请求体中带 `thinking`（与旧版一致）。多轮 replay 时，`display: 'omitted'` 允许 **空 `thinking` + 非空 `signature`** 的 thinking block 原样回传。
+- **Anthropic tool results**：Agent 内部仍用多条 `role: 'tool'` 消息；出站时 Anthropic 适配器将同一轮连续 tool 结果 **合并为一条** user 消息（`content` 为多个 `tool_result`）。`Message.isError` 映射为 `tool_result.is_error`。
 - **Anthropic 初次 HTTP 重试**：`AnthropicConfig.fetchRetry`（类型 `AnthropicFetchRetryOptions`）。**省略**时默认 **`maxAttempts: 2`**（即失败时**自动再试 1 次**），对典型网络错误及 HTTP **429 / 502 / 503 / 504** 生效，并尊重 `Retry-After`（受 `maxDelayMs` 封顶）；**不**涵盖 SSE 已开始后的流式中断。若需严格单次请求、不重试，可设 `fetchRetry: { maxAttempts: 1 }`。
 
 ### `CompletionResult` / `TokenUsage`
@@ -298,7 +302,7 @@ interface SessionTokenUsage {
 }
 ```
 
-`cacheReadTokens` / `cacheWriteTokens` 为明细字段（如 Anthropic cache）；在 input 计量中可能已包含 cache read，**不与 `inputTokens` 相加作为 total**。
+`cacheReadTokens` / `cacheWriteTokens` 为明细字段（如 Anthropic cache）。Anthropic 流式 input 阶段 `promptTokens` 为 **input_tokens + cache_read + cache_creation** 合计（用于 `contextTokens`）；`inputTokens` 累计仅加 uncached 部分（`promptTokens - cacheRead - cacheWrite`），避免与 cache 明细双重累计。
 
 ## 4. 工具层类型
 

@@ -80,6 +80,8 @@ export interface Message {
   content: string | ContentPart[];
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /** When `role === 'tool'`, maps to Anthropic `tool_result.is_error`. */
+  isError?: boolean;
   name?: string;
   timestamp?: number;
 }

@@ -19,9 +19,10 @@ export type {
   AnthropicFetchRetryOptions,
   AnthropicThinkingOption,
   AnthropicThinkingConfigObject,
-  AnthropicThinkingEffort
+  AnthropicThinkingEffort,
+  AnthropicThinkingDisplay
 } from './anthropic.js';
-export { applyAnthropicThinking } from './anthropic.js';
+export { applyAnthropicThinking, buildAnthropicWireMessages } from './anthropic.js';
 export { OllamaAdapter, createOllama } from './ollama.js';
 export type { OllamaConfig, OllamaThinkOption } from './ollama.js';
 export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString } from './ollama.js';

@@ -55,16 +55,19 @@ function normalizeFetchRetry(options?: AnthropicFetchRetryOptions): Required<Ant
 }
 
 /** Soft guidance for adaptive thinking (Messages API `output_config.effort`). */
-export type AnthropicThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+export type AnthropicThinkingEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/** Controls how thinking content appears in responses (`thinking.display`). */
+export type AnthropicThinkingDisplay = 'summarized' | 'omitted';
 
 /**
  * Anthropic Messages API `thinking` 参数（扩展思考 / adaptive）。
  * 见 <https://docs.anthropic.com/en/build-with-claude/extended-thinking>。
  */
 export type AnthropicThinkingConfigObject =
-  | { type: 'enabled'; budget_tokens: number; display?: 'omitted' | string }
+  | { type: 'enabled'; budget_tokens: number; display?: AnthropicThinkingDisplay }
   | { type: 'disabled' }
-  | { type: 'adaptive'; effort?: AnthropicThinkingEffort };
+  | { type: 'adaptive'; effort?: AnthropicThinkingEffort; display?: AnthropicThinkingDisplay };
 
 /**
  * 简单布尔或官方对象。`true` 等价于 `{ type: 'enabled', budget_tokens: 1024 }`；`false` 为 `{ type: 'disabled' }`。
@@ -92,8 +95,12 @@ export function applyAnthropicThinking(option: AnthropicThinkingOption): {
   }
   switch (option.type) {
     case 'adaptive': {
+      const thinking: Record<string, unknown> = { type: 'adaptive' };
+      if (option.display) {
+        thinking.display = option.display;
+      }
       const out: { thinking: Record<string, unknown>; outputConfig?: { effort: AnthropicThinkingEffort } } = {
-        thinking: { type: 'adaptive' }
+        thinking
       };
       if (option.effort) {
         out.outputConfig = { effort: option.effort };
@@ -116,11 +123,117 @@ export type AnthropicUsageSlice = {
 };
 
 /**
- * Full context size: billable input plus cache reads (Anthropic semantics).
+ * Total prompt tokens in a request (Anthropic semantics):
+ * input_tokens + cache_read_input_tokens + cache_creation_input_tokens.
  * @internal Exported for unit tests.
  */
 export function computeActualInputTokens(u: AnthropicUsageSlice): number {
-  return (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+  return (
+    (u.input_tokens ?? 0) +
+    (u.cache_read_input_tokens ?? 0) +
+    (u.cache_creation_input_tokens ?? 0)
+  );
+}
+
+function buildAnthropicUsageFromSlice(slice: AnthropicUsageSlice): {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+} {
+  const promptTokens = computeActualInputTokens(slice);
+  return {
+    promptTokens,
+    completionTokens: 0,
+    totalTokens: promptTokens,
+    cacheReadTokens: slice.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: slice.cache_creation_input_tokens ?? 0
+  };
+}
+
+function isNonEmptySignature(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Map SDK messages to Anthropic Messages API wire format.
+ * Coalesces consecutive `role: 'tool'` rows into one user message with multiple `tool_result` blocks.
+ * @internal Exported for unit tests.
+ */
+export function buildAnthropicWireMessages(messages: ModelParams['messages']): unknown[] {
+  const out: unknown[] = [];
+  const pendingToolResults: Record<string, unknown>[] = [];
+
+  const flushToolResults = (): void => {
+    if (pendingToolResults.length === 0) {
+      return;
+    }
+    out.push({ role: 'user', content: pendingToolResults.slice() });
+    pendingToolResults.length = 0;
+  };
+
+  for (const msg of messages) {
+    if (msg.role === 'tool' && msg.toolCallId) {
+      const block: Record<string, unknown> = {
+        type: 'tool_result',
+        tool_use_id: msg.toolCallId,
+        content: msg.content
+      };
+      if (msg.isError) {
+        block.is_error = true;
+      }
+      pendingToolResults.push(block);
+      continue;
+    }
+
+    flushToolResults();
+
+    const transformed: Record<string, unknown> = {
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: []
+    };
+
+    if (typeof msg.content === 'string') {
+      transformed.content = [{ type: 'text', text: msg.content }];
+    } else if (Array.isArray(msg.content)) {
+      const contentParts: unknown[] = [];
+      for (const part of msg.content) {
+        if (part.type === 'thinking') {
+          if (isNonEmptySignature(part.signature)) {
+            contentParts.push({
+              type: 'thinking',
+              thinking: part.thinking ?? '',
+              signature: part.signature
+            });
+          }
+          continue;
+        }
+        if (part.type === 'text') {
+          contentParts.push({ type: 'text', text: part.text });
+        } else {
+          contentParts.push(part);
+        }
+      }
+      transformed.content = contentParts.length > 0 ? contentParts : [{ type: 'text', text: '' }];
+    }
+
+    if (msg.toolCalls && msg.role === 'assistant') {
+      for (const tc of msg.toolCalls) {
+        (transformed.content as unknown[]).push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: tc.arguments
+        });
+      }
+    }
+
+    out.push(transformed);
+  }
+
+  flushToolResults();
+  return out;
 }
 
 function pickUsageField(
@@ -500,20 +613,12 @@ export class AnthropicAdapter extends BaseModelAdapter {
                     pendingStartUsage,
                     data.usage as AnthropicUsageSlice
                   );
-                  const actualInputTokens = computeActualInputTokens(inputSource);
-                  if (actualInputTokens > 0) {
+                  const inputUsage = buildAnthropicUsageFromSlice(inputSource);
+                  if (inputUsage.promptTokens > 0) {
                     yield {
                       type: 'metadata',
                       usagePhase: 'input',
-                      metadata: {
-                        usage: {
-                          promptTokens: actualInputTokens,
-                          completionTokens: 0,
-                          totalTokens: actualInputTokens,
-                          cacheReadTokens: inputSource.cache_read_input_tokens ?? 0,
-                          cacheWriteTokens: inputSource.cache_creation_input_tokens ?? 0
-                        }
-                      },
+                      metadata: { usage: inputUsage },
                       ...raw
                     };
                   }
@@ -533,6 +638,18 @@ export class AnthropicAdapter extends BaseModelAdapter {
                   }
                 }
                 break;
+
+              case 'error': {
+                const errPayload = data.error as { type?: string; message?: string } | undefined;
+                const errType = errPayload?.type ?? 'api_error';
+                const errMessage = errPayload?.message ?? 'Anthropic stream error';
+                yield {
+                  type: 'error',
+                  error: new Error(`Anthropic ${errType}: ${errMessage}`),
+                  ...raw
+                };
+                break;
+              }
             }
           } catch (error) {
             logModelStreamParseError(
@@ -566,14 +683,22 @@ export class AnthropicAdapter extends BaseModelAdapter {
     }
 
     const data = await response.json() as {
-      content?: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: unknown }>;
+      content?: Array<{
+        type: string;
+        text?: string;
+        thinking?: string;
+        signature?: string;
+        data?: string;
+        id?: string;
+        name?: string;
+        input?: unknown;
+      }>;
       usage?: unknown;
     };
     const result: CompletionResult = {
       content: ''
     };
 
-    // 处理内容块
     const toolCalls: Array<{ id: string; name: string; arguments: unknown }> = [];
     const thinkingParts: string[] = [];
     for (const block of data.content || []) {
@@ -581,6 +706,9 @@ export class AnthropicAdapter extends BaseModelAdapter {
         result.content += block.text;
       } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.length > 0) {
         thinkingParts.push(block.thinking);
+      } else if (block.type === 'redacted_thinking') {
+        // Omitted/redacted blocks carry no visible thinking text.
+        continue;
       } else if (block.type === 'tool_use' && block.id && block.name) {
         toolCalls.push({
           id: block.id,
@@ -597,21 +725,23 @@ export class AnthropicAdapter extends BaseModelAdapter {
       result.toolCalls = toolCalls;
     }
 
-    // 处理使用统计
     if (data.usage && typeof data.usage === 'object') {
-      const usage = data.usage as {
-        input_tokens: number;
-        output_tokens: number;
-        cache_read_input_tokens?: number;
-        cache_creation_input_tokens?: number;
+      const usage = data.usage as AnthropicUsageSlice & { output_tokens?: number };
+      const inputSlice: AnthropicUsageSlice = {
+        input_tokens: usage.input_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens
       };
-      // Anthropic 的 input_tokens 已扣除缓存命中的部分
-      // 完整的上下文大小 = input_tokens + cache_read_input_tokens
-      const actualInputTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0);
+      const promptTokens = computeActualInputTokens(inputSlice);
+      const outputTokens = usage.output_tokens ?? 0;
       result.usage = {
-        promptTokens: actualInputTokens,
-        completionTokens: usage.output_tokens,
-        totalTokens: actualInputTokens + usage.output_tokens
+        promptTokens,
+        completionTokens: outputTokens,
+        totalTokens: promptTokens + outputTokens
+      };
+      result.metadata = {
+        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens ?? 0
       };
     }
 
@@ -620,7 +750,7 @@ export class AnthropicAdapter extends BaseModelAdapter {
 
   private buildRequestBody(params: ModelParams, stream: boolean): unknown {
     const { system, messages } = this.extractSystemMessage(params.messages);
-    const transformedMessages = this.transformAnthropicMessages(messages);
+    const transformedMessages = buildAnthropicWireMessages(messages);
 
     const defaultMaxTokens =
       this.capabilities?.maxOutputTokens ?? DEFAULT_ADAPTER_CAPABILITIES.maxOutputTokens;
@@ -630,7 +760,8 @@ export class AnthropicAdapter extends BaseModelAdapter {
       messages: transformedMessages,
       stream,
       ...(system && { system }),
-      ...(params.temperature !== undefined && { temperature: params.temperature })
+      ...(params.temperature !== undefined && { temperature: params.temperature }),
+      ...(params.stopSequences?.length && { stop_sequences: params.stopSequences })
     };
 
     // 添加工具
@@ -721,64 +852,6 @@ export class AnthropicAdapter extends BaseModelAdapter {
       system: combinedSystem,
       messages: otherMessages
     };
-  }
-
-  private transformAnthropicMessages(messages: ModelParams['messages']): unknown[] {
-    return messages.map(msg => {
-      const transformed: Record<string, unknown> = {
-        role: msg.role === 'assistant' ? 'assistant' : 'user',
-        content: []
-      };
-
-      if (typeof msg.content === 'string') {
-        transformed.content = [{ type: 'text', text: msg.content }];
-      } else if (Array.isArray(msg.content)) {
-        // 处理 ContentPart 数组
-        const contentParts: any[] = [];
-        for (const part of msg.content) {
-          if (part.type === 'thinking') {
-            if (part.thinking && part.signature) {
-              contentParts.push(part);
-            }
-            continue;
-          } else if (part.type === 'text') {
-            contentParts.push({ type: 'text', text: (part as any).text });
-          } else {
-            contentParts.push(part);
-          }
-        }
-        transformed.content = contentParts;
-
-        // 如果过滤后为空，设置空字符串
-        if (contentParts.length === 0) {
-          transformed.content = '';
-        }
-      }
-
-      // 处理工具调用
-      if (msg.toolCalls && msg.role === 'assistant') {
-        for (const tc of msg.toolCalls) {
-          (transformed.content as any[]).push({
-            type: 'tool_use',
-            id: tc.id,
-            name: tc.name,
-            input: tc.arguments
-          });
-        }
-      }
-
-      // 处理工具结果
-      if (msg.role === 'tool' && msg.toolCallId) {
-        transformed.role = 'user';
-        transformed.content = [{
-          type: 'tool_result',
-          tool_use_id: msg.toolCallId,
-          content: msg.content
-        }];
-      }
-
-      return transformed;
-    });
   }
 
   /**

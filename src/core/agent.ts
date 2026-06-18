@@ -987,22 +987,25 @@ export class Agent {
     }
     if (out.type === 'model_usage') {
       const usage = out.usage;
-      if (usage.promptTokens > 0) {
-        this.sessionUsage.contextTokens = usage.promptTokens;
-        this.sessionUsage.inputTokens += usage.promptTokens;
-      }
-      if (usage.completionTokens > 0) {
-        this.sessionUsage.outputTokens += usage.completionTokens;
-      }
       const extended = usage as TokenUsage & {
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
       };
-      if (extended.cacheReadTokens && extended.cacheReadTokens > 0) {
-        this.sessionUsage.cacheReadTokens += extended.cacheReadTokens;
+      if (usage.promptTokens > 0) {
+        this.sessionUsage.contextTokens = usage.promptTokens;
+        const cacheRead = extended.cacheReadTokens ?? 0;
+        const cacheWrite = extended.cacheWriteTokens ?? 0;
+        const uncachedInput = Math.max(0, usage.promptTokens - cacheRead - cacheWrite);
+        this.sessionUsage.inputTokens += uncachedInput;
+        if (cacheRead > 0) {
+          this.sessionUsage.cacheReadTokens += cacheRead;
+        }
+        if (cacheWrite > 0) {
+          this.sessionUsage.cacheWriteTokens += cacheWrite;
+        }
       }
-      if (extended.cacheWriteTokens && extended.cacheWriteTokens > 0) {
-        this.sessionUsage.cacheWriteTokens += extended.cacheWriteTokens;
+      if (usage.completionTokens > 0) {
+        this.sessionUsage.outputTokens += usage.completionTokens;
       }
     }
   }
@@ -1026,7 +1029,7 @@ export class Agent {
         role: 'assistant',
         content: assistantContent
       };
-      if (thinkingContent) {
+      if (thinkingContent || thinkingSignature) {
         assistantMessage.content = [
           {
             type: 'thinking',
@@ -1043,7 +1046,7 @@ export class Agent {
       role: 'assistant',
       content: assistantContent
     };
-    if (thinkingContent) {
+    if (thinkingContent || thinkingSignature) {
       const contentParts: ContentPart[] = [
         {
           type: 'thinking',
@@ -1355,7 +1358,8 @@ export class Agent {
       const toolMsg: Message = {
         role: 'tool',
         toolCallId: result.toolCallId,
-        content: result.content
+        content: result.content,
+        ...(result.isError ? { isError: true } : {})
       };
       this.messages.push(toolMsg);
       this.safeLifecycleVoid(() => {
