@@ -10,7 +10,8 @@
 - **Docs**: [sdk-log-events.md](./docs/sdk-log-events.md), [sdk-observability-matrix.md](./docs/sdk-observability-matrix.md), [sdk-observability-spike.md](./docs/sdk-observability-spike.md).
 - **Observability**: `publishSdkDiagnostic` and `SDK_DIAGNOSTIC_CHANNELS` (`node:diagnostics_channel`, opt-in).
 - **Session fork & rewind**: `RewindEntry` in JSONL; `SessionManager.forkSession`, `rewindSession`, `rewindToCheckpoint`, `listSessionCheckpoints`; `Agent` mirrors with `forkSession`, `rewindToCheckpoint`, `listSessionCheckpoints`, `getActiveMessageCount`; `StreamOptions.forkSession` to fork before `stream`. Lifecycle: `onSessionFork`, `onSessionRewind`. See [`docs/sdk-api-reference.md`](./docs/sdk-api-reference.md) (Rewind 集成指南).
-- **CLI**: `sessions checkpoints` / `rewind` / `fork`; `sessions show --raw` displays rewind rows; `chat`/`run` `--fork*` flags; interactive `/checkpoints`, `/rewind`, `/fork`.
+- **CLI**: `sessions checkpoints` / `rewind` / `fork`; `sessions show --raw` displays rewind rows; `chat`/`-p` `--fork*` flags; interactive `/checkpoints`, `/rewind`, `/fork`.
+- **CLI**: root-level `-p` / `--print` headless mode with stdin pipe, `--bare`, `--allowed-tools`, `--output-format`; `--continue` alias for `--resume`.
 - **CLI**: slash command registry (`/help`, `/status`, `/sessions`, `/new`, `/details`, `/compact`, `/export`, `/editor`); terminal replay after rewind/fork; `!` shell prefix; `sessions list --with-active`; optional `agent-sdk tui` (Ink).
 - **CLI TUI**: slash command dropdown (builtins + skills, alias prefix filter, scroll window), persistent status bar, `/status` and `/sessions` modals; thinking and tool trace stream display; `withCapturedConsoleLog` for slash output; shared `collectSessionStatus` for classic and TUI.
 - **CLI TUI**: OpenCode-style message blocks with left border colors for user, assistant, thinking, tool call/result/error; tool lines use `Name: value` format; `>` input prompt.
@@ -27,6 +28,7 @@
 
 ### Breaking
 
+- **CLI**: removed `run` subcommand; use root-level `-p` / `--print` for non-interactive single-shot runs (e.g. `agent-sdk -p "prompt" --bare`).
 - **Agent token usage**: `session_summary.usage`, `onRunEnd.usage`, and `Agent.run().usage` now report **session cumulative** input/output (mapped to `TokenUsage.promptTokens` / `completionTokens`), not a per-`stream()` run snapshot. `iterations` still counts model rounds in the current `stream()` call. Compression and rewind no longer reset cumulative input/output; only `contextTokens` resets.
 - **Session storage**: `StorageAdapter` is now **append-only**. Implementations expose `append(sessionId, entries: SessionEntry[])` and `load()` returns **`SessionEntry[]`** (messages plus optional `{ $type: 'summary', ... }` compaction rows). **`save(sessionId, Message[])` is removed.** Jsonl transcripts are **append-only** with **logical truncation**: after compaction, new lines append `[summary, ...recent]`; **`loadActiveMessages()` / resume** reconstructs the chain from the **last** `summary` line only (older lines remain on disk for audit). **`SessionManager`**: removed **`saveMessages` / `appendMessage` / `resumeSession`**; use **`attachSession`**, **`loadRawEntries` / `loadActiveMessages`**, **`appendEntries`**, **`appendCompactionBoundary`**. System prompt is **not** stored in jsonl; **`saveSystemPrompt` sidecar** (`*.system.json`) holds the last primary system text for audit. **Existing pre-v2 session files are not migrated**—start fresh or re-run conversations.
 

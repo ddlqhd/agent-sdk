@@ -23,8 +23,20 @@ export interface CLIConfig {
   /** 最大 Token */
   maxTokens?: number;
 
-  /** 输出格式 */
+  /** 输出格式（headless `-p`） */
   output?: 'text' | 'json' | 'markdown';
+
+  /** Claude Code alias for {@link output}; normalized in action. */
+  outputFormat?: string;
+
+  /** Headless print mode flag (`-p` / `--print`). */
+  print?: string | boolean;
+
+  /** Skip auto-loading hooks, skills, memory, MCP discovery, subagent profiles. */
+  bare?: boolean;
+
+  /** Auto-approved tools (comma-separated on CLI). Maps to AgentConfig.allowedTools. */
+  allowedTools?: string[];
 
   /** 是否流式 */
   stream?: boolean;
@@ -32,7 +44,7 @@ export interface CLIConfig {
   /** 会话 ID */
   session?: string;
 
-  /** 恢复最近一次会话（CLI chat/run） */
+  /** 恢复最近一次会话（CLI chat/-p） */
   resume?: boolean;
 
   /** 详细输出 */
@@ -40,7 +52,7 @@ export interface CLIConfig {
 
   /**
    * Agent SDK 结构化日志级别（skills / memory / 子 agent 配置等）。
-   * CLI `chat`/`run` 未指定时由 CLI 填入默认值以便在终端可见。
+   * CLI `chat`/`-p` 未指定时由 CLI 填入默认值以便在终端可见。
    */
   logLevel?: SDKLogLevel;
 
@@ -65,12 +77,12 @@ export interface CLIConfig {
   /** 与 `AgentModelConfig.thinkingLevel` 对齐；由各 adapter 按需使用。 */
   thinkingLevel?: 'low' | 'medium' | 'high';
 
-  /** Stream/run 前 fork 当前 session（需 --session 或 --resume） */
+  /** Stream/-p 前 fork 当前 session（需 --session 或 --resume） */
   fork?: boolean;
 
-  /** Stream/run 前 fork 到指定 checkpoint */
+  /** Stream/-p 前 fork 到指定 checkpoint */
   forkCheckpointId?: string;
 
-  /** Stream/run 前 fork 到 0-based user turn */
+  /** Stream/-p 前 fork 到 0-based user turn */
   forkUserTurnIndex?: number;
 }

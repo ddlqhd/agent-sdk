@@ -10,7 +10,7 @@ import type {
 } from '../../core/types.js';
 
 function addUserBasePathOption(cmd: Command): Command {
-  return cmd.option('--user-base-path <path>', 'User base path (default: ~), must match chat/run');
+  return cmd.option('--user-base-path <path>', 'User base path (default: ~), must match chat/-p');
 }
 
 export { listSessionsForPicker };

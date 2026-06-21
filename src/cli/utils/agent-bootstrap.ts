@@ -16,6 +16,7 @@ type CliFileLogger = NonNullable<ReturnType<typeof createCliFileLogger>>;
 import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from './ask-user-question.js';
 import { getLatestSessionId } from '../../storage/session-path.js';
+import { parseAllowedTools, isHeadlessCli } from './print-prompt.js';
 
 function parseThinkingCli(value?: string): boolean {
   if (value === undefined || value === '') return true;
@@ -29,6 +30,18 @@ function parseThinkingLevelCli(value: string): 'low' | 'medium' | 'high' {
   const s = value.trim().toLowerCase();
   if (s === 'low' || s === 'medium' || s === 'high') return s;
   throw new Error(`Invalid --thinking-level: ${value} (use low, medium, or high)`);
+}
+
+export function addHeadlessOptions(cmd: Command): Command {
+  return cmd
+    .option('-o, --output <format>', 'Output format (text/json)', 'text')
+    .option('--output-format <format>', 'Alias for --output (Claude Code compatible)')
+    .option(
+      '--allowed-tools <tools>',
+      'Comma-separated auto-approved tools (maps to AgentConfig.allowedTools)',
+      (v: string) => parseAllowedTools(v)
+    )
+    .option('--bare', 'Skip auto-loading hooks, skills, memory, MCP discovery, and subagent profiles');
 }
 
 export function addModelOptions(cmd: Command): Command {
@@ -47,7 +60,7 @@ export function addModelOptions(cmd: Command): Command {
     .option('--user-base-path <path>', 'User base path (default: ~)')
     .option('--cwd <path>', 'Working directory (default: current directory)')
     .option(
-      '--resume',
+      '--resume, --continue',
       'Resume the most recently updated session (uses same storage as --user-base-path; ignored if --session is set)'
     )
     .option(
@@ -83,10 +96,24 @@ export async function ensureChatSessionAttached(agent: Agent, sessionId: string)
   }
 }
 
+export interface CliLogOptions {
+  /** Route info-level CLI messages to stderr instead of stdout (headless `-p`). */
+  headless?: boolean;
+}
+
+function cliInfo(message: string, options?: CliLogOptions): void {
+  if (options?.headless) {
+    console.error(message);
+  } else {
+    console.log(message);
+  }
+}
+
 export async function applyPreStreamFork(
   agent: Agent,
   sessionId: string | undefined,
-  options: CLIConfig
+  options: CLIConfig,
+  logOptions?: CliLogOptions
 ): Promise<string | undefined> {
   const wantsFork =
     options.fork || options.forkCheckpointId !== undefined || options.forkUserTurnIndex !== undefined;
@@ -100,10 +127,11 @@ export async function applyPreStreamFork(
   if (options.forkCheckpointId) forkOpts.checkpointId = options.forkCheckpointId;
   if (options.forkUserTurnIndex !== undefined) forkOpts.userTurnIndex = options.forkUserTurnIndex;
   const result = await agent.forkSession(sessionId, forkOpts);
-  console.log(
+  cliInfo(
     chalk.gray(
       `Forked ${result.sourceSessionId} → ${result.sessionId} (${result.messageCount} messages)`
-    )
+    ),
+    logOptions
   );
   return result.sessionId;
 }
@@ -127,7 +155,7 @@ export function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
   };
 }
 
-export function reportMCPConfigLoad(result: MCPConfigLoadResult): void {
+export function reportMCPConfigLoad(result: MCPConfigLoadResult, logOptions?: CliLogOptions): void {
   for (const err of result.errors ?? []) {
     console.warn(chalk.yellow(`MCP config: ${err.message}`));
   }
@@ -145,9 +173,13 @@ export function reportMCPConfigLoad(result: MCPConfigLoadResult): void {
     return;
   }
 
-  console.log(chalk.gray(`Loaded MCP config from: ${result.configPath}`));
+  if (logOptions?.headless) {
+    return;
+  }
+
+  cliInfo(chalk.gray(`Loaded MCP config from: ${result.configPath}`), logOptions);
   if (result.servers.length > 0) {
-    console.log(chalk.gray(`MCP servers: ${result.servers.map((s) => s.name).join(', ')}`));
+    cliInfo(chalk.gray(`MCP servers: ${result.servers.map((s) => s.name).join(', ')}`), logOptions);
   }
 }
 
@@ -193,26 +225,60 @@ export async function resolveCliSessionId(options: CLIConfig): Promise<string | 
   return sessionId;
 }
 
+function loadCliMcpConfig(options: CLIConfig): MCPConfigLoadResult {
+  if (options.bare && !options.mcpConfig) {
+    return { servers: [] };
+  }
+  return loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
+}
+
+/** @internal Exported for unit tests. */
+export function buildCliAgentConfig(
+  options: CLIConfig,
+  mcpServers: MCPConfigLoadResult['servers'],
+  fileLogger: CliFileLogger | null
+) {
+  const cwd = options.cwd || process.cwd();
+  const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
+
+  const bareAgentOptions = options.bare
+    ? {
+        loadSkills: false as const,
+        memory: false as const,
+        loadHookSettingsFromFiles: false as const,
+        subagent: { enabled: false as const, loadProfilesFromFiles: false as const }
+      }
+    : {
+        hookConfigDir: cwd
+      };
+
+  return {
+    modelConfig: modelConfigFromOptions(options),
+    cwd,
+    systemPrompt: options.system,
+    temperature: options.temperature,
+    maxTokens: options.maxTokens,
+    mcpServers,
+    userBasePath: options.userBasePath,
+    logLevel: effectiveLogLevel,
+    ...(options.allowedTools ? { allowedTools: options.allowedTools } : {}),
+    ...(fileLogger ? { logger: fileLogger } : {}),
+    ...bareAgentOptions,
+    askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
+  };
+}
+
 export async function createCliAgent(options: CLIConfig): Promise<CliAgentBundle> {
-  const mcpResult = loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
-  reportMCPConfigLoad(mcpResult);
+  const headless = isHeadlessCli(options);
+  const logOptions: CliLogOptions = { headless: headless || options.bare === true };
+  const mcpResult = loadCliMcpConfig(options);
+  reportMCPConfigLoad(mcpResult, logOptions);
 
   const cwd = options.cwd || process.cwd();
   const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
   const fileLogger = createCliFileLogger(effectiveLogLevel, options.logFile, options.userBasePath);
-  const agent = new Agent({
-    modelConfig: modelConfigFromOptions(options),
-    cwd,
-    hookConfigDir: cwd,
-    systemPrompt: options.system,
-    temperature: options.temperature,
-    maxTokens: options.maxTokens,
-    mcpServers: mcpResult.servers,
-    userBasePath: options.userBasePath,
-    logLevel: effectiveLogLevel,
-    ...(fileLogger ? { logger: fileLogger } : {}),
-    askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
-  });
+
+  const agent = new Agent(buildCliAgentConfig(options, mcpResult.servers, fileLogger));
 
   const initResult = await agent.waitForInit();
   reportMCPInitResult(initResult.mcp);

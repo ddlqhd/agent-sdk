@@ -239,4 +239,52 @@ describe('createStreamFormatter', () => {
       stripAnsi(formatEvent({ type: 'end', timestamp: 0, reason: 'max_iterations' }))
     ).toContain('maxIterations');
   });
+
+  describe('headless mode', () => {
+    it('routes assistant text to stdout only', () => {
+      const f = createStreamFormatter({ headless: true, verbose: false });
+      f.formatSplit({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
+      f.formatSplit({ type: 'tool_result', toolCallId: 'tc1', result: 'ok' });
+      const split = f.formatSplit({ type: 'text_delta', content: 'Answer' });
+      expect(stripAnsi(split.stdout)).toBe('Answer');
+      expect(split.stderr).toBe('');
+    });
+
+    it('routes verbose tool trace to stderr', () => {
+      const f = createStreamFormatter({ headless: true, verbose: true });
+      const split = f.formatSplit({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: { path: '/a' } });
+      expect(split.stdout).toBe('');
+      expect(stripAnsi(split.stderr)).toContain('Read');
+    });
+
+    it('routes tool errors to stderr without verbose', () => {
+      const f = createStreamFormatter({ headless: true, verbose: false });
+      const split = f.formatSplit({
+        type: 'tool_error',
+        toolCallId: 'tc1',
+        error: new Error('denied')
+      });
+      expect(split.stdout).toBe('');
+      expect(stripAnsi(split.stderr)).toContain('denied');
+    });
+
+    it('routes stream end errors to stderr', () => {
+      const f = createStreamFormatter({ headless: true, verbose: false });
+      const split = f.formatSplit({
+        type: 'end',
+        timestamp: 0,
+        reason: 'error',
+        error: new Error('boom')
+      });
+      expect(split.stdout).toBe('');
+      expect(stripAnsi(split.stderr)).toContain('boom');
+    });
+
+    it('does not change interactive stdout behavior', () => {
+      const f = createStreamFormatter({ headless: false, verbose: false });
+      const split = f.formatSplit({ type: 'tool_call', id: 'tc1', name: 'Read', arguments: {} });
+      expect(stripAnsi(split.stdout)).toContain('Read');
+      expect(split.stderr).toBe('');
+    });
+  });
 });

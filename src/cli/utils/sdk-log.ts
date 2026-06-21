@@ -6,7 +6,7 @@ import type { SDKLogLevel } from '../../core/types.js';
 const LEVELS: SDKLogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];
 
 /**
- * Parses `--log-level` for chat/run. Throws on invalid values (Commander will surface).
+ * Parses `--log-level` for chat/-p. Throws on invalid values (Commander will surface).
  */
 export function parseCliLogLevel(value: string): SDKLogLevel {
   const v = value.trim().toLowerCase() as SDKLogLevel;
@@ -20,7 +20,7 @@ export function parseCliLogLevel(value: string): SDKLogLevel {
 export const DEFAULT_CLI_AGENT_LOG_LEVEL: SDKLogLevel = 'info';
 
 export function describeCliLogLevelOption(): string {
-  return `Agent SDK log level (${LEVELS.join('|')}; default for chat/run: ${DEFAULT_CLI_AGENT_LOG_LEVEL})`;
+  return `Agent SDK log level (${LEVELS.join('|')}; default for chat/-p: ${DEFAULT_CLI_AGENT_LOG_LEVEL})`;
 }
 
 /** YYYY-MM-DD in local time, used for the daily JSONL file name. */

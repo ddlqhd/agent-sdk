@@ -19,8 +19,8 @@ node dist/cli/index.js --help
 # 交互式聊天
 node dist/cli/index.js chat --model openai --api-key sk-xxx
 
-# 单次提问
-node dist/cli/index.js run "What is the capital of France?" --model openai
+# 单次提问（headless）
+node dist/cli/index.js -p "What is the capital of France?" --model openai --bare
 
 # 列出可用工具
 node dist/cli/index.js tools list
@@ -55,8 +55,8 @@ npx @ddlqhd/agent-sdk --help
 # 聊天模式
 npx @ddlqhd/agent-sdk chat --model openai --api-key sk-xxx
 
-# 单次运行
-npx @ddlqhd/agent-sdk run "List files in current directory" --model openai
+# 单次运行（headless / print 模式）
+npx @ddlqhd/agent-sdk -p "List files in current directory" --model openai --bare
 
 # 工具管理
 npx @ddlqhd/agent-sdk tools list
@@ -64,7 +64,7 @@ npx @ddlqhd/agent-sdk tools show Read
 npx @ddlqhd/agent-sdk tools test Read -a "{}"
 # 或长选项：--args（JSON 对象字符串）
 
-# 会话管理（与 chat/run 使用相同存储时须传相同 --user-base-path）
+# 会话管理（与 chat/-p 使用相同存储时须传相同 --user-base-path）
 npx @ddlqhd/agent-sdk sessions list
 npx @ddlqhd/agent-sdk sessions show <session-id>
 npx @ddlqhd/agent-sdk sessions checkpoints <session-id>
@@ -100,17 +100,17 @@ agent-sdk chat [options]
   --mcp-config <path>      MCP 配置文件路径
   --user-base-path <path>  用户基础路径 (默认: ~)
   --cwd <path>             工作目录 (默认: 当前目录)
-  --resume                 恢复最近更新的会话（与 chat/run 使用相同存储；若已设 -s 则忽略）
+  --resume, --continue     恢复最近更新的会话（与 chat/-p 使用相同存储；若已设 -s 则忽略）
   --thinking [value]       模型统一 thinking/reasoning 开关（true|false；省略 value 等价 true）。
                            写入 `AgentConfig.modelConfig.thinking`。
   --thinking-level <lvl>   推理档位 low|medium|high，写入 `thinkingLevel`
                            （各 adapter 按需使用；Ollama 对应顶层 HTTP `think`）。
-  --log-level <level>      Agent SDK 日志级别 (debug|info|warn|error|silent；chat/run 默认: info)
+  --log-level <level>      Agent SDK 日志级别 (debug|info|warn|error|silent；chat/-p 默认: info)
   --log-file <path>        SDK JSONL 日志文件路径（默认 <userBase>/.claude/logs/agent-sdk-<date>.log；
                            可被环境变量 AGENT_SDK_LOG_FILE 覆盖；--log-level=silent 时不写文件）
-  --fork                   在 stream/run 前先 fork 当前会话（需 -s 或 --resume）
-  --fork-checkpoint-id <id>  在 stream/run 前 fork 到指定 checkpoint
-  --fork-user-turn-index <n> 在 stream/run 前 fork 到 0-based user turn
+  --fork                   在 stream/-p 前先 fork 当前会话（需 -s 或 --resume）
+  --fork-checkpoint-id <id>  在 stream/-p 前 fork 到指定 checkpoint
+  --fork-user-turn-index <n> 在 stream/-p 前 fork 到 0-based user turn
 ```
 
 #### 交互式斜杠命令（chat）
@@ -174,20 +174,46 @@ agent-sdk tui [options]
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 
-### run
+### Print mode (`-p`)
 
-单次运行并输出结果。
+非交互 headless 模式（对齐 Claude Code `-p` / `--print`）。在根命令使用，无需子命令：
 
 ```bash
-agent-sdk run <prompt> [options]
+agent-sdk -p "What does this repo do?" --model openai --bare
+
+# 管道：指令 + stdin 内容
+cat build.log | agent-sdk -p "find root cause" --bare --allowed-tools "Read"
+
+# JSON 输出（stdout 仅合法 JSON，适合 jq / CI）
+agent-sdk -p "Summarize" --bare -o json | jq .
+
+# 继续最近会话
+agent-sdk -p "Continue the review" --continue --bare
+```
+
+根级选项（`-p` 专用，与 chat 共享 model/session 选项）：
+
+```bash
+agent-sdk -p [prompt] [options]
 
 选项:
+  -p, --print [prompt]     非交互单次执行（prompt 可省略，改从 stdin 读取）
+  -o, --output <format>    输出格式 (text, json)
+  --output-format <format> --output 别名（Claude Code 兼容）
+  --allowed-tools <tools>  逗号分隔的自动批准工具（映射 AgentConfig.allowedTools）
+  --bare                   跳过 hooks/skills/memory/MCP 自动发现/subagent profile
   -m, --model <model>      模型提供商
   -k, --api-key <key>      API Key
-  -o, --output <format>    输出格式 (text, json)
   -v, --verbose            显示完整的工具调用参数和结果（调试模式）
+  --resume, --continue     恢复最近会话
   (其他选项同 chat)
 ```
+
+**Breaking change**：`run` 子命令已移除。请改用 `agent-sdk -p "..."`。
+
+`-p` 模式下 MCP 加载成功 info、fork 提示等走 stderr，不污染 stdout；`-o json` 时 stdout 仅输出 JSON。
+
+`--bare` 跳过项目/用户目录的 hooks、skills、memory、MCP 自动发现、subagent profile；仍可通过 `--mcp-config`、`-S/--system` 等显式传入配置。
 
 ### tools
 
@@ -222,7 +248,7 @@ agent-sdk sessions delete <id>                # 删除会话（可加 -f / --for
 agent-sdk sessions clear                      # 清空全部会话（可加 -f / --force 跳过确认）
 
 list 选项:
-  --user-base-path <path>  与 chat/run 一致，用于解析会话 JSONL 目录
+  --user-base-path <path>  与 chat/-p 一致，用于解析会话 JSONL 目录
   -f, --format <format>    输出格式 (table, json)
   -l, --limit <n>          列出会话条数上限（默认 20）
   --with-active            额外计算 Active 列（活动链消息数，较慢）

@@ -7,6 +7,13 @@ import type { StreamEvent, TokenUsage, SessionTokenUsage } from '../../core/type
 export interface OutputConfig {
   color?: boolean;
   verbose?: boolean;
+  /** Headless `-p`: assistant text to stdout; tools/errors/usage to stderr (when verbose or fatal). */
+  headless?: boolean;
+}
+
+export interface StreamSplitOutput {
+  stdout: string;
+  stderr: string;
 }
 
 /** CLI line when a stream ends after hitting `AgentConfig.maxIterations`. */
@@ -120,7 +127,10 @@ export function formatEvent(event: StreamEvent, config: OutputConfig = {}): stri
  */
 export interface StreamFormatter {
   format(event: StreamEvent): string;
+  /** Split stdout/stderr for headless `-p` streaming. */
+  formatSplit(event: StreamEvent): StreamSplitOutput;
   finalize(): string;
+  finalizeSplit(): StreamSplitOutput;
 }
 
 function tokenUsageEqual(a: TokenUsage, b: TokenUsage): boolean {
@@ -159,137 +169,176 @@ const STREAM_FORMATTER_NOISE_EVENT_TYPES = new Set<StreamEvent['type']>([
   'context_compressed'
 ]);
 
+function headlessStderrForEvent(event: StreamEvent, full: string, verbose: boolean): string {
+  if (!full || event.type === 'text_delta') {
+    return '';
+  }
+  if (verbose) {
+    return full;
+  }
+  if (event.type === 'tool_error') {
+    return full;
+  }
+  if (event.type === 'end') {
+    return full;
+  }
+  return '';
+}
+
 export function createStreamFormatter(config: OutputConfig = {}): StreamFormatter {
-  const { verbose = false } = config;
+  const { verbose = false, headless = false } = config;
   let lastEventType: string | null = null;
   let isFirstThinking = true;
   let lastPrintedUsage: TokenUsage | null = null;
   /** 工具输出后若中间插入了 model_usage 等事件，lastEventType 不再是 tool_result，需靠此标志在正文/thinking 前补换行 */
   let needsGapAfterToolBlock = false;
 
-  return {
-    format(event: StreamEvent): string {
-      if (!verbose && STREAM_FORMATTER_NOISE_EVENT_TYPES.has(event.type)) {
-        return '';
-      }
+  const buildOutput = (event: StreamEvent): string => {
+    if (!verbose && STREAM_FORMATTER_NOISE_EVENT_TYPES.has(event.type)) {
+      return '';
+    }
 
-      let output = '';
+    let output = '';
 
-      // 工具块结束后与助手正文或 thinking 分段（model_usage 会插在 tool_result 与 text_delta 之间，不能仅靠 lastEventType）
-      if (
-        needsGapAfterToolBlock &&
-        (event.type === 'text_delta' || event.type === 'thinking' || event.type === 'thinking_start')
-      ) {
+    if (
+      needsGapAfterToolBlock &&
+      (event.type === 'text_delta' || event.type === 'thinking' || event.type === 'thinking_start')
+    ) {
+      output += '\n';
+      needsGapAfterToolBlock = false;
+    }
+
+    switch (event.type) {
+      case 'text_start':
+      case 'text_end':
+      case 'thinking_start':
+      case 'tool_call_start':
+      case 'tool_call_delta':
+      case 'tool_call_end':
+        break;
+
+      case 'thinking_end':
         output += '\n';
-        needsGapAfterToolBlock = false;
+        isFirstThinking = true;
+        break;
+
+      case 'context_compressed':
+        if (verbose) {
+          output += chalk.gray(
+            `\n📦 Context compressed: ${event.stats.originalMessageCount} → ${event.stats.compressedMessageCount} messages (${event.stats.durationMs}ms)\n`
+          );
+        }
+        break;
+
+      case 'text_delta':
+        output += event.content;
+        break;
+
+      case 'thinking':
+        if (isFirstThinking) {
+          output += `\n${chalk.gray(`💭 ${event.content}`)}`;
+          isFirstThinking = false;
+        } else {
+          output += chalk.gray(event.content);
+        }
+        break;
+
+      case 'tool_call':
+        output += formatStreamToolCallLine(verbose, event.id, event.name, event.arguments);
+        break;
+
+      case 'tool_result': {
+        const idTag = toolCallIdTag(event.toolCallId);
+        if (verbose) {
+          output +=
+            chalk.green('\n✓ ') +
+            chalk.gray(`${idTag} `) +
+            chalk.green(`Result:\n${event.result}\n`);
+        } else {
+          const resultStr = truncate(event.result, 120);
+          output += chalk.green('\n✓ ') + chalk.gray(`${idTag} `) + chalk.green(resultStr);
+        }
+        needsGapAfterToolBlock = true;
+        break;
       }
 
-      switch (event.type) {
-        case 'text_start':
-        case 'text_end':
-        case 'thinking_start':
-        case 'tool_call_start':
-        case 'tool_call_delta':
-        case 'tool_call_end':
-          break;
-
-        case 'thinking_end':
-          output += '\n';
-          isFirstThinking = true;
-          break;
-
-        case 'context_compressed':
-          if (verbose) {
-            output += chalk.gray(
-              `\n📦 Context compressed: ${event.stats.originalMessageCount} → ${event.stats.compressedMessageCount} messages (${event.stats.durationMs}ms)\n`
-            );
-          }
-          break;
-
-        case 'text_delta':
-          output += event.content;
-          break;
-
-        case 'thinking':
-          if (isFirstThinking) {
-            output += `\n${chalk.gray(`💭 ${event.content}`)}`;
-            isFirstThinking = false;
-          } else {
-            output += chalk.gray(event.content);
-          }
-          break;
-
-        case 'tool_call':
-          output += formatStreamToolCallLine(verbose, event.id, event.name, event.arguments);
-          break;
-
-        case 'tool_result': {
-          const idTag = toolCallIdTag(event.toolCallId);
-          if (verbose) {
-            output +=
-              chalk.green('\n✓ ') +
-              chalk.gray(`${idTag} `) +
-              chalk.green(`Result:\n${event.result}\n`);
-          } else {
-            const resultStr = truncate(event.result, 120);
-            output +=
-              chalk.green('\n✓ ') + chalk.gray(`${idTag} `) + chalk.green(resultStr);
-          }
-          needsGapAfterToolBlock = true;
-          break;
+      case 'tool_error': {
+        const idTag = toolCallIdTag(event.toolCallId);
+        if (verbose) {
+          output +=
+            chalk.red('\n✗ ') +
+            chalk.gray(`${idTag} `) +
+            chalk.red(`Error:\n${event.error.message}\n`);
+        } else {
+          output += chalk.red('\n✗ ') + chalk.gray(`${idTag} `) + chalk.red(event.error.message);
         }
-
-        case 'tool_error': {
-          const idTag = toolCallIdTag(event.toolCallId);
-          if (verbose) {
-            output +=
-              chalk.red('\n✗ ') +
-              chalk.gray(`${idTag} `) +
-              chalk.red(`Error:\n${event.error.message}\n`);
-          } else {
-            output +=
-              chalk.red('\n✗ ') + chalk.gray(`${idTag} `) + chalk.red(event.error.message);
-          }
-          needsGapAfterToolBlock = true;
-          break;
-        }
-
-        case 'model_usage': {
-          const usage = event.usage;
-          if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
-            lastPrintedUsage = usage;
-            output += `\n${formatUsage(usage)}`;
-          }
-          break;
-        }
-
-        case 'session_summary': {
-          const usage = event.usage;
-          if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
-            lastPrintedUsage = usage;
-            output += `\n${formatUsage(usage)}`;
-          }
-          break;
-        }
-
-        case 'end':
-          if (event.reason === 'error' && event.error) {
-            output += chalk.red(`\n✗ ${event.error.message}`);
-          } else if (event.reason === 'aborted') {
-            output += chalk.yellow('\n[interrupted]');
-          } else if (event.reason === 'max_iterations') {
-            output += chalk.yellow(STREAM_END_MAX_ITERATIONS_MESSAGE);
-          }
-          break;
+        needsGapAfterToolBlock = true;
+        break;
       }
 
+      case 'model_usage': {
+        const usage = event.usage;
+        if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
+          lastPrintedUsage = usage;
+          output += `\n${formatUsage(usage)}`;
+        }
+        break;
+      }
+
+      case 'session_summary': {
+        const usage = event.usage;
+        if (!lastPrintedUsage || !tokenUsageEqual(lastPrintedUsage, usage)) {
+          lastPrintedUsage = usage;
+          output += `\n${formatUsage(usage)}`;
+        }
+        break;
+      }
+
+      case 'end':
+        if (event.reason === 'error' && event.error) {
+          output += chalk.red(`\n✗ ${event.error.message}`);
+        } else if (event.reason === 'aborted') {
+          output += chalk.yellow('\n[interrupted]');
+        } else if (event.reason === 'max_iterations') {
+          output += chalk.yellow(STREAM_END_MAX_ITERATIONS_MESSAGE);
+        }
+        break;
+    }
+
+    return output;
+  };
+
+  const splitOutput = (event: StreamEvent, full: string): StreamSplitOutput => {
+    if (!headless) {
+      return { stdout: full, stderr: '' };
+    }
+    return {
+      stdout: event.type === 'text_delta' ? event.content : '',
+      stderr: headlessStderrForEvent(event, full, verbose)
+    };
+  };
+
+  return {
+    formatSplit(event: StreamEvent): StreamSplitOutput {
+      const full = buildOutput(event);
       lastEventType = event.type;
-      return output;
+      return splitOutput(event, full);
+    },
+
+    format(event: StreamEvent): string {
+      return this.formatSplit(event).stdout;
+    },
+
+    finalizeSplit(): StreamSplitOutput {
+      const tail = lastEventType === 'thinking' ? '\n' : '';
+      if (!headless) {
+        return { stdout: tail, stderr: '' };
+      }
+      return { stdout: '', stderr: verbose ? tail : '' };
     },
 
     finalize(): string {
-      // Stream ended inside a thinking block without `thinking_end` (e.g. emitThinkingBoundaries: false)
-      return lastEventType === 'thinking' ? '\n' : '';
+      return this.finalizeSplit().stdout;
     }
   };
 }
