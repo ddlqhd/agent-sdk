@@ -103,4 +103,95 @@ Content`;
     expect(result.metadata.name).toBe('test');
     expect(result.metadata.description).toBe('Test');
   });
+
+  it('should parse multiline block scalar description', () => {
+    const content = `---
+name: multiline-skill
+description: |
+  Line one
+  Line two
+---
+
+Body`;
+
+    const result = parseSkillMd(content);
+
+    expect(result.metadata.description).toBe('Line one\nLine two');
+    expect(result.content).toBe('Body');
+  });
+
+  it('should parse folded scalar description', () => {
+    const content = `---
+name: folded-skill
+description: >
+  Folded
+  content
+---
+
+Body`;
+
+    const result = parseSkillMd(content);
+
+    expect(result.metadata.description).toBe('Folded content');
+    expect(result.content).toBe('Body');
+  });
+
+  it('should parse camelCase metadata fields', () => {
+    const content = `---
+name: hinted-skill
+description: Has hint
+argumentHint: "[file]"
+userInvocable: false
+disableModelInvocation: true
+---
+
+Body`;
+
+    const result = parseSkillMd(content);
+
+    expect(result.metadata.argumentHint).toBe('[file]');
+    expect(result.metadata.userInvocable).toBe(false);
+    expect(result.metadata.disableModelInvocation).toBe(true);
+  });
+
+  it('should coerce numeric version to string', () => {
+    const content = `---
+name: version-skill
+description: Version test
+version: 1.0
+---
+
+Body`;
+
+    const result = parseSkillMd(content);
+
+    expect(result.metadata.version).toBe('1');
+  });
+
+  it('should throw on invalid YAML frontmatter', () => {
+    const content = `---
+name: [unclosed
+description: bad
+---
+
+Body`;
+
+    expect(() => parseSkillMd(content)).toThrow(/Invalid YAML frontmatter in SKILL\.md/);
+  });
+
+  it('should ignore unknown frontmatter fields', () => {
+    const content = `---
+name: clean-skill
+description: Clean metadata
+customField: should-not-appear
+---
+
+Body`;
+
+    const result = parseSkillMd(content);
+
+    expect(result.metadata.name).toBe('clean-skill');
+    expect(result.metadata.description).toBe('Clean metadata');
+    expect('customField' in result.metadata).toBe(false);
+  });
 });

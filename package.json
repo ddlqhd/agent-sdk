@@ -74,7 +74,8 @@
     "ipaddr.js": "^2.3.0",
     "linkedom": "^0.18.12",
     "micromatch": "^4.0.8",
-    "turndown": "^7.2.3"
+    "turndown": "^7.2.3",
+    "yaml": "^2.7.0"
   },
   "optionalDependencies": {
     "ink": "^5.2.1",

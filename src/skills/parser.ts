@@ -1,4 +1,5 @@
 import type { SkillMetadata, ParsedSkill } from '../core/types.js';
+import { normalizeSkillMetadata, parseYamlFrontmatter } from './yaml-metadata.js';
 
 /**
  * 解析 SKILL.md 文件
@@ -8,7 +9,7 @@ import type { SkillMetadata, ParsedSkill } from '../core/types.js';
  * description: "Skill description"
  * version: "1.0.0"
  * ---
- * 
+ *
  * # Instructions
  * ...
  */
@@ -40,7 +41,8 @@ export function parseSkillMd(content: string): ParsedSkill {
   // 解析 YAML frontmatter
   if (metadataStartIndex !== -1 && metadataEndIndex !== -1) {
     const yamlContent = lines.slice(metadataStartIndex + 1, metadataEndIndex).join('\n');
-    metadata = parseSimpleYaml(yamlContent);
+    const raw = parseYamlFrontmatter(yamlContent);
+    metadata = normalizeSkillMetadata(raw);
     bodyContent = lines.slice(metadataEndIndex + 1).join('\n').trim();
   }
 
@@ -56,81 +58,6 @@ export function parseSkillMd(content: string): ParsedSkill {
     metadata,
     content: bodyContent
   };
-}
-
-/**
- * 简单的 YAML 解析器
- * 仅支持基本的 key: value 格式
- */
-function parseSimpleYaml(yaml: string): SkillMetadata {
-  const metadata: SkillMetadata = {
-    name: 'unknown',
-    description: ''
-  };
-
-  const lines = yaml.split('\n');
-  let currentKey: string | null = null;
-  let currentArray: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    // 数组项
-    if (trimmed.startsWith('- ')) {
-      if (currentKey && currentArray) {
-        currentArray.push(trimmed.slice(2).replace(/^["']|["']$/g, ''));
-      }
-      continue;
-    }
-
-    // 处理上一个数组
-    if (currentKey && currentArray.length > 0) {
-      (metadata as any)[currentKey] = currentArray;
-      currentArray = [];
-      currentKey = null;
-    }
-
-    // key: value
-    const match = trimmed.match(/^(\w+):\s*(.*)$/);
-    if (match) {
-      const [, key, value] = match;
-      
-      // 检查是否是数组开始
-      if (value === '' || value === '[]') {
-        currentKey = key;
-        currentArray = [];
-        if (value === '[]') {
-          (metadata as any)[key] = [];
-          currentKey = null;
-        }
-      } else {
-        // 标量值
-        let parsedValue: string | string[] | boolean = value.replace(/^["']|["']$/g, '');
-        
-        // 处理布尔值
-        if (parsedValue === 'true') {
-          parsedValue = true;
-        } else if (parsedValue === 'false') {
-          parsedValue = false;
-        } else if (parsedValue.startsWith('[') && parsedValue.endsWith(']')) {
-          // 处理引号包裹的字符串数组
-          parsedValue = parsedValue.slice(1, -1)
-            .split(',')
-            .map(s => s.trim().replace(/^["']|["']$/g, ''));
-        }
-        
-        (metadata as any)[key] = parsedValue;
-      }
-    }
-  }
-
-  // 处理最后一个数组
-  if (currentKey && currentArray.length > 0) {
-    (metadata as any)[currentKey] = currentArray;
-  }
-
-  return metadata;
 }
 
 /**
