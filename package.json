@@ -27,14 +27,16 @@
     }
   },
   "bin": {
-    "agent-sdk": "dist/cli/index.js"
+    "agent-sdk": "bin/agent-sdk.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "cli": "node bin/agent-sdk.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "tsc --noEmit",

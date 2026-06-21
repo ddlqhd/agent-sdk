@@ -139,15 +139,17 @@ Tool **names** are PascalCase / multi-word identifiers (what the model sees), de
 
 ## CLI Development
 
-Source entry: `src/cli/index.ts` (built to `dist/cli/index.js`). The npm binary name is `agent-sdk` (`package.json` `bin`).
+Source entry: `src/cli/index.ts` (built to `dist/cli/index.js`). The npm binary name is `agent-sdk` (`package.json` `bin` → `bin/agent-sdk.mjs` shim).
 
 Subcommands include `chat`, `tools`, `sessions`, and `mcp`. Headless single-shot runs use root-level `-p` / `--print`. After building:
 
 ```bash
+pnpm install
 pnpm build
-node dist/cli/index.js --help
-agent-sdk chat --model openai
-agent-sdk -p "Your prompt" --model openai --bare
+pnpm cli --help
+pnpm cli chat --model openai
+pnpm cli -p "Your prompt" --model openai --bare
+# or: agent-sdk chat ... (after pnpm link --global)
 ```
 
 CLI options include model provider, API keys, session id, MCP config path (`--mcp-config`), cwd, and user base path for config/memory resolution.

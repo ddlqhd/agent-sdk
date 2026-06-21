@@ -29,7 +29,15 @@ if (isMainModule) {
 
   program.action(async (options) => {
     if (options.print === undefined) {
-      program.help({ error: true });
+      const chatCmd = program.commands.find((c) => c.name() === 'chat');
+      if (!chatCmd) {
+        program.help();
+        return;
+      }
+      await chatCmd.parseAsync(
+        [process.argv[0]!, process.argv[1]!, 'chat', ...process.argv.slice(2)],
+        { from: 'user' }
+      );
       return;
     }
     try {

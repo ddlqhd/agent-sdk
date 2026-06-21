@@ -4,46 +4,52 @@
 
 ## 本地开发（本仓库）
 
-先构建：
+首次 clone 后：
 
 ```bash
+pnpm install
 pnpm build
 ```
 
-通过 `node` 运行 CLI：
+通过 `pnpm cli` 或 `agent-sdk` 运行 CLI（与 npm 安装后的命令相同）：
 
 ```bash
 # 查看帮助
-node dist/cli/index.js --help
+pnpm cli --help
 
 # 交互式聊天
-node dist/cli/index.js chat --model openai --api-key sk-xxx
+pnpm cli chat --model openai --api-key sk-xxx
 
 # 单次提问（headless）
-node dist/cli/index.js -p "What is the capital of France?" --model openai --bare
+pnpm cli -p "What is the capital of France?" --model openai --bare
 
 # 列出可用工具
-node dist/cli/index.js tools list
+pnpm cli tools list
 
 # 查看某工具详情（子命令为 show，不是 info）
-node dist/cli/index.js tools show Read
+pnpm cli tools show Read
 
 # 列出会话
-node dist/cli/index.js sessions list
+pnpm cli sessions list
 
 # 连接 MCP 服务器（见下文「mcp」；当前 CLI 仅实现 connect）
-node dist/cli/index.js mcp connect "npx @modelcontextprotocol/server-filesystem /path"
+pnpm cli mcp connect "npx @modelcontextprotocol/server-filesystem /path"
+
+# 等价写法（本仓库根目录请用 pnpm cli；npm 安装后可用 pnpm exec agent-sdk 或 agent-sdk）
+pnpm exec agent-sdk tools list
 ```
 
-可在 `package.json` 中添加脚本：
+未构建时 CLI 会提示执行 `pnpm build`。调试/CI 也可显式使用 `node dist/cli/index.js ...`。
 
-```json
-"scripts": {
-  "cli": "node dist/cli/index.js"
-}
+### 贡献者全局 link
+
+若需在仓库外目录直接调用 CLI：
+
+```bash
+pnpm build
+pnpm link --global
+agent-sdk chat --model openai
 ```
-
-然后使用 `pnpm cli tools list`。
 
 ## 通过 npm 安装后使用
 

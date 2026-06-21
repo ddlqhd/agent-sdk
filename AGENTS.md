@@ -39,6 +39,10 @@ pnpm vitest run -t "should register a tool"
 
 # Clean build artifacts
 pnpm clean
+
+# Run CLI (requires pnpm build first)
+pnpm cli --help
+pnpm cli chat --model openai
 ```
 
 Requires Node.js >= 18.
