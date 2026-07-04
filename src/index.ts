@@ -152,6 +152,65 @@ export * from './subagents/index.js';
 export { MemoryManager } from './memory/index.js';
 export type { MemoryConfig } from './memory/index.js';
 
+// Workflow
+export {
+  loadWorkflowScript,
+  scanDualCompat,
+  Scheduler,
+  createBudgetTracker,
+  tokensFromAgentResult,
+  RUN_STARTED,
+  RUN_FINISHED,
+  RUN_FAILED,
+  RUN_STOPPED,
+  PHASE_STARTED,
+  LOG,
+  AGENT_STARTED,
+  AGENT_FINISHED,
+  AGENT_FAILED,
+  event,
+  NullSink,
+  MemorySink,
+  DynamicWorkflowError,
+  WorkflowScriptError,
+  AgentLimitExceeded,
+  BudgetExhausted,
+  RunStopped,
+  SchemaValidationError,
+  isFatalError,
+  createPrimitives,
+  createDefaultAgentFactory,
+  runWorkflow,
+  generateWorkflow,
+  validateWorkflowSource,
+  DIALECT_DOC,
+  PATTERNS_DIGEST,
+  WORKFLOW_HARD_RULES,
+  formatSchemaInstruction,
+  extractJsonFromText
+} from './workflow/index.js';
+export type {
+  SchedulerOptions,
+  BudgetTracker,
+  WorkflowEvent,
+  EventSink,
+  WorkflowPhaseMeta,
+  WorkflowMeta,
+  AgentPrimitiveOptions,
+  Thunk,
+  PipelineStage,
+  WorkflowBudget,
+  ValidationReport,
+  WorkflowPrimitives,
+  WorkflowAgentFactory,
+  WorkflowRunContext,
+  RunWorkflowOptions,
+  WorkflowRunResult,
+  GenerateWorkflowOptions,
+  GenerateWorkflowResult,
+  LoadedWorkflow
+} from './workflow/index.js';
+
 // Config
 export {
   loadMCPConfig,

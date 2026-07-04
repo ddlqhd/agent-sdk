@@ -5,6 +5,7 @@ export default defineConfig({
     'index': 'src/index.ts',
     'models/index': 'src/models/index.ts',
     'tools/index': 'src/tools/index.ts',
+    'workflow/index': 'src/workflow/index.ts',
     'cli/index': 'src/cli/index.ts',
     'cli/tui/index': 'src/cli/tui/index.tsx'
   },

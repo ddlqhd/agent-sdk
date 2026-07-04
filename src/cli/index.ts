@@ -6,6 +6,7 @@ import { createToolsCommand } from './commands/tools.js';
 import { createSessionsCommand } from './commands/sessions.js';
 import { createMCPCommand } from './commands/mcp.js';
 import { createTuiCommand } from './commands/tui.js';
+import { createWorkflowCommand } from './commands/workflow.js';
 import { addHeadlessOptions, addModelOptions } from './utils/agent-bootstrap.js';
 import { normalizeOutputFormat, resolvePrintPrompt } from './utils/print-prompt.js';
 
@@ -56,6 +57,7 @@ if (isMainModule) {
   program.addCommand(createSessionsCommand());
   program.addCommand(createMCPCommand());
   program.addCommand(createTuiCommand());
+  program.addCommand(createWorkflowCommand());
 
   // 解析命令行参数
   program.parse();
@@ -69,5 +71,6 @@ export {
   createToolsCommand,
   createSessionsCommand,
   createMCPCommand,
-  createTuiCommand
+  createTuiCommand,
+  createWorkflowCommand
 };
