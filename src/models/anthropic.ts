@@ -211,6 +211,15 @@ export function buildAnthropicWireMessages(messages: ModelParams['messages']): u
         }
         if (part.type === 'text') {
           contentParts.push({ type: 'text', text: part.text });
+        } else if (part.type === 'image') {
+          contentParts.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: part.mimeType,
+              data: part.base64
+            }
+          });
         } else {
           contentParts.push(part);
         }
@@ -444,7 +453,11 @@ export class AnthropicAdapter extends BaseModelAdapter {
       throw new Error('Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable or pass apiKey in config.');
     }
 
-    this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
+    this.capabilities = {
+      ...DEFAULT_ADAPTER_CAPABILITIES,
+      supportsImages: true,
+      ...config.capabilities
+    };
   }
 
   clone(): AnthropicAdapter {

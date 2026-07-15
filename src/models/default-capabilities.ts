@@ -5,5 +5,6 @@ import type { ModelCapabilities } from '../core/types.js';
  */
 export const DEFAULT_ADAPTER_CAPABILITIES: ModelCapabilities = {
   contextLength: 200_000,
-  maxOutputTokens: 32_000
+  maxOutputTokens: 32_000,
+  supportsImages: false
 };

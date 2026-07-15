@@ -45,12 +45,14 @@ export interface ThinkingContent {
 }
 
 /**
- * 图片内容部分
+ * 图片内容部分（base64 编码）
  */
 export interface ImageContent {
   type: 'image';
-  imageUrl: string;
-  mimeType?: string;
+  /** 纯 base64 编码的图像数据（不含 data URI 前缀） */
+  base64: string;
+  /** MIME 类型，如 'image/png', 'image/jpeg' */
+  mimeType: string;
 }
 
 /**
@@ -351,6 +353,8 @@ export interface ModelCapabilities {
   contextLength: number;
   /** 最大输出 token 数 */
   maxOutputTokens?: number;
+  /** 是否支持图像输入（多模态理解） */
+  supportsImages?: boolean;
 }
 
 /**

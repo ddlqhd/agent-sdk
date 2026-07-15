@@ -310,7 +310,7 @@ export class SummarizationCompressor implements Compressor {
           return `[thinking] ${part.thinking}`;
         }
         if (part.type === 'image') {
-          return '[image]';
+          return `[image: ${part.mimeType}]`;
         }
         return '';
       })

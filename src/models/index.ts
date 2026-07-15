@@ -25,7 +25,7 @@ export type {
 export { applyAnthropicThinking, buildAnthropicWireMessages } from './anthropic.js';
 export { OllamaAdapter, createOllama } from './ollama.js';
 export type { OllamaConfig, OllamaThinkOption } from './ollama.js';
-export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString } from './ollama.js';
+export { ollamaStreamChunksFromChatData, ollamaMessageContentToApiString, ollamaMessageContentToApi } from './ollama.js';
 
 import type { ModelAdapter } from '../core/types.js';
 import { mergeProcessEnv } from '../core/process-env-merge.js';

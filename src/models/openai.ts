@@ -145,7 +145,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
       throw new Error('OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass apiKey in config.');
     }
 
-    this.capabilities = config.capabilities ?? DEFAULT_ADAPTER_CAPABILITIES;
+    this.capabilities = {
+      ...DEFAULT_ADAPTER_CAPABILITIES,
+      supportsImages: true,
+      ...config.capabilities
+    };
   }
 
   clone(): OpenAIAdapter {
@@ -198,9 +202,12 @@ export class OpenAIAdapter extends BaseModelAdapter {
         return transformed;
       }
 
+      // 非 assistant 消息：处理多模态内容
+      const content = this.transformContentParts(msg.content);
+
       return {
         role: msg.role,
-        content: msg.content,
+        content,
         ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
@@ -214,6 +221,37 @@ export class OpenAIAdapter extends BaseModelAdapter {
         ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
       };
     });
+  }
+
+  /**
+   * 将 ContentPart[] 转换为 OpenAI wire format
+   * - TextContent → { type: 'text', text }
+   * - ImageContent → { type: 'image_url', image_url: { url: 'data:...;base64,...', detail: 'auto' } }
+   */
+  private transformContentParts(content: string | ContentPart[]): string | unknown[] {
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (!Array.isArray(content)) {
+      return content;
+    }
+
+    const parts: unknown[] = [];
+    for (const part of content) {
+      if (part.type === 'text') {
+        parts.push({ type: 'text', text: part.text });
+      } else if (part.type === 'image') {
+        parts.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:${part.mimeType};base64,${part.base64}`,
+            detail: 'auto'
+          }
+        });
+      }
+      // thinking parts are ignored for non-assistant messages
+    }
+    return parts.length > 0 ? parts : '';
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

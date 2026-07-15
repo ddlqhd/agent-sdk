@@ -184,7 +184,21 @@ function formatCheckpointPreview(content: string | ContentPart[]): string {
     }
     return `${content.slice(0, CHECKPOINT_PREVIEW_MAX)}…`;
   }
-  return '[multimodal]';
+  // 提取文本部分和图像信息
+  const texts: string[] = [];
+  let imageCount = 0;
+  for (const part of content) {
+    if (part.type === 'text') {
+      texts.push(part.text);
+    } else if (part.type === 'image') {
+      imageCount++;
+    }
+  }
+  const textPreview = texts.join(' ').slice(0, CHECKPOINT_PREVIEW_MAX);
+  if (imageCount > 0) {
+    return textPreview ? `${textPreview} [${imageCount} image(s)]` : `[${imageCount} image(s)]`;
+  }
+  return textPreview || '[multimodal]';
 }
 
 export function listSessionCheckpointsFromRaw(

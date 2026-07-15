@@ -84,17 +84,40 @@ export function ollamaStreamChunksFromChatData(
  * Ollama `/api/chat` requires string `content` on each message. The Agent may persist assistant
  * turns as `ContentPart[]` (e.g. thinking + text); replay only `text` parts so the JSON matches
  * Ollama's schema (thinking is not re-sent; the model produces a new trace each request).
+ *
+ * Returns `{ content: string, images?: string[] }` where images are base64-encoded.
  */
-export function ollamaMessageContentToApiString(content: string | ContentPart[]): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
+export function ollamaMessageContentToApi(
+  content: string | ContentPart[]
+): { content: string; images?: string[] } {
+  if (typeof content === 'string') return { content };
+  if (!Array.isArray(content)) return { content: '' };
+
   const texts: string[] = [];
+  const images: string[] = [];
+
   for (const part of content) {
     if (part.type === 'text') {
       texts.push(part.text);
+    } else if (part.type === 'image') {
+      images.push(part.base64);
     }
   }
-  return texts.join('\n\n');
+
+  const result: { content: string; images?: string[] } = {
+    content: texts.join('\n\n')
+  };
+  if (images.length > 0) {
+    result.images = images;
+  }
+  return result;
+}
+
+/**
+ * @deprecated Use {@link ollamaMessageContentToApi} instead for multimodal support.
+ */
+export function ollamaMessageContentToApiString(content: string | ContentPart[]): string {
+  return ollamaMessageContentToApi(content).content;
 }
 
 /** Stable unique id for tool calls in a single adapter response (non-stream complete). */
@@ -305,16 +328,19 @@ export class OllamaAdapter extends BaseModelAdapter {
     return messages.map(msg => {
       if (msg.role === 'tool' && msg.toolCallId) {
         const toolName = toolCallIdToName.get(msg.toolCallId) ?? msg.name;
+        const { content } = ollamaMessageContentToApi(msg.content as string | ContentPart[]);
         return {
           role: 'tool' as const,
-          content: ollamaMessageContentToApiString(msg.content as string | ContentPart[]),
+          content,
           ...(toolName && { tool_name: toolName })
         };
       }
 
+      const { content, images } = ollamaMessageContentToApi(msg.content);
       return {
         role: msg.role,
-        content: ollamaMessageContentToApiString(msg.content),
+        content,
+        ...(images && images.length > 0 && { images }),
         ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
