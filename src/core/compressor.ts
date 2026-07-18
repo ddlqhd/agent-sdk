@@ -86,6 +86,38 @@ export function parseCompactionSyntheticUser(message: Message): {
 }
 
 /**
+ * 将单条消息 body 渲染为压缩 transcript 用的纯文本：
+ * - text → 原样
+ * - thinking → `[thinking] ...`
+ * - image (base64) → `[image: <mimeType>]`
+ * - image (url)   → `[image: <url>]`
+ * 空段会被过滤；段之间用 `\n` 连接。
+ * 字符串输入直接返回。
+ */
+export function messageContentToTranscriptText(content: string | ContentPart[]): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  return content
+    .map((part) => {
+      if (part.type === 'text') {
+        return part.text;
+      }
+      if (part.type === 'thinking') {
+        return `[thinking] ${part.thinking}`;
+      }
+      if (part.type === 'image') {
+        return part.source.type === 'base64'
+          ? `[image: ${part.source.mimeType}]`
+          : `[image: ${part.source.url}]`;
+      }
+      return '';
+    })
+    .filter((s) => s.length > 0)
+    .join('\n');
+}
+
+/**
  * 摘要压缩器选项
  */
 export interface SummarizationCompressorOptions {
@@ -295,27 +327,11 @@ export class SummarizationCompressor implements Compressor {
   }
 
   /**
-   * 将单条消息 body 转为纯文本（供摘要 transcript 使用）
+   * 将单条消息 body 转为纯文本（供摘要 transcript 使用）。
+   * 委派到纯函数 {@link messageContentToTranscriptText}。
    */
   private messageContentToText(content: string | ContentPart[]): string {
-    if (typeof content === 'string') {
-      return content;
-    }
-    return content
-      .map((part) => {
-        if (part.type === 'text') {
-          return part.text;
-        }
-        if (part.type === 'thinking') {
-          return `[thinking] ${part.thinking}`;
-        }
-        if (part.type === 'image') {
-          return `[image: ${part.mimeType}]`;
-        }
-        return '';
-      })
-      .filter((s) => s.length > 0)
-      .join('\n');
+    return messageContentToTranscriptText(content);
   }
 
   /**

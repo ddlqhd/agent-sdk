@@ -94,7 +94,13 @@ type ContentPart = TextContent | ThinkingContent | ImageContent;
 
 - `TextContent`: `{ type: 'text'; text: string }`
 - `ThinkingContent`: `{ type: 'thinking'; thinking: string; signature?: string }`
-- `ImageContent`: `{ type: 'image'; imageUrl: string; mimeType?: string }`
+- `ImageContent`: `{ type: 'image'; source: ImageSource }`，其中 `ImageSource` 为判别联合：
+  - base64: `{ type: 'base64'; data: string; mimeType: string }`（data 为不含 `data:` 前缀的裸 base64）
+  - url: `{ type: 'url'; url: string; mimeType?: string }`（可公开访问的图像 URL）
+
+> **Breaking change**：`ImageContent` 在本版本由 `{ base64; mimeType }` 重构为 `{ source: ImageSource }`。
+> 旧字段（顶层 `base64` / `mimeType`）已删除；请改为 `source: { type: 'base64', data, mimeType }`。
+> 适配器侧：OpenAI / Anthropic 已支持 base64 与 url 两种 source；Ollama 仅支持 base64，使用 url 时会抛错。
 
 ## 3. 模型层类型
 

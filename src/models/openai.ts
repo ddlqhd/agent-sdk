@@ -117,6 +117,44 @@ export function reasoningTextFromDetails(details: unknown): string {
 }
 
 /**
+ * 将 `ContentPart[]` 转换为 OpenAI `/chat/completions` wire format（用于非 assistant 消息）。
+ * - `TextContent` → `{ type: 'text', text }`
+ * - `ImageContent` (base64) → `{ type: 'image_url', image_url: { url: 'data:<mime>;base64,<data>', detail: 'auto' } }`
+ * - `ImageContent` (url)   → `{ type: 'image_url', image_url: { url: '<原样 URL>', detail: 'auto' } }`
+ * - `ThinkingContent` 在非 assistant 角色下被忽略
+ * 字符串输入直接透传；空数组返回空字符串（与原私有实现保持一致）。
+ */
+export function openaiContentPartsToWire(
+  content: string | ContentPart[]
+): string | unknown[] {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return content;
+  }
+
+  const parts: unknown[] = [];
+  for (const part of content) {
+    if (part.type === 'text') {
+      parts.push({ type: 'text', text: part.text });
+    } else if (part.type === 'image') {
+      const url = part.source.type === 'base64'
+        ? `data:${part.source.mimeType};base64,${part.source.data}`
+        : part.source.url;
+      parts.push({
+        type: 'image_url',
+        image_url: {
+          url,
+          detail: 'auto'
+        }
+      });
+    }
+  }
+  return parts.length > 0 ? parts : '';
+}
+
+/**
  * OpenAI 模型适配器
  */
 export class OpenAIAdapter extends BaseModelAdapter {
@@ -203,7 +241,24 @@ export class OpenAIAdapter extends BaseModelAdapter {
       }
 
       // 非 assistant 消息：处理多模态内容
-      const content = this.transformContentParts(msg.content);
+      // OpenAI 要求 tool 角色消息 content 必须为字符串（不支持多模态数组），
+      // 仅拼接 text 段；若包含任何非 text 段则直接抛错，避免图片被静默丢弃。
+      let content: string | unknown[];
+      if (msg.role === 'tool' && Array.isArray(msg.content)) {
+        const nonText = msg.content.filter(p => p.type !== 'text');
+        if (nonText.length > 0) {
+          throw new Error(
+            `OpenAI tool messages require a string content; received array with non-text parts ` +
+            `(types: ${nonText.map(p => (p as { type: string }).type).join(', ')}). ` +
+            `Encode multimodal tool results as text or use a non-tool message.`
+          );
+        }
+        content = msg.content
+          .map(p => (p.type === 'text' ? p.text : ''))
+          .join('\n\n');
+      } else {
+        content = this.transformContentParts(msg.content);
+      }
 
       return {
         role: msg.role,
@@ -224,34 +279,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
   }
 
   /**
-   * 将 ContentPart[] 转换为 OpenAI wire format
-   * - TextContent → { type: 'text', text }
-   * - ImageContent → { type: 'image_url', image_url: { url: 'data:...;base64,...', detail: 'auto' } }
+   * 将 ContentPart[] 转换为 OpenAI wire format（非 assistant 消息路径）。
+   * 委派到纯函数 {@link openaiContentPartsToWire}。
    */
   private transformContentParts(content: string | ContentPart[]): string | unknown[] {
-    if (typeof content === 'string') {
-      return content;
-    }
-    if (!Array.isArray(content)) {
-      return content;
-    }
-
-    const parts: unknown[] = [];
-    for (const part of content) {
-      if (part.type === 'text') {
-        parts.push({ type: 'text', text: part.text });
-      } else if (part.type === 'image') {
-        parts.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:${part.mimeType};base64,${part.base64}`,
-            detail: 'auto'
-          }
-        });
-      }
-      // thinking parts are ignored for non-assistant messages
-    }
-    return parts.length > 0 ? parts : '';
+    return openaiContentPartsToWire(content);
   }
 
   async *stream(params: ModelParams): AsyncIterable<StreamChunk> {

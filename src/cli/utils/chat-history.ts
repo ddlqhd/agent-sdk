@@ -33,7 +33,11 @@ function partsToText(parts: ContentPart[]): string {
     .map((p) => {
       if (p.type === 'text') return p.text;
       if (p.type === 'thinking') return p.thinking;
-      if (p.type === 'image') return `[image: ${p.mimeType}]`;
+      if (p.type === 'image') {
+        return p.source.type === 'base64'
+          ? `[image: ${p.source.mimeType}]`
+          : `[image: ${p.source.url}]`;
+      }
       return '';
     })
     .filter(Boolean)
@@ -50,7 +54,10 @@ function partsToTerminalLines(parts: ContentPart[]): TerminalHistoryLine[] {
       const trimmed = p.text.trim();
       if (trimmed) lines.push({ role: 'assistant', text: trimmed });
     } else if (p.type === 'image') {
-      lines.push({ role: 'assistant', text: `[image: ${p.mimeType}]` });
+      const label = p.source.type === 'base64'
+        ? `[image: ${p.source.mimeType}]`
+        : `[image: ${p.source.url}]`;
+      lines.push({ role: 'assistant', text: label });
     }
   }
   return lines;

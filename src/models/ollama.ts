@@ -100,7 +100,14 @@ export function ollamaMessageContentToApi(
     if (part.type === 'text') {
       texts.push(part.text);
     } else if (part.type === 'image') {
-      images.push(part.base64);
+      if (part.source.type === 'base64') {
+        images.push(part.source.data);
+      } else if (part.source.type === 'url') {
+        throw new Error(
+          `Ollama does not support url-based image sources. ` +
+          `Use base64 instead. Received url: ${part.source.url}`
+        );
+      }
     }
   }
 

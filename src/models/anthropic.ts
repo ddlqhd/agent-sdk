@@ -21,6 +21,15 @@ export type AnthropicRequestMetadata =
   | ((params: ModelParams) => Record<string, unknown>);
 
 /**
+ * Anthropic Messages API 图片 `source` 子结构：
+ * - `base64` 时 `media_type` + `data`
+ * - `url` 时直接传 `url`（Anthropic 服务端会拉取）
+ */
+export type AnthropicImageSource =
+  | { type: 'base64'; media_type: string; data: string }
+  | { type: 'url'; url: string };
+
+/**
  * 初次 Messages API `POST` 的重试选项（不含 SSE 已建立后 `read` 中途断线）。
  * 未传 `fetchRetry` 时默认共 **2** 次尝试（即 **1** 次自动重试），退避基数 200ms、单次等待上限 2000ms。
  */
@@ -212,14 +221,11 @@ export function buildAnthropicWireMessages(messages: ModelParams['messages']): u
         if (part.type === 'text') {
           contentParts.push({ type: 'text', text: part.text });
         } else if (part.type === 'image') {
-          contentParts.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: part.mimeType,
-              data: part.base64
-            }
-          });
+          const source: AnthropicImageSource =
+            part.source.type === 'base64'
+              ? { type: 'base64', media_type: part.source.mimeType, data: part.source.data }
+              : { type: 'url', url: part.source.url };
+          contentParts.push({ type: 'image', source });
         } else {
           contentParts.push(part);
         }

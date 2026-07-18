@@ -45,14 +45,19 @@ export interface ThinkingContent {
 }
 
 /**
- * 图片内容部分（base64 编码）
+ * 图片来源：base64 编码（必填 mimeType）或公开可访问 URL（mimeType 可选）
+ */
+export type ImageSource =
+  | { type: 'base64'; data: string; mimeType: string }
+  | { type: 'url'; url: string; mimeType?: string };
+
+/**
+ * 图片内容部分
  */
 export interface ImageContent {
   type: 'image';
-  /** 纯 base64 编码的图像数据（不含 data URI 前缀） */
-  base64: string;
-  /** MIME 类型，如 'image/png', 'image/jpeg' */
-  mimeType: string;
+  /** 判别联合的图片来源 */
+  source: ImageSource;
 }
 
 /**
