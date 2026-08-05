@@ -38,6 +38,7 @@ coverage/
 tmp/
 temp/
 *.tmp
+.vitest-tmp/
 
 # Session storage (generated during runtime)
 sessions/
