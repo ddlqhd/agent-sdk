@@ -17,6 +17,7 @@ import { loadMCPConfig, type MCPConfigLoadResult } from '../../config/index.js';
 import { createTtyAskUserQuestionResolver } from './ask-user-question.js';
 import { getLatestSessionId } from '../../storage/session-path.js';
 import { parseAllowedTools, isHeadlessCli } from './print-prompt.js';
+import { applyEnvHttpProxy } from './apply-env-proxy.js';
 
 function parseThinkingCli(value?: string): boolean {
   if (value === undefined || value === '') return true;
@@ -327,6 +328,7 @@ export function buildCliAgentConfig(
 }
 
 export async function createCliAgent(options: CLIConfig): Promise<CliAgentBundle> {
+  applyEnvHttpProxy();
   const headless = isHeadlessCli(options);
   const logOptions: CliLogOptions = { headless: headless || options.bare === true };
   const mcpResult = loadCliMcpConfig(options);

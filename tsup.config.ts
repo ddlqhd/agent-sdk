@@ -18,7 +18,7 @@ export default defineConfig({
   outDir: 'dist',
   target: 'es2022',
   platform: 'node',
-  external: ['ink', 'react', 'react/jsx-runtime'],
+  external: ['ink', 'react', 'react/jsx-runtime', 'undici'],
   banner: {
     js: '#!/usr/bin/env node'
   },

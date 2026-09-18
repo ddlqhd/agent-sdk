@@ -8,6 +8,7 @@ import { createMCPCommand } from './commands/mcp.js';
 import { createTuiCommand } from './commands/tui.js';
 import { createWorkflowCommand } from './commands/workflow.js';
 import { addHeadlessOptions, addModelOptions } from './utils/agent-bootstrap.js';
+import { applyEnvHttpProxy } from './utils/apply-env-proxy.js';
 import { normalizeOutputFormat, resolvePrintPrompt } from './utils/print-prompt.js';
 
 // 动态移除 shebang（tsup 会添加）
@@ -16,6 +17,8 @@ const isMainModule = process.argv[1]?.endsWith('cli/index.js') ||
   process.argv[1]?.includes('agent-sdk');
 
 if (isMainModule) {
+  applyEnvHttpProxy();
+
   const program = new Command();
 
   program

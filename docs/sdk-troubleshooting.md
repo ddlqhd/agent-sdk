@@ -85,3 +85,16 @@
 - 以 `package.json` 的 `exports`、`src/index.ts` 的公开导出及对应实现为准。
 - 模型默认值、工具行为等可能随版本调整；生产环境请**显式**配置 `provider`、`model`、`baseUrl` 等关键参数，避免依赖隐式默认值。
 
+## 10. 已 export HTTP_PROXY / HTTPS_PROXY 但 CLI 仍直连
+
+Node 18+ 的 `fetch` **默认不读** `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`。`agent-sdk` CLI 会在启动时用依赖里的 `undici.fetch` + `ProxyAgent` 走这些变量（不会把 npm undici dispatcher 塞进 Node 内置 fetch，避免 Node 24/26 上立刻 `fetch failed`）。
+
+排查：
+
+1. 确认变量在**启动 CLI 的同一壳**里（`echo $HTTPS_PROXY` / `echo $HTTP_PROXY`）
+2. 优先设 `HTTPS_PROXY`（或小写 `https_proxy`）；二者都设时小写 `https_proxy` 优先
+3. 检查 `NO_PROXY` / `no_proxy` 是否把 API 主机加进了直连名单（或设成了 `*`）
+4. SOCKS（`socks5://...`）不受支持，CLI 会忽略
+5. 用 `pnpm cli` / `agent-sdk` / `node dist/cli/index.js` 启动；不要只跑未走 CLI 入口的库代码并期望自动代理
+6. 若启动报 `Cannot find module 'undici'`，在本包目录执行 `pnpm install`（`undici` 是运行时依赖，用来给 Node `fetch` 安装代理 dispatcher）
+

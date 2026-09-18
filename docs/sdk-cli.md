@@ -83,6 +83,19 @@ npx @ddlqhd/agent-sdk sessions clear
 npx @ddlqhd/agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /path"
 ```
 
+## HTTP 代理
+
+CLI 启动时会读取壳环境里的代理变量，并安装到 Node `fetch`（模型请求、`WebFetch` / Tavily 等走同一套）：
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
+# 可选：直连名单（逗号或空格分隔；`*` 表示全部直连）
+export NO_PROXY=localhost,127.0.0.1
+```
+
+优先级：`https_proxy` → `HTTPS_PROXY` → `http_proxy` → `HTTP_PROXY`。小写与大写变体都有效。不支持 SOCKS（以及非法 URL）时会在 stderr 打 `CLI proxy:` 警告并忽略。`NO_PROXY` 在包装层直连，不经过代理。Node 自带 `fetch` 默认不读这些变量，因此 CLI 会把 `globalThis.fetch` 换成依赖里的 `undici.fetch` 并挂上真正的 `ProxyAgent`（不会改 Node 内置 dispatcher）。仅 `export` 而不走本 CLI 入口时，库代码里的 `fetch` 仍可能直连。
+
 ## 命令参考
 
 ### chat
