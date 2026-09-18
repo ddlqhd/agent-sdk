@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run build",
     "start": "node dist/entry.js",
     "check": "node dist/entry.js --check"

@@ -4,13 +4,13 @@
   "description": "Monorepo for @ddlqhd/agent-sdk, CLI, and ACP bridge",
   "type": "module",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm -r --filter \"./packages/**\" run build",
     "dev": "pnpm --filter @ddlqhd/agent-sdk dev",
     "cli": "node packages/agent-sdk-cli/bin/agent-sdk.mjs",
     "test": "vitest",
     "test:run": "vitest run",
-    "lint": "pnpm -r lint",
-    "clean": "pnpm -r clean",
+    "lint": "pnpm -r --filter \"./packages/**\" --if-present run lint",
+    "clean": "pnpm -r --filter \"./packages/**\" --if-present run clean",
     "build:acp": "pnpm --filter @ddlqhd/agent-sdk-acp build"
   },
   "devDependencies": {
