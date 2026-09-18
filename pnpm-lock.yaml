@@ -133,6 +133,9 @@ importers:
       undici:
         specifier: ^6.28.1
         version: 6.28.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
       zod:
         specifier: ^4.0.0
         version: 4.3.6
@@ -143,12 +146,18 @@ importers:
       '@types/react':
         specifier: ^18.3.31
         version: 18.3.31
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.8)(typescript@5.9.3)(yaml@2.9.0)
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vite:
+        specifier: ^5.4.0
+        version: 5.4.21(@types/node@20.19.37)
     optionalDependencies:
       ink:
         specifier: ^5.2.1
@@ -675,6 +684,9 @@ packages:
 
   '@types/turndown@5.0.6':
     resolution: {integrity: sha512-ru00MoyeeouE5BX4gRL+6m/BsDfbRayOskWqUvh7CLGW+UXxHQItqALa38kKnOiZPqJrtzJUgAC2+F0rL1S4Pg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitest/expect@1.6.1':
     resolution: {integrity: sha512-jXL+9+ZNIJKruofqXuuTClf44eSpcHlgj3CiuNihUF3Ioujtmc0zIa3UJOW5RjDK1YLBJZnWBlPuqhYycLioog==}
@@ -2079,6 +2091,10 @@ snapshots:
 
   '@types/turndown@5.0.6': {}
 
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 20.19.37
+
   '@vitest/expect@1.6.1':
     dependencies:
       '@vitest/spy': 1.6.1
@@ -3211,8 +3227,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.21.0:
-    optional: true
+  ws@8.21.0: {}
 
   yaml@2.9.0: {}
 

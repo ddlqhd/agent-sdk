@@ -24,16 +24,16 @@ export type ClientMessage =
       /** 覆盖 ContextManager 的上下文窗口（tokens）；仅在与上下文压缩一并启用时生效 */
       contextLength?: number;
       storage: 'memory' | 'jsonl';
-      /** When true, strip isDangerous tools and add demo calculator */
+      /** When true, hide Bash and unregister remaining isDangerous tools after init */
       safeToolsOnly?: boolean;
       memory?: boolean;
       /** Omit or true: context compression on; false: off */
       contextManagement?: boolean;
-      /** Optional path to MCP JSON (Claude Desktop format), absolute or relative to demo root */
+      /** Optional path to MCP JSON (Claude Desktop format), absolute or relative to cwd */
       mcpConfigPath?: string;
       /** Working directory for skills / CLAUDE.md / tool cwd */
       cwd?: string;
-      /** Base for ~/.claude/sessions etc.; defaults to temp under demo */
+      /** Base for ~/.claude/sessions etc.; defaults to CLI `--user-base-path` or homedir */
       userBasePath?: string;
       /** Maps to AgentModelConfig.thinking (omit for provider default). */
       thinking?: boolean;
@@ -64,8 +64,17 @@ export type ClientMessage =
 
 export type SerializedStreamEvent = Record<string, unknown>;
 
+/** Server-side defaults (from `agent-sdk web` flags) sent on handshake. */
+export interface WebUiDefaults {
+  cwd: string;
+  userBasePath: string;
+  mcpConfigPath?: string;
+  provider?: ModelProvider;
+  model?: string;
+}
+
 export type ServerMessage =
-  | { type: 'hello_ok' }
+  | { type: 'hello_ok'; defaults?: WebUiDefaults }
   | { type: 'ready'; warnings?: string[]; sessionId?: string | null }
   | { type: 'error'; message: string; detail?: string }
   | { type: 'stream_event'; event: SerializedStreamEvent }

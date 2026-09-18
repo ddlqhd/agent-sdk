@@ -3,18 +3,19 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: {
     'index': 'src/index.ts',
-    'tui/index': 'src/tui/index.tsx'
+    'tui/index': 'src/tui/index.tsx',
+    'web/start-server': 'src/web/start-server.ts'
   },
   format: ['esm', 'cjs'],
   dts: true,
   splitting: true,
   sourcemap: true,
-  clean: true,
+  clean: false,
   treeshake: true,
   outDir: 'dist',
   target: 'es2022',
   platform: 'node',
-  external: ['ink', 'react', 'react/jsx-runtime', '@ddlqhd/agent-sdk', 'undici'],
+  external: ['ink', 'react', 'react/jsx-runtime', '@ddlqhd/agent-sdk', 'undici', 'ws'],
   banner: {
     js: '#!/usr/bin/env node'
   },

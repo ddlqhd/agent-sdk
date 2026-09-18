@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { createServer, type Server } from 'node:http';
+import { extname, join } from 'node:path';
 import type {
   Agent,
   AskUserQuestionAnswer,
@@ -13,24 +12,26 @@ import type {
   TokenUsage
 } from '@ddlqhd/agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
-import type { ClientMessage, ServerMessage } from '../shared/ws-protocol.js';
-import { messagesToChatHistory, type ChatHistoryItem } from '../shared/message-text.js';
-import { chatPreview, truncateForLog } from '../shared/log-utils.js';
+import type { ServerMessage, WebUiDefaults } from './shared/ws-protocol.js';
+import { messagesToChatHistory, type ChatHistoryItem } from './shared/message-text.js';
+import { chatPreview, truncateForLog } from './shared/log-utils.js';
 import {
   buildAgent,
   closeSharedAgentLogger,
   getSharedAgentLogger,
-  type BuildAgentOptions
+  initSharedAgentLogger,
+  type BuildAgentOptions,
+  type WebRuntimeDefaults
 } from './agent-factory.js';
-import { CLIENT_DIST, WEB_DEMO_ROOT } from './paths.js';
 import { serializeStreamEvent } from './serialize-event.js';
+import {
+  assertLoopbackBind,
+  isAllowedWsOrigin,
+  parseClientMessage,
+  resolveStaticFile
+} from './http-utils.js';
 
-const LOG_PREFIX = '[web-demo]';
-
-const PORT = Number(process.env.PORT) || 3001;
-const PROD =
-  process.env.NODE_ENV === 'production' &&
-  existsSync(join(CLIENT_DIST, 'index.html'));
+const LOG_PREFIX = '[agent-sdk web]';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -42,64 +43,42 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8'
 };
 
+export interface StartWebServerOptions {
+  port: number;
+  host: string;
+  clientDist: string;
+  defaults: WebRuntimeDefaults;
+  /** Bind non-loopback interfaces and skip WebSocket Origin checks. */
+  allowRemote?: boolean;
+}
+
 function sendJson(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(msg));
   }
 }
 
-function safeJoinStatic(urlPath: string): string | null {
-  const decoded = decodeURIComponent(urlPath.split('?')[0] || '/');
-  const rel = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
-  const resolved = normalize(join(CLIENT_DIST, rel));
-  if (!resolved.startsWith(normalize(CLIENT_DIST))) return null;
-  return resolved;
+function toUiDefaults(defaults: WebRuntimeDefaults): WebUiDefaults {
+  return {
+    cwd: defaults.cwd,
+    userBasePath: defaults.userBasePath,
+    ...(defaults.mcpConfigPath ? { mcpConfigPath: defaults.mcpConfigPath } : {}),
+    ...(defaults.provider ? { provider: defaults.provider } : {}),
+    ...(defaults.model ? { model: defaults.model } : {})
+  };
 }
 
-const server = createServer((req, res) => {
-  if (!PROD) {
-    res.statusCode = 503;
-    res.end('Dev mode: use Vite on port 5173; WS on this port.');
-    return;
-  }
-  const file = safeJoinStatic(req.url || '/');
-  if (!file || !existsSync(file)) {
-    res.statusCode = 404;
-    res.end('Not found');
-    return;
-  }
-  const type = MIME[extname(file)] || 'application/octet-stream';
-  res.setHeader('Content-Type', type);
-  res.end(readFileSync(file));
-});
-
-const wss = new WebSocketServer({ noServer: true });
-
-server.on('upgrade', (req, socket, head) => {
-  const host = req.headers.host || 'localhost';
-  const pathname = new URL(req.url || '/', `http://${host}`).pathname;
-  if (pathname === '/ws') {
-    wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-      wss.emit('connection', ws, req);
-    });
-  } else {
-    socket.destroy();
-  }
-});
-
-interface ConnState {
-  agentsBySession: Map<string, Agent>;
-  activeSessionId: string | null;
-  /** Set by `configure`; includes `safeToolsOnly` when present. */
-  runtimeConfig: BuildAgentOptions | null;
-  abortByRequest: Map<string, { sessionId: string; controller: AbortController }>;
-}
-
-wss.on('connection', (socket: WebSocket) => {
-  const connId = randomUUID().slice(0, 8);
-  console.log(`${LOG_PREFIX} ws connected connId=${connId}`);
-
-  const state: ConnState = {
+function attachSocketHandlers(
+  socket: WebSocket,
+  defaults: WebRuntimeDefaults,
+  connId: string
+): void {
+  const state: {
+    agentsBySession: Map<string, Agent>;
+    activeSessionId: string | null;
+    runtimeConfig: BuildAgentOptions | null;
+    abortByRequest: Map<string, { sessionId: string; controller: AbortController }>;
+  } = {
     agentsBySession: new Map(),
     activeSessionId: null,
     runtimeConfig: null,
@@ -128,14 +107,18 @@ wss.on('connection', (socket: WebSocket) => {
   ) =>
     new Promise((resolve, reject) => {
       if (options?.signal?.aborted) {
-        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        const abortErr = new Error('The operation was aborted.');
+        abortErr.name = 'AbortError';
+        reject(abortErr);
         return;
       }
       const id = randomUUID();
       const onAbort = () => {
         options?.signal?.removeEventListener('abort', onAbort);
         askPending.delete(id);
-        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        const abortErr = new Error('The operation was aborted.');
+        abortErr.name = 'AbortError';
+        reject(abortErr);
       };
       if (options?.signal) {
         options.signal.addEventListener('abort', onAbort, { once: true });
@@ -165,7 +148,7 @@ wss.on('connection', (socket: WebSocket) => {
     if (!state.runtimeConfig) {
       throw new Error('Configure the agent first.');
     }
-    const { agent } = await buildAgent({ ...state.runtimeConfig, askUserQuestion });
+    const { agent } = await buildAgent({ ...state.runtimeConfig, askUserQuestion }, defaults);
     return agent;
   }
 
@@ -209,22 +192,40 @@ wss.on('connection', (socket: WebSocket) => {
     }
   }
 
-  socket.on('message', async (raw: RawData) => {
+  let messageQueue = Promise.resolve();
+  socket.on('message', (raw: RawData) => {
+    messageQueue = messageQueue
+      .then(() => handleSocketMessage(raw))
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(`${LOG_PREFIX} [${connId}] handler error:`, message);
+        sendJson(socket, { type: 'error', message });
+      });
+  });
+
+  async function handleSocketMessage(raw: RawData): Promise<void> {
     const rawStr = String(raw);
-    let msg: ClientMessage;
+    let parsedJson: unknown;
     try {
-      msg = JSON.parse(rawStr) as ClientMessage;
+      parsedJson = JSON.parse(rawStr);
     } catch {
       console.warn(`${LOG_PREFIX} [${connId}] invalid JSON (length=${rawStr.length})`);
       sendJson(socket, { type: 'error', message: 'Invalid JSON' });
       return;
     }
+    const parsed = parseClientMessage(parsedJson);
+    if (!parsed.ok) {
+      console.warn(`${LOG_PREFIX} [${connId}] ${parsed.error}`);
+      sendJson(socket, { type: 'error', message: parsed.error });
+      return;
+    }
+    const msg = parsed.msg;
 
     try {
       switch (msg.type) {
         case 'hello':
           console.log(`${LOG_PREFIX} [${connId}] inbound hello`);
-          sendJson(socket, { type: 'hello_ok' });
+          sendJson(socket, { type: 'hello_ok', defaults: toUiDefaults(defaults) });
           return;
 
         case 'configure': {
@@ -233,10 +234,6 @@ wss.on('connection', (socket: WebSocket) => {
           );
           rejectAllAskPending('reconfigured');
           await destroyAllAgents();
-          const stableUserBasePath =
-            msg.userBasePath && msg.userBasePath.trim() !== ''
-              ? msg.userBasePath
-              : join(tmpdir(), `agent-sdk-web-demo-${Date.now()}`);
           state.runtimeConfig = {
             provider: msg.provider,
             model: msg.model,
@@ -248,11 +245,14 @@ wss.on('connection', (socket: WebSocket) => {
             contextManagement: msg.contextManagement !== false,
             mcpConfigPath: msg.mcpConfigPath,
             cwd: msg.cwd,
-            userBasePath: stableUserBasePath,
+            userBasePath: msg.userBasePath,
             thinking: msg.thinking,
             thinkingLevel: msg.thinkingLevel
           };
-          const { agent, warnings } = await buildAgent({ ...state.runtimeConfig, askUserQuestion });
+          const { agent, warnings } = await buildAgent(
+            { ...state.runtimeConfig, askUserQuestion },
+            defaults
+          );
           const sessionId = agent.getSessionManager().createSession();
           state.agentsBySession.set(sessionId, agent);
           state.activeSessionId = sessionId;
@@ -301,7 +301,6 @@ wss.on('connection', (socket: WebSocket) => {
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          // Ensure old session streaming/tools execution is terminated before switching.
           abortSessionRequests(state.activeSessionId);
           const agent = await createConfiguredAgent();
           const id = agent.getSessionManager().createSession(msg.sessionId);
@@ -471,7 +470,6 @@ wss.on('connection', (socket: WebSocket) => {
           let targetAgent = state.agentsBySession.get(requestedSessionId);
           if (!targetAgent) {
             targetAgent = await createConfiguredAgent();
-            // Bind this runtime to the requested session id for future parallel requests.
             targetAgent.getSessionManager().createSession(requestedSessionId);
             state.agentsBySession.set(requestedSessionId, targetAgent);
             console.log(`${LOG_PREFIX} [${connId}] chat: created new agent runtime for session`);
@@ -546,10 +544,10 @@ wss.on('connection', (socket: WebSocket) => {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`${LOG_PREFIX} [${connId}] handler error:`, message, e instanceof Error ? e.stack : '');
-      sendJson(socket, { type: 'error', message, detail: e instanceof Error ? e.stack : undefined });
+      console.error(`${LOG_PREFIX} [${connId}] handler error:`, message);
+      sendJson(socket, { type: 'error', message });
     }
-  });
+  }
 
   socket.on('close', (code: number, reason: Buffer) => {
     const reasonStr = reason?.length ? reason.toString() : '';
@@ -563,50 +561,163 @@ wss.on('connection', (socket: WebSocket) => {
     state.abortByRequest.clear();
     void destroyAllAgents();
   });
-});
-
-server.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(
-      `[web-demo] 端口 ${PORT} 已被占用。请先结束占用进程，或设置环境变量 PORT 使用其他端口。\n` +
-        `  查看占用: netstat -ano | findstr :${PORT}\n` +
-        `  结束进程: taskkill /PID <上列最后一列> /F`
-    );
-  } else {
-    console.error('[web-demo] HTTP server error:', err);
-  }
-  process.exit(1);
-});
-
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[web-demo] cwd ${WEB_DEMO_ROOT}`);
-  console.log(
-    `[web-demo] listening on http://127.0.0.1:${PORT}${PROD ? ' (serving static)' : ' (WebSocket /ws only)'}`
-  );
-  const logInfo = getSharedAgentLogger();
-  if (logInfo.filePath) {
-    console.log(`[web-demo] SDK logs: ${logInfo.filePath} (level=${logInfo.level})`);
-  } else {
-    console.log(`[web-demo] SDK logs: disabled (AGENT_SDK_LOG_LEVEL=${logInfo.level})`);
-  }
-});
-
-let shuttingDown = false;
-async function gracefulShutdown(signal: string): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log(`[web-demo] received ${signal}, shutting down`);
-  try {
-    await closeSharedAgentLogger();
-  } catch (err) {
-    console.error('[web-demo] error closing SDK logger:', err);
-  }
-  process.exit(0);
 }
 
-process.once('SIGINT', () => {
-  void gracefulShutdown('SIGINT');
-});
-process.once('SIGTERM', () => {
-  void gracefulShutdown('SIGTERM');
-});
+function listenHttp(server: Server, port: number, host: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: NodeJS.ErrnoException) => {
+      server.off('error', onError);
+      if (err.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `Port ${port} is already in use. Stop the other process or pass --port / PORT.`
+          )
+        );
+        return;
+      }
+      reject(err);
+    };
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Serve the Agent Studio UI and WebSocket `/ws` on the given host/port.
+ * Resolves when the process receives SIGINT/SIGTERM (or the HTTP server closes).
+ */
+export async function closeHttpAndWebSockets(
+  server: Server,
+  wss: WebSocketServer,
+  options?: { timeoutMs?: number }
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 2000;
+  for (const client of wss.clients) {
+    client.close(1001, 'shutting down');
+  }
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      for (const client of wss.clients) {
+        client.terminate();
+      }
+      server.closeAllConnections();
+      done();
+    }, timeoutMs);
+    wss.close();
+    server.close(() => done());
+  });
+}
+
+/**
+ * Serve the Agent Studio UI and WebSocket `/ws` on the given host/port.
+ * Resolves when the process receives SIGINT/SIGTERM (or the HTTP server closes).
+ */
+export async function startWebServer(options: StartWebServerOptions): Promise<void> {
+  const { port, host, clientDist, defaults } = options;
+  const allowRemote = options.allowRemote === true;
+  if (!existsSync(join(clientDist, 'index.html'))) {
+    throw new Error(
+      `Web UI assets not found at ${clientDist}. Build the CLI package first (pnpm --filter @ddlqhd/agent-sdk-cli build).`
+    );
+  }
+  assertLoopbackBind(host, port, allowRemote);
+
+  initSharedAgentLogger(defaults.userBasePath, defaults.logFile, defaults.logLevel);
+
+  const server = createServer((req, res) => {
+    const file = resolveStaticFile(clientDist, req.url || '/');
+    if (!file) {
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+    const type = MIME[extname(file)] || 'application/octet-stream';
+    res.setHeader('Content-Type', type);
+    res.end(readFileSync(file));
+  });
+
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const requestHost = req.headers.host || host;
+    let pathname: string;
+    try {
+      pathname = new URL(req.url || '/', `http://${requestHost}`).pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (pathname !== '/ws') {
+      socket.destroy();
+      return;
+    }
+    const originHeader = req.headers.origin;
+    const origin = typeof originHeader === 'string' ? originHeader : undefined;
+    if (!isAllowedWsOrigin(origin, host, port, allowRemote)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+      wss.emit('connection', ws, req);
+    });
+  });
+
+  wss.on('connection', (socket: WebSocket) => {
+    const connId = randomUUID().slice(0, 8);
+    console.log(`${LOG_PREFIX} ws connected connId=${connId}`);
+    attachSocketHandlers(socket, defaults, connId);
+  });
+
+  await listenHttp(server, port, host);
+
+  console.log(`${LOG_PREFIX} cwd ${defaults.cwd}`);
+  console.log(`${LOG_PREFIX} listening on http://${host}:${port}`);
+  if (allowRemote) {
+    console.warn(
+      `${LOG_PREFIX} --allow-remote: WebSocket Origin checks are disabled. Anyone who can reach ${host}:${port} can run tools.`
+    );
+  }
+  const logInfo = getSharedAgentLogger();
+  if (logInfo.filePath) {
+    console.log(`${LOG_PREFIX} SDK logs: ${logInfo.filePath} (level=${logInfo.level})`);
+  } else {
+    console.log(`${LOG_PREFIX} SDK logs: disabled (level=${logInfo.level})`);
+  }
+
+  await new Promise<void>((resolve) => {
+    let shuttingDown = false;
+    const shutdown = async (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${LOG_PREFIX} received ${signal}, shutting down`);
+      try {
+        await closeSharedAgentLogger();
+      } catch (err) {
+        console.error(`${LOG_PREFIX} error closing SDK logger:`, err);
+      }
+      try {
+        await closeHttpAndWebSockets(server, wss);
+      } catch (err) {
+        console.error(`${LOG_PREFIX} error during shutdown:`, err);
+      }
+      resolve();
+    };
+    process.once('SIGINT', () => {
+      void shutdown('SIGINT');
+    });
+    process.once('SIGTERM', () => {
+      void shutdown('SIGTERM');
+    });
+  });
+}

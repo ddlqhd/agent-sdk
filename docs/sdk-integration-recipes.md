@@ -350,7 +350,7 @@ CLI（`agent-sdk chat` / `run`）默认即使用此 logger，文件路径为 `<u
 | `AGENT_SDK_LOG_BODIES` | 为 `true` 时，在模型请求的日志元数据里允许包含**经脱敏处理后的请求体摘要**（如 `messages` 等）；为 `false` 或未设置时，不在日志里附带完整请求体结构。 |
 | `AGENT_SDK_LOG_INCLUDE_TOOL_ARGS` | 为 `true` 时，在脱敏后的结构化数据里允许包含**工具调用的参数**；否则相关字段会显示为占位符（如 `REDACTED_TOOL_ARGUMENTS`）。 |
 | `AGENT_SDK_LOG_MAX_BODY_CHARS` | 非负整数，限制单条字符串字段在日志中保留的最大字符数；超出部分截断并标注。未设置时默认 **4000**。 |
-| `AGENT_SDK_LOG_FILE` | 仅由本仓库的 **CLI** 与 **web-demo** 读取，用于覆盖默认 JSONL 文件路径（CLI 还可用 `--log-file` 进一步覆盖）。SDK 库本身不会读取此变量；自定义宿主请显式调用 `createFileJSONLLogger({ filePath })`。 |
+| `AGENT_SDK_LOG_FILE` | 仅由本仓库的 **CLI**（含 `agent-sdk web`）读取，用于覆盖默认 JSONL 文件路径（CLI 还可用 `--log-file` 进一步覆盖）。SDK 库本身不会读取此变量；自定义宿主请显式调用 `createFileJSONLLogger({ filePath })`。 |
 
 **`AGENT_SDK_LOG_LEVEL` 取值**（大小写不敏感，首尾空格会被忽略）：
 
@@ -524,7 +524,7 @@ Markdown frontmatter 支持与 Claude Code 对齐的常见字段（如 `name`、
 
 成功时工具结果可带 **`metadata`**（如 `sessionId`、`subagentType`、`durationMs`、`usage`、`toolNames`、`description`；若请求中传了 **`model`** 则 **`subagentModelOverride`** 为传入的模型 id 字符串），便于观测与计费；失败路径亦可能含部分字段。
 
-## 14. 与 Web Demo 的对照
+## 14. 与 Web UI 的对照
 
-仓库 **`examples/web-demo`** 演示如何将环境变量、MCP 配置、Skill 目录与 Agent 构造串起来；生产环境可复用同一模式（配置对象 + `userBasePath` / `cwd`）。索引与文件清单见 [`sdk-examples-index.md`](./sdk-examples-index.md) 第 1 节。
+CLI 子命令 **`agent-sdk web`**（`packages/agent-sdk-cli/src/web/`）演示如何将环境变量、MCP 配置、Skill 目录与 Agent 构造串起来；生产环境可复用同一模式（配置对象 + `userBasePath` / `cwd`）。索引与文件清单见 [`sdk-examples-index.md`](./sdk-examples-index.md) 第 1 节。
 

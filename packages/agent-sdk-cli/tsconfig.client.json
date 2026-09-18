@@ -3,21 +3,16 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
-    "jsx": "react-jsx",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
+    "noEmit": true,
     "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/web/client", "src/web/vite.config.ts"]
+  "include": ["src/web/client/src/**/*.ts", "src/web/shared/**/*.ts"]
 }

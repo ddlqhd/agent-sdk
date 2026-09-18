@@ -1,6 +1,6 @@
 /**
- * Web-demo custom tool template: define with `createTool`; registration runs inside `buildAgent`
- * after `Agent.waitForInit()` (see `agent-factory.ts`).
+ * Optional demo tool (`agent-sdk web --demo-tools`): define with `createTool`;
+ * registration runs inside `buildAgent` (see `agent-factory.ts`).
  */
 import { createTool } from '@ddlqhd/agent-sdk';
 import { z } from 'zod';

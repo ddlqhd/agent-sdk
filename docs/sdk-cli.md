@@ -1,6 +1,6 @@
 # Agent SDK CLI
 
-命令行用于**快速试用** SDK 能力（模型、工具、会话、MCP），与 [`sdk-examples-index.md`](./sdk-examples-index.md) 中的 Web Demo 一样，属于演示与调试入口；应用集成仍应以代码中的 [`Agent`](./sdk-api-reference.md) 为准。
+命令行用于**快速试用** SDK 能力（模型、工具、会话、MCP、Web UI），与 [`sdk-examples-index.md`](./sdk-examples-index.md) 中的 Web UI 一样，属于演示与调试入口；应用集成仍应以代码中的 [`Agent`](./sdk-api-reference.md) 为准。
 
 ## 本地开发（本仓库）
 
@@ -22,6 +22,9 @@ pnpm cli chat --provider openai --api-key sk-xxx
 
 # 单次提问（headless）
 pnpm cli -p "What is the capital of France?" --provider openai --bare
+
+# 本地 Web UI
+pnpm cli web
 
 # 列出可用工具
 pnpm cli tools list
@@ -84,6 +87,9 @@ npx @ddlqhd/agent-sdk-cli sessions rewind <session-id> --user-turn-index 0
 npx @ddlqhd/agent-sdk-cli sessions fork <source-id>
 npx @ddlqhd/agent-sdk-cli sessions delete <session-id>
 npx @ddlqhd/agent-sdk-cli sessions clear
+
+# 本地 Web UI（HTTP + WebSocket，默认 http://127.0.0.1:3001）
+npx @ddlqhd/agent-sdk-cli web
 
 # MCP（当前 CLI 仅提供 connect；运行时 MCP 多用 Agent 配置或 mcp_config.json）
 npx @ddlqhd/agent-sdk-cli mcp connect "npx @modelcontextprotocol/server-filesystem /path"
@@ -202,6 +208,45 @@ agent-sdk tui [options]
 
 **迁移（破坏性）**：原先的 `--ollama-think [value]` 已移除；请改用 `--thinking`（布尔）与 `--thinking-level`（档位）组合，语义与 SDK 字段 `thinking` / `thinkingLevel` 一致。
 
+### web
+
+本地 **Agent Studio** Web UI：同一进程提供静态页面与 WebSocket `/ws`。浏览器不接触 API Key；密钥走服务端环境变量或 `--api-key`。
+
+```bash
+# 默认 http://127.0.0.1:3001（与 chat 共用 cwd / userBasePath / 会话目录）
+agent-sdk web
+
+agent-sdk web --provider openai --model gpt-4o --port 3001
+agent-sdk web --cwd . --user-base-path ~ --mcp-config mcp_config.json
+agent-sdk web --demo-tools   # 额外注册 DemoCalculator 示例工具
+```
+
+`web` 只暴露它实际会用到的 flags（没有 chat 的 `--session` / `--thinking` 等）：
+
+```bash
+agent-sdk web [options]
+
+选项:
+  --port <port>            监听端口（默认 3001，或环境变量 PORT）
+  --host <host>            监听地址（默认 127.0.0.1）
+  --allow-remote           允许绑定非回环地址，并关闭 WebSocket Origin 校验（危险）
+  --demo-tools             注册 DemoCalculator 示例工具
+  --provider <provider>    模型提供商（写入 UI 默认值）
+  -m, --model <model>      模型 ID（写入 UI 默认值）
+  -k, --api-key <key>      API Key（仅服务端使用）
+  -u, --base-url <url>     仅当 UI 仍使用上述 --provider 时生效
+  --mcp-config <path>      MCP 配置文件（UI 未填路径时使用）
+  --user-base-path <path>  用户基础路径（默认: ~；jsonl 会话与 CLI 相同）
+  --cwd <path>             工作目录（默认: 当前目录）
+  --log-level / --log-file 同 chat
+```
+
+连接后 UI 会按表单自动 `configure`。路径栏留空则使用上述 CLI 默认值。会话默认 **jsonl**，可与 `agent-sdk sessions` / `chat --resume` 共用存储。UI 若改选 **memory** 存储，每个会话是独立的内存实例，列出/恢复只对当前连接里仍活着的 runtime 有效。
+
+本仓库需先 `pnpm build`：CLI 包会把 Vite 客户端打进 `dist/web-client`，发布的 `@ddlqhd/agent-sdk-cli` 已包含该静态资源。未构建时 `agent-sdk web` 会提示先 build。`tsup --watch` 不会清空已构建的 `dist/web-client`。
+
+默认只绑定回环地址，并对浏览器 WebSocket 校验 `Origin`（仅 `http://127.0.0.1:<port>` / `http://localhost:<port>`）。`--host 0.0.0.0` 必须同时加 `--allow-remote`；这会跳过 Origin 校验，任何能连上的客户端都可以驱动带工具的 Agent，不要对公网暴露。
+
 ### Print mode (`-p`)
 
 非交互 headless 模式（对齐 Claude Code `-p` / `--print`）。在根命令使用，无需子命令：
@@ -304,7 +349,7 @@ delete / clear 选项:
 
 - `sessions list` 的 **Entries** 为 raw JSONL 行数（含 summary/rewind），非活动消息条数。
 - `sessions list` 的 `-f` 表示 **format**；`sessions delete` / `sessions clear` 的 `-f` 表示 **force**。
-- 离线 `sessions rewind` 只改 JSONL；正在运行的 chat/web-demo 须用 `Agent.rewindToCheckpoint`（交互式 `/rewind` 或 web-demo UI）。
+- 离线 `sessions rewind` 只改 JSONL；正在运行的 chat / `agent-sdk web` 须用 `Agent.rewindToCheckpoint`（交互式 `/rewind` 或 Web UI）。
 
 ### mcp
 

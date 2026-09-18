@@ -15,7 +15,8 @@
 - **CLI**: slash command registry (`/help`, `/status`, `/sessions`, `/new`, `/details`, `/compact`, `/export`, `/editor`); terminal replay after rewind/fork; `!` shell prefix; `sessions list --with-active`; optional `agent-sdk tui` (Ink).
 - **CLI TUI**: slash command dropdown (builtins + skills, alias prefix filter, scroll window), persistent status bar, `/status` and `/sessions` modals; thinking and tool trace stream display; `withCapturedConsoleLog` for slash output; shared `collectSessionStatus` for classic and TUI.
 - **CLI TUI**: OpenCode-style message blocks with left border colors for user, assistant, thinking, tool call/result/error; tool lines use `Name: value` format; `>` input prompt.
-- **Web demo**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
+- **CLI**: `agent-sdk web` serves the Agent Studio UI (HTTP + WebSocket `/ws`) from `@ddlqhd/agent-sdk-cli`. Defaults match `chat` (`cwd` = process cwd, `userBasePath` = homedir, jsonl sessions). Removed the standalone `examples/web-demo` app and its fixtures. Loopback-only by default: `/ws` checks browser `Origin`; non-loopback `--host` requires `--allow-remote`; shutdown closes open sockets.
+- **Web UI**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
 
 ### Changed
 
@@ -23,7 +24,7 @@
 - **Agent**: assistant thinking blocks are persisted without a model signature when the provider omits one (e.g. Ollama); Anthropic replay still requires signature before resending to the API.
 - **Agent**: session token usage is tracked only in `sessionUsage`; compression and rewind reset `contextTokens` only (cumulative `inputTokens` / `outputTokens` preserved). `ContextManager.resetUsage` renamed to **`resetContextTokens`**.
 - **agent-sdk-acp**: `usage_update.used` reflects **context occupancy** (`contextTokens`), not session cumulative billing; `model_usage` output phase no longer emits `usage_update`.
-- **agent-sdk-acp**: `session/fork` now uses core `Agent.forkSession` (active-chain head) instead of copying full raw JSONL; replays history to the client after fork. **Rewind is not exposed over ACP** (use CLI or web-demo).
+- **agent-sdk-acp**: `session/fork` now uses core `Agent.forkSession` (active-chain head) instead of copying full raw JSONL; replays history to the client after fork. **Rewind is not exposed over ACP** (use CLI or `agent-sdk web`).
 - Internal modules (Agent, tools, skills, MCP config, compressor, model request log) now emit via `sdkLog` and shared context; `HookManagerSdkLogContext` is an alias of `SDKLogContext`.
 - `loadMCPConfig` optional fourth argument is documented as `SDKLogContext` (internal parameter name `logCtx`; same type and position as before — **not** a breaking API change).
 

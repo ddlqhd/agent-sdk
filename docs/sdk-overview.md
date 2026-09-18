@@ -71,7 +71,7 @@
 7. [`sdk-cli.md`](./sdk-cli.md)（命令行）
 8. [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)（工具 Hook 配置）
 9. [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)（排障）
-10. [`sdk-examples-index.md`](./sdk-examples-index.md)（示例与 Web Demo 对照）
+10. [`sdk-examples-index.md`](./sdk-examples-index.md)（示例与 Web UI 对照）
 
 仓库目录树（贡献者）见 [`repository-layout.md`](./repository-layout.md)。
 

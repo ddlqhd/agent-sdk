@@ -1,7 +1,13 @@
 import type { AskUserQuestionAnswer, AskUserQuestionItem } from '@ddlqhd/agent-sdk';
 import { chatPreview } from '../../shared/log-utils.js';
 import type { ChatHistoryItem } from '../../shared/message-text.js';
-import type { ClientMessage, ModelProvider, ServerMessage, SessionListItem } from '../../shared/ws-protocol.js';
+import type {
+  ClientMessage,
+  ModelProvider,
+  ServerMessage,
+  SessionListItem,
+  WebUiDefaults
+} from '../../shared/ws-protocol.js';
 import type { SessionCheckpoint } from '@ddlqhd/agent-sdk';
 
 const connStatus = document.querySelector<HTMLParagraphElement>('#conn-status')!;
@@ -51,7 +57,7 @@ const MODEL_HINTS: Record<ModelProvider, string> = {
 
 const DEFAULT_MODEL_NAMES = new Set(Object.values(MODEL_HINTS));
 
-const LOG_PREFIX = '[web-demo]';
+const LOG_PREFIX = '[agent-sdk web]';
 
 function logOutbound(msg: ClientMessage): void {
   switch (msg.type) {
@@ -157,8 +163,8 @@ function connect(): void {
   });
 
   ws.addEventListener('error', () => {
-    console.error(`${LOG_PREFIX} ws error (is the server on :3001?)`);
-    setConn('WebSocket 错误（请确认服务端 :3001 已启动）');
+    console.error(`${LOG_PREFIX} ws error (is agent-sdk web running?)`);
+    setConn('WebSocket 错误（请确认 agent-sdk web 已启动）');
   });
 
   ws.addEventListener('message', (ev) => {
@@ -408,6 +414,7 @@ function handleServerMessage(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hello_ok':
       cfgWarnings.textContent = '';
+      applyServerDefaults(msg.defaults);
       setConn('正在构建 Agent…', false);
       send(readConfigureMessage());
       return;
@@ -417,6 +424,10 @@ function handleServerMessage(msg: ServerMessage): void {
       setConn('就绪', true);
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
+      clearChatLog();
+      clearInspectorLogs();
+      checkpointListEl.hidden = true;
+      checkpointListEl.innerHTML = '';
       return;
     case 'error':
       appendEventLine('error', { message: msg.message, detail: msg.detail });
@@ -904,6 +915,26 @@ function renderSessionList(sessions: SessionListItem[]): void {
   }
 }
 
+function applyServerDefaults(defaults?: WebUiDefaults): void {
+  if (!defaults) return;
+  if (defaults.provider) {
+    cfgProvider.value = defaults.provider;
+    if (defaults.model) {
+      cfgModel.value = defaults.model;
+    } else if (cfgModel.value.trim() === '' || DEFAULT_MODEL_NAMES.has(cfgModel.value)) {
+      cfgModel.value = MODEL_HINTS[defaults.provider];
+    }
+  } else if (defaults.model) {
+    cfgModel.value = defaults.model;
+  }
+  const cwdInput = formConfig.querySelector<HTMLInputElement>('[name="cwd"]');
+  const userInput = formConfig.querySelector<HTMLInputElement>('[name="userBasePath"]');
+  const mcpInput = formConfig.querySelector<HTMLInputElement>('[name="mcpConfigPath"]');
+  if (cwdInput && defaults.cwd) cwdInput.placeholder = defaults.cwd;
+  if (userInput && defaults.userBasePath) userInput.placeholder = defaults.userBasePath;
+  if (mcpInput && defaults.mcpConfigPath) mcpInput.placeholder = defaults.mcpConfigPath;
+}
+
 function readConfigureMessage(): ClientMessage {
   const fd = new FormData(formConfig);
   const provider = String(fd.get('provider') || 'ollama') as ModelProvider;
@@ -971,6 +1002,10 @@ formConfig.addEventListener('submit', (e) => {
   cfgWarnings.textContent = '';
   setConn('Building agent…', false);
   configured = false;
+  clearChatLog();
+  clearInspectorLogs();
+  checkpointListEl.hidden = true;
+  checkpointListEl.innerHTML = '';
   send(readConfigureMessage());
 });
 

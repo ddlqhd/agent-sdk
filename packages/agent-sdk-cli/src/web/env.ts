@@ -1,4 +1,4 @@
-import type { ModelProvider } from '../shared/ws-protocol.js';
+import type { ModelProvider } from './shared/ws-protocol.js';
 
 export function requireProviderEnv(provider: ModelProvider): string | undefined {
   switch (provider) {

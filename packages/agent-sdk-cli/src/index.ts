@@ -6,6 +6,7 @@ import { createToolsCommand } from './commands/tools.js';
 import { createSessionsCommand } from './commands/sessions.js';
 import { createMCPCommand } from './commands/mcp.js';
 import { createTuiCommand } from './commands/tui.js';
+import { createWebCommand } from './commands/web.js';
 import { createWorkflowCommand } from './commands/workflow.js';
 import { addHeadlessOptions, addModelOptions } from './utils/agent-bootstrap.js';
 import { applyEnvHttpProxy } from './utils/apply-env-proxy.js';
@@ -60,6 +61,7 @@ if (isMainModule) {
   program.addCommand(createSessionsCommand());
   program.addCommand(createMCPCommand());
   program.addCommand(createTuiCommand());
+  program.addCommand(createWebCommand());
   program.addCommand(createWorkflowCommand());
 
   // 解析命令行参数
@@ -75,5 +77,6 @@ export {
   createSessionsCommand,
   createMCPCommand,
   createTuiCommand,
+  createWebCommand,
   createWorkflowCommand
 };

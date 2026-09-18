@@ -1,5 +1,5 @@
 /**
- * Shared helpers for web-demo console logging (truncation / previews).
+ * Shared helpers for Agent Studio console logging (truncation / previews).
  */
 
 export function truncateForLog(s: string, max = 120): string {

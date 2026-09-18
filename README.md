@@ -56,7 +56,7 @@ Factual guides and API references live under **`docs/`** (single source of truth
 | CLI | [`docs/sdk-cli.md`](docs/sdk-cli.md) |
 | Tool hooks | [`docs/tool-hook-mechanism.md`](docs/tool-hook-mechanism.md) |
 | Troubleshooting | [`docs/sdk-troubleshooting.md`](docs/sdk-troubleshooting.md) |
-| Examples & Web Demo index | [`docs/sdk-examples-index.md`](docs/sdk-examples-index.md) |
+| Examples & Web UI index | [`docs/sdk-examples-index.md`](docs/sdk-examples-index.md) |
 | Repository layout (contributors) | [`docs/repository-layout.md`](docs/repository-layout.md) |
 
 ## License

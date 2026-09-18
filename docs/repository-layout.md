@@ -23,7 +23,8 @@ agent-sdk/                          # private workspace root
 │   │       ├── config/             # MCP 等配置加载
 │   │       └── index.ts            # 包入口
 │   ├── agent-sdk-cli/              # @ddlqhd/agent-sdk-cli（bin: agent-sdk）
-│   │   ├── src/                    # CLI 入口与子命令、TUI
+│   │   ├── src/                    # CLI 入口与子命令、TUI、web UI
+│   │   │   └── web/                # agent-sdk web（HTTP + WS + Vite 客户端）
 │   │   └── bin/agent-sdk.mjs
 │   └── agent-sdk-acp/              # @ddlqhd/agent-sdk-acp
 ├── tests/

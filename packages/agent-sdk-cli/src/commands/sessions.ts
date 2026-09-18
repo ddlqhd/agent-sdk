@@ -268,7 +268,7 @@ export function createSessionsCommand(): Command {
       console.log(chalk.gray(`  dropped messages: ${result.droppedMessageCount}`));
       console.log(
         chalk.yellow(
-          '\nNote: This updates JSONL only. Running chat/web-demo agents keep their in-memory state until rewind via Agent API.'
+          '\nNote: This updates JSONL only. Running chat / agent-sdk web agents keep their in-memory state until rewind via Agent API.'
         )
       );
     }

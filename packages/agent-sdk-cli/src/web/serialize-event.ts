@@ -3,8 +3,7 @@ import type { StreamEvent } from '@ddlqhd/agent-sdk';
 function errorToJson(err: Error): Record<string, unknown> {
   return {
     name: err.name,
-    message: err.message,
-    stack: err.stack
+    message: err.message
   };
 }
 

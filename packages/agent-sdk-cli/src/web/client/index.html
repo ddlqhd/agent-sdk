@@ -61,14 +61,14 @@
               <label>
                 提供商
                 <select name="provider" id="cfg-provider">
-                  <option value="ollama" selected>Ollama</option>
-                  <option value="openai">OpenAI</option>
+                  <option value="openai" selected>OpenAI</option>
                   <option value="anthropic">Anthropic</option>
+                  <option value="ollama">Ollama</option>
                 </select>
               </label>
               <label>
                 模型 ID
-                <input name="model" id="cfg-model" type="text" value="nemotron-3-super:cloud" autocomplete="off" />
+                <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
               </label>
               <label id="cfg-thinking-wrap">
                 Thinking（布尔）
@@ -106,8 +106,8 @@
               <label>
                 会话存储
                 <select name="storage">
-                  <option value="memory">memory</option>
                   <option value="jsonl">jsonl</option>
+                  <option value="memory">memory</option>
                 </select>
               </label>
             </fieldset>
@@ -132,15 +132,15 @@
               <legend>路径</legend>
               <label>
                 工作目录（技能 / CLAUDE.md）
-                <input name="cwd" type="text" placeholder="默认：demo-fixtures" autocomplete="off" />
+                <input name="cwd" type="text" placeholder="默认：当前工作目录" autocomplete="off" />
               </label>
               <label>
                 用户根路径（会话目录）
-                <input name="userBasePath" type="text" placeholder="空 = 临时目录" autocomplete="off" />
+                <input name="userBasePath" type="text" placeholder="默认：用户主目录" autocomplete="off" />
               </label>
               <label>
                 MCP 配置路径
-                <input name="mcpConfigPath" type="text" placeholder="demo-fixtures/mcp.demo.json" autocomplete="off" />
+                <input name="mcpConfigPath" type="text" placeholder="可选，相对工作目录" autocomplete="off" />
               </label>
             </fieldset>
 

@@ -148,6 +148,7 @@ pnpm install
 pnpm build
 pnpm cli --help
 pnpm cli chat --provider openai
+pnpm cli web
 pnpm cli -p "Your prompt" --provider openai --bare
 # or: agent-sdk chat ... (after pnpm link --global)
 ```

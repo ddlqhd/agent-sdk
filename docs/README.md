@@ -15,7 +15,7 @@
 | 工具 Hook 配置 | [`tool-hook-mechanism.md`](./tool-hook-mechanism.md) |
 | 命令行 `agent-sdk` | [`sdk-cli.md`](./sdk-cli.md) |
 | 排错 | [`sdk-troubleshooting.md`](./sdk-troubleshooting.md) |
-| 示例与 Web Demo 索引 | [`sdk-examples-index.md`](./sdk-examples-index.md) |
+| 示例与 Web UI 索引 | [`sdk-examples-index.md`](./sdk-examples-index.md) |
 | 对照源码目录（贡献者） | [`repository-layout.md`](./repository-layout.md) |
 
 ## 推荐阅读顺序（与总览一致）

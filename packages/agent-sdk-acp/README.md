@@ -39,7 +39,7 @@ node packages/agent-sdk-acp/dist/entry.js --check
 - **Streaming**: `Agent.stream()` → `session/update`; `usage_update.used` is **context occupancy** (not session cumulative billing)
 - **Permissions**: `canUseTool` → `session/request_permission`
 - **Sessions**: per-session `Agent`, jsonl persistence, history replay on `session/load` and `session/fork` (active-chain head via core `Agent.forkSession`)
-- **Rewind**: not exposed over ACP (protocol has no rewind semantic); use CLI or [web-demo](../../examples/web-demo)
+- **Rewind**: not exposed over ACP (protocol has no rewind semantic); use CLI or `agent-sdk web`
 - **Edit modes**: `default` / `accept_edits` / `dont_ask`
 - **MCP**: ACP `stdio`/`http` servers mapped to `AgentConfig.mcpServers`; also loads `{cwd}/.claude/mcp_config.json` when present
 

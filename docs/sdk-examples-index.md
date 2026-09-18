@@ -2,20 +2,20 @@
 
 ## 受众说明
 
-- **仅通过 npm 使用 SDK 开发应用**：优先跟 [`sdk-quickstart.md`](./sdk-quickstart.md)、[`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 与 **Web Demo**（见下节）对照，把「环境变量 → Agent 配置」的路径跑通即可。
+- **仅通过 npm 使用 SDK 开发应用**：优先跟 [`sdk-quickstart.md`](./sdk-quickstart.md)、[`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 与 **`agent-sdk web`**（见下节）对照，把「环境变量 → Agent 配置」的路径跑通即可。
 - **本仓库贡献者或需要对照源码排障**：再使用下文 **第 2 节（Contributor）** 中的 `src/**` 与测试路径。
 
 本页把文档中的能力点映射到仓库内可运行示例或实现文件，便于对照。
 
-## 1. Web Demo（推荐起点）
+## 1. Web UI（推荐起点）
 
-示例目录：`examples/web-demo/`。
+官方入口是 CLI 子命令 **`agent-sdk web`**（实现位于 `packages/agent-sdk-cli/src/web/`）。
 
 ## 1b. ACP Bridge（Zed / VS Code / JetBrains）
 
 包目录：`packages/agent-sdk-acp/`（`agent-sdk-acp` CLI + `agent.json`）。通过 **stdio JSON-RPC** 将 `Agent.stream()` 暴露为 [Agent Client Protocol](https://agentclientprotocol.com/) 服务。
 
-**与生产集成的对照方式**：`packages/agent-sdk-acp/src/agent-factory.ts` 演示如何从环境变量组装 `Agent`（含 MCP、Skill、Memory、`userBasePath`）；`examples/web-demo/server/env.ts` 提供另一套 Web 集成对照。未设置 `AGENT_SDK_ACP_USER_BASE` 时，会话默认写入稳定的 `tmpdir()/agent-sdk-acp`（非随机临时目录）。
+**与生产集成的对照方式**：`packages/agent-sdk-acp/src/agent-factory.ts` 演示如何从环境变量组装 `Agent`（含 MCP、Skill、Memory、`userBasePath`）；`packages/agent-sdk-cli/src/web/agent-factory.ts` 提供 Web UI 对照。未设置 `AGENT_SDK_ACP_USER_BASE` 时，会话默认写入稳定的 `tmpdir()/agent-sdk-acp`（非随机临时目录）。
 
 文件清单：
 
@@ -28,13 +28,12 @@
 - `packages/agent-sdk-acp/src/mcp-map.ts`
 - `packages/agent-sdk-acp/agent.json`
 
-Web Demo 对照：
+Web UI 对照：
 
-- `examples/web-demo/package.json`
-- `examples/web-demo/server/agent-factory.ts`
-- `examples/web-demo/server/env.ts`
-- `examples/web-demo/demo-fixtures/mcp.demo.json`
-- `examples/web-demo/demo-fixtures/.claude/skills/DemoSkill/SKILL.md`
+- `packages/agent-sdk-cli/src/commands/web.ts`
+- `packages/agent-sdk-cli/src/web/start-server.ts`
+- `packages/agent-sdk-cli/src/web/agent-factory.ts`
+- `packages/agent-sdk-cli/src/web/env.ts`
 
 CLI 调试入口见 [`sdk-cli.md`](./sdk-cli.md)。
 
