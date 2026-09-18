@@ -765,7 +765,7 @@ interface SkillConfig {
 
 ## 8. 存储类型
 
-### `StorageConfig` / `CompressionStats` / `SummaryEntry` / `SessionEntry` / `SystemPromptSidecar` / `StorageAdapter` / `SessionInfo`
+### `StorageConfig` / `CompressionStats` / `SummaryEntry` / `SessionEntry` / `StorageAdapter` / `SessionInfo`
 
 ```ts
 interface StorageConfig {
@@ -805,31 +805,24 @@ interface SessionCheckpoint {
   summariesAfter?: number;
 }
 
-interface SystemPromptSidecar {
-  content: string;
-  contentSha256: string;
-  savedAt: number;
-  agentName?: string;
-  cwd?: string;
-}
-
 interface StorageAdapter {
   append(sessionId: string, entries: SessionEntry[]): Promise<void>;
   load(sessionId: string): Promise<SessionEntry[]>;
   list(): Promise<SessionInfo[]>;
   delete(sessionId: string): Promise<void>;
   exists(sessionId: string): Promise<boolean>;
-  saveSystemPrompt?(
+  updateSessionMeta(
     sessionId: string,
-    content: string,
-    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+    patch: Pick<SessionInfo, 'cwd' | 'agentName'>
   ): Promise<void>;
 }
 ```
 
 - **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }`；回退时追加 `{ $type: 'rewind', keepThroughRawIndex, ... }`。
 - **Resume 活动链**：无 rewind 时从**最后一个** `summary` 起重建；有 rewind 时 prefix（0..`keepThroughRawIndex`）+ tail（最后一条 rewind 之后，仍走 summary 语义）。**不包含** system。
+- **System prompt 不落盘**（jsonl / meta 都不写正文）；`cwd` / `agentName` 写在 `<id>.meta.json`。
 - **`SessionInfo.messageCount`**：raw JSONL 行数（含 summary/rewind），非 active 消息条数。
+- **`list()`**：以 meta 为准；允许只有 meta、尚无 jsonl 的会话（`messageCount: 0`）。`exists()` / `attachSession` 仍要求 jsonl 文件存在。
 
 `SessionInfo`:
 
@@ -839,8 +832,10 @@ interface SessionInfo {
   createdAt: number;
   updatedAt: number;
   messageCount: number; // JSONL 行数（含 summary）
+  cwd?: string;
+  agentName?: string;
   metadata?: Record<string, unknown>;
 }
 ```
 
-`SessionManager` 主要方法：`createSession`、`attachSession`、`appendEntries`、`appendCompactionBoundary`、`loadRawEntries`、`loadActiveMessages`、`listSessionCheckpoints`、`rewindSession`、`rewindToCheckpoint`、`forkSession`、`saveSystemPrompt`、`deleteSession`、`listSessions`。
+`SessionManager` 主要方法：`createSession`、`attachSession`、`appendEntries`、`appendCompactionBoundary`、`loadRawEntries`、`loadActiveMessages`、`listSessionCheckpoints`、`rewindSession`、`rewindToCheckpoint`、`forkSession`、`updateSessionMeta`、`deleteSession`、`listSessions`。

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'fs';
 import type {
   CompressionStats,
   ContentPart,
@@ -14,8 +13,7 @@ import type {
   SessionInfo,
   StorageAdapter,
   StorageConfig,
-  SummaryEntry,
-  SystemPromptSidecar
+  SummaryEntry
 } from '../core/types.js';
 import {
   formatSyntheticFallbackNotice,
@@ -23,8 +21,6 @@ import {
   parseCompactionSyntheticUser
 } from '../core/compressor.js';
 import { createStorage } from './interface.js';
-import { JsonlStorage } from './jsonl.js';
-import { MemoryStorage } from './memory.js';
 
 const CHECKPOINT_ID_PREFIX = 'v1:';
 const CHECKPOINT_PREVIEW_MAX = 80;
@@ -461,7 +457,7 @@ export class SessionManager {
     }
     const messageEntries = messages.map((m) => messageToSessionEntry(m));
     await this.storage.append(newId, messageEntries);
-    await this.copySystemSidecarIfPresent(sourceSessionId, newId);
+    await this.copySessionMetaIfPresent(sourceSessionId, newId);
     return {
       sessionId: newId,
       sourceSessionId,
@@ -469,43 +465,22 @@ export class SessionManager {
     };
   }
 
-  private async copySystemSidecarIfPresent(fromId: string, toId: string): Promise<void> {
-    if (!this.storage.saveSystemPrompt) {
+  private async copySessionMetaIfPresent(fromId: string, toId: string): Promise<void> {
+    const source = await this.getSessionInfo(fromId);
+    if (!source || (source.cwd === undefined && source.agentName === undefined)) {
       return;
     }
-    if (this.storage instanceof MemoryStorage) {
-      const side = this.storage.getSystemPromptSidecar(fromId);
-      if (side) {
-        await this.storage.saveSystemPrompt(toId, side.content, {
-          agentName: side.agentName,
-          cwd: side.cwd
-        });
-      }
-      return;
-    }
-    if (this.storage instanceof JsonlStorage) {
-      const sysPath = this.storage.getSystemSidecarFilePath(fromId);
-      try {
-        const raw = await fs.readFile(sysPath, 'utf-8');
-        const side = JSON.parse(raw) as SystemPromptSidecar;
-        await this.storage.saveSystemPrompt(toId, side.content, {
-          agentName: side.agentName,
-          cwd: side.cwd
-        });
-      } catch {
-        // no sidecar
-      }
-    }
+    await this.storage.updateSessionMeta(toId, {
+      cwd: source.cwd,
+      agentName: source.agentName
+    });
   }
 
-  async saveSystemPrompt(
-    content: string,
-    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
-  ): Promise<void> {
+  async updateSessionMeta(patch: Pick<SessionInfo, 'cwd' | 'agentName'>): Promise<void> {
     if (!this.currentSessionId) {
       this.createSession();
     }
-    await this.storage.saveSystemPrompt?.(this.currentSessionId!, content, meta);
+    await this.storage.updateSessionMeta(this.currentSessionId!, patch);
   }
 
   /**

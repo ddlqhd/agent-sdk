@@ -66,7 +66,7 @@ node packages/agent-sdk-acp/dist/entry.js --check
 
 - History replay emits user/assistant text only; standalone tool-role messages are omitted.
 - ACP `sse` and `acp` MCP transports are skipped (SDK supports `stdio` and `http` only).
-- `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or system-prompt sidecars when available.
+- `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or `SessionInfo.cwd` in session meta when available.
 - `AskUserQuestion` is disabled (no interactive resolver in stdio mode).
 - Edit mode is not persisted across `session/load` (defaults to `default`).
 - `session/fork` copies the **active message chain** at head (after rewind/compaction), not the full raw transcript with audit rows.

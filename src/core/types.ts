@@ -563,17 +563,6 @@ export interface RewindToCheckpointOptions {
 }
 
 /**
- * {@link SessionManager.saveSystemPrompt} 侧车文件内容
- */
-export interface SystemPromptSidecar {
-  content: string;
-  contentSha256: string;
-  savedAt: number;
-  agentName?: string;
-  cwd?: string;
-}
-
-/**
  * 会话信息
  */
 export interface SessionInfo {
@@ -582,6 +571,8 @@ export interface SessionInfo {
   updatedAt: number;
   /** JSONL 行数（含 summary 行） */
   messageCount: number;
+  cwd?: string;
+  agentName?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -605,17 +596,16 @@ export interface StorageAdapter {
   /** 列出会话 */
   list(): Promise<SessionInfo[]>;
 
-  /** 删除会话（jsonl / meta / system sidecar） */
+  /** 删除会话（jsonl / meta；并清理遗留 system sidecar） */
   delete(sessionId: string): Promise<void>;
 
   /** 会话 jsonl 是否存在 */
   exists(sessionId: string): Promise<boolean>;
 
-  /** 写入最近一次下发的 system prompt（审计）；可选 */
-  saveSystemPrompt?(
+  /** 写入或更新会话元数据（cwd / agentName） */
+  updateSessionMeta(
     sessionId: string,
-    content: string,
-    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+    patch: Pick<SessionInfo, 'cwd' | 'agentName'>
   ): Promise<void>;
 }
 

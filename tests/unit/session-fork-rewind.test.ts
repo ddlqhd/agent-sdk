@@ -226,14 +226,38 @@ describe('SessionManager fork and rewind', () => {
     expect(rows[0]).toMatchObject({ role: 'user', content: 'u1' });
   });
 
-  it('copy system sidecar on fork (memory)', async () => {
-    sm.createSession('with-sidecar');
+  it('copy session meta on fork (memory)', async () => {
+    sm.createSession('with-meta');
     await sm.appendEntries([{ role: 'user', content: 'x' }]);
-    await sm.saveSystemPrompt('sys body', { agentName: 'T', cwd: '/tmp' });
-    const forked = await sm.forkSession('with-sidecar');
-    const mem = sm.getStorage() as MemoryStorage;
-    const side = mem.getSystemPromptSidecar(forked.sessionId);
-    expect(side?.content).toBe('sys body');
+    await sm.updateSessionMeta({ agentName: 'T', cwd: '/tmp' });
+    const forked = await sm.forkSession('with-meta');
+    const info = await sm.getSessionInfo(forked.sessionId);
+    expect(info?.cwd).toBe('/tmp');
+    expect(info?.agentName).toBe('T');
+  });
+});
+
+describe('SessionManager fork meta (jsonl)', () => {
+  let basePath: string;
+  let sm: SessionManager;
+
+  beforeEach(async () => {
+    basePath = await fs.mkdtemp(join(tmpdir(), 'fork-meta-jsonl-'));
+    sm = new SessionManager({ type: 'jsonl', basePath });
+  });
+
+  afterEach(async () => {
+    await fs.rm(basePath, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('copy session meta on fork', async () => {
+    sm.createSession('src');
+    await sm.appendEntries([{ role: 'user', content: 'x' }]);
+    await sm.updateSessionMeta({ agentName: 'T', cwd: '/tmp' });
+    const forked = await sm.forkSession('src');
+    const info = await sm.getSessionInfo(forked.sessionId);
+    expect(info?.cwd).toBe('/tmp');
+    expect(info?.agentName).toBe('T');
   });
 });
 

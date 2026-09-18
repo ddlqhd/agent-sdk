@@ -761,13 +761,9 @@ export class Agent {
     this.persistedNonSystemCount = this.countPersistableMessages();
   }
 
-  private async persistSessionSystemSidecar(): Promise<void> {
-    const content = this.getSystemPrompt();
-    if (!content) {
-      return;
-    }
+  private async persistSessionMeta(): Promise<void> {
     try {
-      await this.sessionManager.saveSystemPrompt(content, {
+      await this.sessionManager.updateSessionMeta({
         agentName: this.config.agentName ?? 'Agent',
         cwd: this.config.cwd ?? process.cwd()
       });
@@ -775,8 +771,8 @@ export class Agent {
       const err = error instanceof Error ? error : new Error(String(error));
       this.log('warn', {
         component: 'session',
-        event: 'session.sidecar.error',
-        message: 'Failed to persist system prompt sidecar',
+        event: 'session.meta.error',
+        message: 'Failed to persist session metadata',
         errorName: err.name,
         errorMessage: err.message
       });
@@ -1520,7 +1516,7 @@ export class Agent {
 
       await this.prepareStreamSession(options);
       this.appendInitialSystemMessages(options);
-      await this.persistSessionSystemSidecar();
+      await this.persistSessionMeta();
       this.syncPersistedNonSystemFromMemory();
       const { processedInput } = await this.appendUserMessageFromProcessedInput(input);
 

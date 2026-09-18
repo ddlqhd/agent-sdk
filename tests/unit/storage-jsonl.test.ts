@@ -95,15 +95,52 @@ describe('JsonlStorage append-only + logical truncation', () => {
     expect(active[1]).toMatchObject({ role: 'user', content: 'keep-u' });
   });
 
-  it('saveSystemPrompt writes sidecar', async () => {
+  it('updateSessionMeta writes cwd/agentName; append preserves them', async () => {
     const sid = 'sess-sys';
+    await storage.updateSessionMeta(sid, { cwd: '/tmp', agentName: 'T' });
     await storage.append(sid, [{ role: 'user', content: 'x' }]);
-    await storage.saveSystemPrompt?.(sid, 'hello system', { cwd: '/tmp', agentName: 'T' });
-    const p = join(basePath, `${sid}.system.json`);
-    const side = JSON.parse(await fs.readFile(p, 'utf-8'));
-    expect(side.content).toBe('hello system');
-    expect(side.cwd).toBe('/tmp');
-    expect(side.agentName).toBe('T');
-    expect(typeof side.contentSha256).toBe('string');
+    const listed = await storage.list();
+    const info = listed.find((s) => s.id === sid);
+    expect(info?.cwd).toBe('/tmp');
+    expect(info?.agentName).toBe('T');
+    expect(info?.messageCount).toBe(1);
+    await expect(fs.access(join(basePath, `${sid}.system.json`))).rejects.toMatchObject({
+      code: 'ENOENT'
+    });
+  });
+
+  it('lists meta-only sessions; exists still requires jsonl', async () => {
+    const sid = 'meta-only';
+    await storage.updateSessionMeta(sid, { cwd: '/work', agentName: 'A' });
+    const listed = await storage.list();
+    expect(listed.find((s) => s.id === sid)).toMatchObject({
+      id: sid,
+      messageCount: 0,
+      cwd: '/work',
+      agentName: 'A'
+    });
+    expect(await storage.exists(sid)).toBe(false);
+  });
+
+  it('updateSessionMeta after append does not reset messageCount', async () => {
+    const sid = 'keep-count';
+    await storage.append(sid, [
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' }
+    ]);
+    await storage.updateSessionMeta(sid, { cwd: '/keep', agentName: 'Keep' });
+    const info = (await storage.list()).find((s) => s.id === sid);
+    expect(info?.messageCount).toBe(2);
+    expect(info?.cwd).toBe('/keep');
+    expect(info?.agentName).toBe('Keep');
+  });
+
+  it('partial updateSessionMeta keeps the other field', async () => {
+    const sid = 'partial-meta';
+    await storage.updateSessionMeta(sid, { cwd: '/a', agentName: 'Name' });
+    await storage.updateSessionMeta(sid, { cwd: '/b' });
+    const info = (await storage.list()).find((s) => s.id === sid);
+    expect(info?.cwd).toBe('/b');
+    expect(info?.agentName).toBe('Name');
   });
 });

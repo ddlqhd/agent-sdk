@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   SessionManager,
   getSessionStoragePath,
@@ -159,7 +157,8 @@ export class AcpSessionManager {
       if (!exists) {
         throw new Error(`Session not found: ${sourceSessionId}`);
       }
-      cwd = (await this.readSessionCwdFromSidecar(sourceSessionId)) ?? process.cwd();
+      const stored = await this.listStoredSessions();
+      cwd = stored.find((s) => s.id === sourceSessionId)?.cwd ?? process.cwd();
       const eventBridge = new EventBridge(this.connection, sourceSessionId);
       const permissionCtx = createPermissionContext(sourceSessionId, cwd, 'default', this.connection);
       tempSourceAgent = await buildSessionAgent({
@@ -228,7 +227,7 @@ export class AcpSessionManager {
     for (const s of listed) {
       const sessionCwd =
         cwdById.get(s.id) ??
-        (await this.readSessionCwdFromSidecar(s.id)) ??
+        s.cwd ??
         cwd ??
         undefined;
       all.push({
@@ -260,18 +259,6 @@ export class AcpSessionManager {
       basePath: this.sessionStorageBase()
     });
     return mgr.listSessions();
-  }
-
-  private async readSessionCwdFromSidecar(sessionId: string): Promise<string | undefined> {
-    const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sidecarPath = join(this.sessionStorageBase(), `${safeId}.system.json`);
-    try {
-      const raw = await readFile(sidecarPath, 'utf-8');
-      const side = JSON.parse(raw) as { cwd?: string };
-      return typeof side.cwd === 'string' && side.cwd.trim() ? side.cwd : undefined;
-    } catch {
-      return undefined;
-    }
   }
 
   setEditMode(sessionId: string, modeId: string): void {

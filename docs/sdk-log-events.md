@@ -49,7 +49,7 @@ All structured logs use `source: 'agent-sdk'`, a `component`, and an `event` str
 |-------|---------------|-------------|
 | `session.persist.complete` | debug / info | Messages persisted |
 | `session.persist.error` | warn | Persist failed |
-| `session.sidecar.error` | warn | System prompt sidecar failed |
+| `session.meta.error` | warn | Session metadata persist failed |
 
 ## MCP (`component: mcp`)
 

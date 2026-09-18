@@ -64,7 +64,7 @@ See [`packages/agent-sdk-acp/README.md`](../../packages/agent-sdk-acp/README.md)
 
 - History replay emits user/assistant text only; standalone tool-role messages are omitted.
 - ACP `sse` and `acp` MCP transports are skipped (SDK supports `stdio` and `http` only).
-- `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or system-prompt sidecars when available.
+- `session/list` cwd filtering is best-effort; cwd comes from in-memory sessions or `SessionInfo.cwd` in session meta when available.
 - `AskUserQuestion` is disabled (no interactive resolver in stdio mode).
 - Edit mode is not persisted across `session/load` (defaults to `default`).
 - `session/fork` uses the core SDK active-chain fork (not full raw JSONL copy). **Rewind** is not available over ACP; use CLI or web-demo.

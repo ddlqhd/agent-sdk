@@ -36,6 +36,31 @@ describe('MemoryStorage', () => {
     await storage.delete('d');
     expect(await storage.exists('d')).toBe(false);
   });
+
+  it('lists meta-only sessions; exists still requires appended entries', async () => {
+    await storage.updateSessionMeta('meta-only', { cwd: '/work', agentName: 'A' });
+    const listed = await storage.list();
+    expect(listed.find((s) => s.id === 'meta-only')).toMatchObject({
+      id: 'meta-only',
+      messageCount: 0,
+      cwd: '/work',
+      agentName: 'A'
+    });
+    expect(await storage.exists('meta-only')).toBe(false);
+  });
+
+  it('append preserves cwd/agentName; updateSessionMeta keeps messageCount', async () => {
+    await storage.updateSessionMeta('keep', { cwd: '/a', agentName: 'Name' });
+    await storage.append('keep', [
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' }
+    ]);
+    await storage.updateSessionMeta('keep', { cwd: '/b' });
+    const info = (await storage.list()).find((s) => s.id === 'keep');
+    expect(info?.messageCount).toBe(2);
+    expect(info?.cwd).toBe('/b');
+    expect(info?.agentName).toBe('Name');
+  });
 });
 
 describe('JsonlStorage', () => {

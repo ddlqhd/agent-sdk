@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import type {
@@ -6,9 +5,21 @@ import type {
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
-  RewindEntry,
-  SystemPromptSidecar
+  RewindEntry
 } from '../core/types.js';
+
+function preservedSessionFields(
+  existing: SessionInfo | null | undefined
+): Pick<SessionInfo, 'cwd' | 'agentName' | 'metadata'> {
+  if (!existing) {
+    return {};
+  }
+  return {
+    ...(existing.cwd !== undefined ? { cwd: existing.cwd } : {}),
+    ...(existing.agentName !== undefined ? { agentName: existing.agentName } : {}),
+    ...(existing.metadata !== undefined ? { metadata: existing.metadata } : {})
+  };
+}
 
 /**
  * JSONL 文件存储配置
@@ -19,7 +30,7 @@ export interface JsonlStorageConfig {
 
 /**
  * JSONL append-only 存储：每行一条 {@link SessionEntry}。
- * System prompt 不进 jsonl，由 {@link SessionManager.saveSystemPrompt} 写侧车文件。
+ * System prompt 不进 jsonl，也不再写侧车；cwd / agentName 写在 {@link SessionInfo} meta 中。
  */
 export class JsonlStorage implements StorageAdapter {
   private basePath: string;
@@ -45,10 +56,6 @@ export class JsonlStorage implements StorageAdapter {
   private getSystemSidecarPath(sessionId: string): string {
     const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
     return join(this.basePath, `${safeId}.system.json`);
-  }
-
-  getSystemSidecarFilePath(sessionId: string): string {
-    return this.getSystemSidecarPath(sessionId);
   }
 
   private async ensureDir(): Promise<void> {
@@ -82,17 +89,14 @@ export class JsonlStorage implements StorageAdapter {
 
   private async writeMetaAtomic(sessionId: string, messageCount: number): Promise<void> {
     const metaPath = this.getMetaFilePath(sessionId);
+    const existing = await this.readMeta(sessionId);
     const meta: SessionInfo = {
       id: sessionId,
-      createdAt: Date.now(),
+      createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      messageCount
+      messageCount,
+      ...preservedSessionFields(existing)
     };
-
-    const existing = await this.readMeta(sessionId);
-    if (existing) {
-      meta.createdAt = existing.createdAt;
-    }
 
     const payload = JSON.stringify(meta, null, 2);
     await this.atomicReplaceFile(metaPath, payload);
@@ -171,22 +175,31 @@ export class JsonlStorage implements StorageAdapter {
   }
 
   /**
-   * 写入 system prompt 侧车（审计）
+   * 写入或更新会话元数据（cwd / agentName）
    */
-  async saveSystemPrompt(
+  async updateSessionMeta(
     sessionId: string,
-    content: string,
-    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+    patch: Pick<SessionInfo, 'cwd' | 'agentName'>
   ): Promise<void> {
     await this.ensureDir();
-    const side: SystemPromptSidecar = {
-      content,
-      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-      savedAt: Date.now(),
-      ...meta
-    };
-    const path = this.getSystemSidecarPath(sessionId);
-    await this.atomicReplaceFile(path, JSON.stringify(side, null, 2));
+    const existing = await this.readMeta(sessionId);
+    const now = Date.now();
+    const meta: SessionInfo = existing
+      ? {
+          ...existing,
+          updatedAt: now,
+          ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+          ...(patch.agentName !== undefined ? { agentName: patch.agentName } : {})
+        }
+      : {
+          id: sessionId,
+          createdAt: now,
+          updatedAt: now,
+          messageCount: 0,
+          ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+          ...(patch.agentName !== undefined ? { agentName: patch.agentName } : {})
+        };
+    await this.atomicReplaceFile(this.getMetaFilePath(sessionId), JSON.stringify(meta, null, 2));
   }
 
   async list(): Promise<SessionInfo[]> {

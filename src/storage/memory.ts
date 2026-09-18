@@ -1,20 +1,30 @@
-import { createHash } from 'node:crypto';
 import type {
   SessionEntry,
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
-  RewindEntry,
-  SystemPromptSidecar
+  RewindEntry
 } from '../core/types.js';
 
+function preservedSessionFields(
+  existing: SessionInfo | undefined
+): Pick<SessionInfo, 'cwd' | 'agentName' | 'metadata'> {
+  if (!existing) {
+    return {};
+  }
+  return {
+    ...(existing.cwd !== undefined ? { cwd: existing.cwd } : {}),
+    ...(existing.agentName !== undefined ? { agentName: existing.agentName } : {}),
+    ...(existing.metadata !== undefined ? { metadata: existing.metadata } : {})
+  };
+}
+
 /**
- * 内存存储（测试 / 临时会话）；语义与 {@link JsonlStorage} 对齐：append-only + 侧车 system
+ * 内存存储（测试 / 临时会话）；语义与 {@link JsonlStorage} 对齐：append-only + meta 中的 cwd / agentName
  */
 export class MemoryStorage implements StorageAdapter {
   private sessions: Map<string, SessionEntry[]> = new Map();
   private metadata: Map<string, SessionInfo> = new Map();
-  private systemSidecars: Map<string, SystemPromptSidecar> = new Map();
 
   async append(sessionId: string, entries: SessionEntry[]): Promise<void> {
     if (entries.length === 0) {
@@ -40,7 +50,8 @@ export class MemoryStorage implements StorageAdapter {
       id: sessionId,
       createdAt: metaExisting?.createdAt ?? nowMeta,
       updatedAt: nowMeta,
-      messageCount: (metaExisting?.messageCount ?? 0) + entries.length
+      messageCount: (metaExisting?.messageCount ?? 0) + entries.length,
+      ...preservedSessionFields(metaExisting)
     });
   }
 
@@ -56,31 +67,39 @@ export class MemoryStorage implements StorageAdapter {
   async delete(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
     this.metadata.delete(sessionId);
-    this.systemSidecars.delete(sessionId);
   }
 
   async exists(sessionId: string): Promise<boolean> {
     return this.sessions.has(sessionId);
   }
 
-  async saveSystemPrompt(
+  async updateSessionMeta(
     sessionId: string,
-    content: string,
-    meta: Pick<SystemPromptSidecar, 'agentName' | 'cwd'>
+    patch: Pick<SessionInfo, 'cwd' | 'agentName'>
   ): Promise<void> {
-    const side: SystemPromptSidecar = {
-      content,
-      contentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-      savedAt: Date.now(),
-      ...meta
-    };
-    this.systemSidecars.set(sessionId, side);
+    const existing = this.metadata.get(sessionId);
+    const now = Date.now();
+    const next: SessionInfo = existing
+      ? {
+          ...existing,
+          updatedAt: now,
+          ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+          ...(patch.agentName !== undefined ? { agentName: patch.agentName } : {})
+        }
+      : {
+          id: sessionId,
+          createdAt: now,
+          updatedAt: now,
+          messageCount: 0,
+          ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+          ...(patch.agentName !== undefined ? { agentName: patch.agentName } : {})
+        };
+    this.metadata.set(sessionId, next);
   }
 
   clear(): Promise<void> {
     this.sessions.clear();
     this.metadata.clear();
-    this.systemSidecars.clear();
     return Promise.resolve();
   }
 
@@ -106,10 +125,6 @@ export class MemoryStorage implements StorageAdapter {
         messageCount: entries.length
       });
     }
-  }
-
-  getSystemPromptSidecar(sessionId: string): SystemPromptSidecar | undefined {
-    return this.systemSidecars.get(sessionId);
   }
 }
 
