@@ -42,7 +42,7 @@ pnpm clean
 
 # Run CLI (requires pnpm build first)
 pnpm cli --help
-pnpm cli chat --model openai
+pnpm cli chat --provider openai
 ```
 
 Requires Node.js >= 18.

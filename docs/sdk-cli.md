@@ -18,10 +18,10 @@ pnpm build
 pnpm cli --help
 
 # 交互式聊天
-pnpm cli chat --model openai --api-key sk-xxx
+pnpm cli chat --provider openai --api-key sk-xxx
 
 # 单次提问（headless）
-pnpm cli -p "What is the capital of France?" --model openai --bare
+pnpm cli -p "What is the capital of France?" --provider openai --bare
 
 # 列出可用工具
 pnpm cli tools list
@@ -48,7 +48,7 @@ pnpm exec agent-sdk tools list
 ```bash
 pnpm build
 pnpm link --global
-agent-sdk chat --model openai
+agent-sdk chat --provider openai
 ```
 
 ## 通过 npm 安装后使用
@@ -59,10 +59,10 @@ agent-sdk chat --model openai
 npx @ddlqhd/agent-sdk --help
 
 # 聊天模式
-npx @ddlqhd/agent-sdk chat --model openai --api-key sk-xxx
+npx @ddlqhd/agent-sdk chat --provider openai --api-key sk-xxx
 
 # 单次运行（headless / print 模式）
-npx @ddlqhd/agent-sdk -p "List files in current directory" --model openai --bare
+npx @ddlqhd/agent-sdk -p "List files in current directory" --provider openai --bare
 
 # 工具管理
 npx @ddlqhd/agent-sdk tools list
@@ -93,10 +93,11 @@ npx @ddlqhd/agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /
 agent-sdk chat [options]
 
 选项:
-  -m, --model <model>      模型提供商 (openai, anthropic, ollama)
+  --provider <provider>    模型提供商 (openai, anthropic, ollama；默认 openai)
+  -m, --model <model>      模型 ID（如 gpt-4o、claude-sonnet-4）
   -k, --api-key <key>      API Key
   -u, --base-url <url>     基础 URL
-  -M, --model-name <name>  模型名称
+  -M, --model-name <name>  已弃用，等同 `--model`（help 中隐藏）
   -t, --temperature <num>  温度 (0-2)
   --max-tokens <num>       最大 Token 数
   -s, --session <id>       会话 ID
@@ -118,6 +119,8 @@ agent-sdk chat [options]
   --fork-checkpoint-id <id>  在 stream/-p 前 fork 到指定 checkpoint
   --fork-user-turn-index <n> 在 stream/-p 前 fork 到 0-based user turn
 ```
+
+`--model` 表示模型 ID，`--provider` 表示适配器。旧写法 `--model openai|anthropic|ollama`（以及隐藏的 `--model-name`）仍可用一轮，但会在 stderr 给出弃用警告。
 
 #### 交互式斜杠命令（chat）
 
@@ -185,7 +188,7 @@ agent-sdk tui [options]
 非交互 headless 模式（对齐 Claude Code `-p` / `--print`）。在根命令使用，无需子命令：
 
 ```bash
-agent-sdk -p "What does this repo do?" --model openai --bare
+agent-sdk -p "What does this repo do?" --provider openai --bare
 
 # 管道：指令 + stdin 内容
 cat build.log | agent-sdk -p "find root cause" --bare --allowed-tools "Read"
@@ -208,7 +211,8 @@ agent-sdk -p [prompt] [options]
   --output-format <format> --output 别名（Claude Code 兼容）
   --allowed-tools <tools>  逗号分隔的自动批准工具（映射 AgentConfig.allowedTools）
   --bare                   跳过 hooks/skills/memory/MCP 自动发现/subagent profile
-  -m, --model <model>      模型提供商
+  --provider <provider>    模型提供商 (openai, anthropic, ollama；默认 openai)
+  -m, --model <model>      模型 ID
   -k, --api-key <key>      API Key
   -v, --verbose            显示完整的工具调用参数和结果（调试模式）
   --resume, --continue     恢复最近会话

@@ -147,12 +147,12 @@ Subcommands include `chat`, `tools`, `sessions`, and `mcp`. Headless single-shot
 pnpm install
 pnpm build
 pnpm cli --help
-pnpm cli chat --model openai
-pnpm cli -p "Your prompt" --model openai --bare
+pnpm cli chat --provider openai
+pnpm cli -p "Your prompt" --provider openai --bare
 # or: agent-sdk chat ... (after pnpm link --global)
 ```
 
-CLI options include model provider, API keys, session id, MCP config path (`--mcp-config`), cwd, and user base path for config/memory resolution.
+CLI options include `--provider` (openai/anthropic/ollama), `--model` (model ID), API keys, session id, MCP config path (`--mcp-config`), cwd, and user base path for config/memory resolution.
 
 ## Git Commits
 

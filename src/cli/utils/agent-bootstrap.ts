@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import type { ModelProvider } from '../../models/index.js';
 import { Agent } from '../../core/agent.js';
@@ -32,6 +32,63 @@ function parseThinkingLevelCli(value: string): 'low' | 'medium' | 'high' {
   throw new Error(`Invalid --thinking-level: ${value} (use low, medium, or high)`);
 }
 
+const CLI_MODEL_PROVIDERS = ['openai', 'anthropic', 'ollama'] as const;
+
+function isCliModelProvider(value: string): value is ModelProvider {
+  return (CLI_MODEL_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** @internal Exported for unit tests. */
+export function parseProviderCli(value: string): ModelProvider {
+  const s = value.trim().toLowerCase();
+  if (isCliModelProvider(s)) return s;
+  throw new Error(`Invalid --provider: ${value} (use openai, anthropic, or ollama)`);
+}
+
+function warnCliDeprecated(message: string): void {
+  console.warn(chalk.yellow(message));
+}
+
+export interface CliModelSelection {
+  provider: ModelProvider;
+  model?: string;
+}
+
+/**
+ * Resolve Goose-style `--provider` + `--model`, plus one-release aliases:
+ * `--model openai|anthropic|ollama` as provider, and hidden `--model-name`.
+ */
+export function resolveCliModelSelection(options: CLIConfig): CliModelSelection {
+  const explicitProvider = options.provider;
+  const modelFlag = options.model;
+  const legacyModelName = options.modelName;
+
+  if (explicitProvider !== undefined && explicitProvider !== '') {
+    const provider = parseProviderCli(explicitProvider);
+    if (legacyModelName !== undefined) {
+      warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
+    }
+    return { provider, model: modelFlag ?? legacyModelName };
+  }
+
+  const normalizedModel = modelFlag?.trim().toLowerCase();
+  if (modelFlag !== undefined && normalizedModel !== undefined && isCliModelProvider(normalizedModel)) {
+    warnCliDeprecated(
+      `Warning: --model ${modelFlag} is deprecated for selecting a provider; use --provider ${normalizedModel}. --model now means the model ID.`
+    );
+    if (legacyModelName !== undefined) {
+      warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
+    }
+    return { provider: normalizedModel, model: legacyModelName };
+  }
+
+  if (legacyModelName !== undefined) {
+    warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
+  }
+
+  return { provider: 'openai', model: modelFlag ?? legacyModelName };
+}
+
 export function addHeadlessOptions(cmd: Command): Command {
   return cmd
     .option('-o, --output <format>', 'Output format (text/json)', 'text')
@@ -46,10 +103,11 @@ export function addHeadlessOptions(cmd: Command): Command {
 
 export function addModelOptions(cmd: Command): Command {
   return cmd
-    .option('-m, --model <model>', 'Model to use (openai/anthropic/ollama)', 'openai')
+    .option('--provider <provider>', 'LLM provider (openai/anthropic/ollama)', parseProviderCli)
+    .option('-m, --model <model>', 'Model name (e.g. gpt-4o, claude-sonnet-4)')
     .option('-k, --api-key <key>', 'API key')
     .option('-u, --base-url <url>', 'Base URL for API')
-    .option('-M, --model-name <name>', 'Model name')
+    .addOption(new Option('-M, --model-name <name>', 'Deprecated alias for --model').hideHelp())
     .option('-s, --session <id>', 'Session ID to resume')
     .option('-S, --system <prompt>', 'System prompt')
     .option('-t, --temperature <temp>', 'Temperature', parseFloat)
@@ -144,12 +202,12 @@ export function buildStreamOptions(
 }
 
 export function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
-  const provider = (options.model || 'openai') as ModelProvider;
+  const { provider, model } = resolveCliModelSelection(options);
   return {
     provider,
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
-    model: options.modelName,
+    model,
     thinking: options.thinking,
     thinkingLevel: options.thinkingLevel
   };

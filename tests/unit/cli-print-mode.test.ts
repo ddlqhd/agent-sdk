@@ -175,6 +175,7 @@ describe('CLI Commander wiring', () => {
     expect(help).toContain('--bare');
     expect(help).toContain('--allowed-tools');
     expect(help).toContain('--continue');
+    expect(help).toContain('--provider');
   });
 });
 

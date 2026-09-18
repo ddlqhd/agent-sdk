@@ -5,7 +5,10 @@ import type { SDKLogLevel } from '../core/types.js';
  * 不属于 `@ddlqhd/agent-sdk` 的根入口运行时契约。
  */
 export interface CLIConfig {
-  /** 模型 */
+  /** LLM provider (`openai` / `anthropic` / `ollama`). */
+  provider?: string;
+
+  /** Model ID (e.g. `gpt-4o`). */
   model?: string;
 
   /** API Key */
@@ -14,7 +17,7 @@ export interface CLIConfig {
   /** 基础 URL */
   baseUrl?: string;
 
-  /** 模型名称 */
+  /** @deprecated Use {@link model}. Commander `--model-name` alias. */
   modelName?: string;
 
   /** 温度 */
