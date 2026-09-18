@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripAnsi, withCapturedConsoleLog } from '../../src/cli/tui/capture-console.js';
+import { stripAnsi, withCapturedConsoleLog } from '../../packages/agent-sdk-cli/src/tui/capture-console.js';
 
 describe('stripAnsi', () => {
   it('removes color codes', () => {

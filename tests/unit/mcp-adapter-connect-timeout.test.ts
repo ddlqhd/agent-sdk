@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MCPAdapter } from '../../src/mcp/adapter.js';
+import { MCPAdapter } from '../../packages/agent-sdk/src/mcp/adapter.js';
 
 type Deferred = {
   promise: Promise<void>;
@@ -26,7 +26,7 @@ const toToolDefinitionsMock = vi.fn().mockImplementation(() => [
   }
 ]);
 
-vi.mock('../../src/mcp/client.js', () => ({
+vi.mock('../../packages/agent-sdk/src/mcp/client.js', () => ({
   MCPClient: class {
     tools = tools;
     connect = connectMock;

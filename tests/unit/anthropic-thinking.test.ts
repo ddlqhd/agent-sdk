@@ -3,9 +3,9 @@ import {
   AnthropicAdapter,
   applyAnthropicThinking,
   createAnthropic
-} from '../../src/models/anthropic.js';
-import { createModel } from '../../src/models/index.js';
-import type { ModelParams } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/models/anthropic.js';
+import { createModel } from '../../packages/agent-sdk/src/models/index.js';
+import type { ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalUserParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

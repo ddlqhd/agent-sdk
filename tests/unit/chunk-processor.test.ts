@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StreamChunkProcessor } from '../../src/streaming/chunk-processor.js';
+import { StreamChunkProcessor } from '../../packages/agent-sdk/src/streaming/chunk-processor.js';
 
 describe('StreamChunkProcessor', () => {
   it('wraps text in text_start / text_end and emits tool_call_end before tool_call', () => {

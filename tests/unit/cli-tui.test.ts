@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { openCheckpointsModal } from '../../src/cli/tui/app.js';
-import type { Agent } from '../../src/core/agent.js';
+import { openCheckpointsModal } from '../../packages/agent-sdk-cli/src/tui/app.js';
+import type { Agent } from '../../packages/agent-sdk/src/core/agent.js';
 
 describe('openCheckpointsModal', () => {
   it('lists checkpoints after attach', async () => {

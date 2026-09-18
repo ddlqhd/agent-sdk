@@ -3,8 +3,8 @@ import {
   formatTavilyResultsMarkdown,
   tavilyWebSearch,
   TAVILY_SEARCH_URL
-} from '../../src/tools/builtin/tavily-search.js';
-import { webSearchTool } from '../../src/tools/builtin/web.js';
+} from '../../packages/agent-sdk/src/tools/builtin/tavily-search.js';
+import { webSearchTool } from '../../packages/agent-sdk/src/tools/builtin/web.js';
 
 describe('formatTavilyResultsMarkdown', () => {
   it('should format results with markdown links', () => {

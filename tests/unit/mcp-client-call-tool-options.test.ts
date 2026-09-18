@@ -20,7 +20,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
   StreamableHTTPClientTransport: class {}
 }));
 
-import { MCPClient } from '../../src/mcp/client.js';
+import { MCPClient } from '../../packages/agent-sdk/src/mcp/client.js';
 
 describe('MCPClient.callTool RequestOptions', () => {
   beforeEach(() => {

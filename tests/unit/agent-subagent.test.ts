@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Agent } from '../../src/core/agent.js';
-import { createTool } from '../../src/tools/registry.js';
-import type { ModelAdapter, ModelParams, StreamChunk, CompletionResult } from '../../src/core/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { createTool } from '../../packages/agent-sdk/src/tools/registry.js';
+import type { ModelAdapter, ModelParams, StreamChunk, CompletionResult } from '../../packages/agent-sdk/src/core/types.js';
 import { z } from 'zod';
-import * as models from '../../src/models/index.js';
-import { OpenAIAdapter } from '../../src/models/openai.js';
+import * as models from '../../packages/agent-sdk/src/models/index.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
-import { GENERAL_PURPOSE_SYSTEM_FRAGMENT } from '../../src/subagents/builtin/index.js';
+import { GENERAL_PURPOSE_SYSTEM_FRAGMENT } from '../../packages/agent-sdk/src/subagents/builtin/index.js';
 
 /** Used by `forwards ToolExecutionContext.signal to subagent run` test. */
 const SUBAGENT_SIGNAL_PROBE = '__subagent_parent_signal__';

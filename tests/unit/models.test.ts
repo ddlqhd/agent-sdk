@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { zodToJsonSchema } from '../../src/models/base.js';
+import { zodToJsonSchema } from '../../packages/agent-sdk/src/models/base.js';
 import { z } from 'zod';
 
 describe('Schema Conversion', () => {

@@ -351,9 +351,9 @@ pnpm build             # ESM + CJS + d.ts 构建无报错
 
 - 类型参考：[`docs/sdk-types-reference.md`](../sdk-types-reference.md)（需更新 `ImageContent` 段）
 - API 参考：[`docs/sdk-api-reference.md`](../sdk-api-reference.md)（如有图片相关描述需同步）
-- 模型类型定义源码：[`src/core/types.ts`](../../src/core/types.ts)
+- 模型类型定义源码：[`src/core/types.ts`](../../packages/agent-sdk/src/core/types.ts)
 - OpenAI 适配器：[`src/models/openai.ts`](../../src/models/openai.ts)（`transformContentParts` 方法）
 - Anthropic 适配器：[`src/models/anthropic.ts`](../../src/models/anthropic.ts)（`buildAnthropicWireMessages` 函数）
 - Ollama 适配器：[`src/models/ollama.ts`](../../src/models/ollama.ts)（`ollamaMessageContentToApi` 函数）
-- 上下文压缩器：[`src/core/compressor.ts`](../../src/core/compressor.ts)（`messageContentToText` 方法）
-- 终端展示：[`src/cli/utils/chat-history.ts`](../../src/cli/utils/chat-history.ts)（`partsToText` / `partsToTerminalLines` 函数）
+- 上下文压缩器：[`src/core/compressor.ts`](../../packages/agent-sdk/src/core/compressor.ts)（`messageContentToText` 方法）
+- 终端展示：[`src/cli/utils/chat-history.ts`](../../packages/agent-sdk-cli/src/utils/chat-history.ts)（`partsToText` / `partsToTerminalLines` 函数）

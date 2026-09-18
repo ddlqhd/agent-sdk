@@ -55,7 +55,7 @@ describe('getShellPath (win32)', () => {
       return s.endsWith('\\Programs\\Git\\cmd\\git.exe') || s.endsWith('\\Programs\\Git\\bin\\bash.exe');
     });
 
-    const { getShellPath } = await import('../../src/core/environment.js');
+    const { getShellPath } = await import('../../packages/agent-sdk/src/core/environment.js');
     expect(getShellPath()).toBe('D:\\Programs\\Git\\bin\\bash.exe');
   });
 
@@ -75,7 +75,7 @@ describe('getShellPath (win32)', () => {
       return s === 'E:\\Git\\bin\\git.exe' || s === 'E:\\Git\\bin\\bash.exe';
     });
 
-    const { getShellPath } = await import('../../src/core/environment.js');
+    const { getShellPath } = await import('../../packages/agent-sdk/src/core/environment.js');
     expect(getShellPath()).toBe('E:\\Git\\bin\\bash.exe');
   });
 
@@ -92,7 +92,7 @@ describe('getShellPath (win32)', () => {
       return norm === 'd:\\program files\\git\\bin\\bash.exe';
     });
 
-    const { getShellPath } = await import('../../src/core/environment.js');
+    const { getShellPath } = await import('../../packages/agent-sdk/src/core/environment.js');
     expect(getShellPath().replace(/\//g, '\\').toLowerCase()).toBe(
       'd:\\program files\\git\\bin\\bash.exe'
     );

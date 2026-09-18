@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { messagesToTerminalLines, printTerminalChatHistory } from '../../src/cli/utils/chat-history.js';
-import type { Message } from '../../src/core/types.js';
+import { messagesToTerminalLines, printTerminalChatHistory } from '../../packages/agent-sdk-cli/src/utils/chat-history.js';
+import type { Message } from '../../packages/agent-sdk/src/core/types.js';
 
 describe('messagesToTerminalLines', () => {
   it('keeps user and assistant text only when not verbose', () => {

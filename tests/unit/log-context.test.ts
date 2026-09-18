@@ -3,8 +3,8 @@ import {
   createSDKLogContext,
   sdkLog,
   withLogScope
-} from '../../src/core/log-context.js';
-import type { LogEvent } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/core/log-context.js';
+import type { LogEvent } from '../../packages/agent-sdk/src/core/types.js';
 
 function createCaptureLogger(events: LogEvent[]) {
   return {

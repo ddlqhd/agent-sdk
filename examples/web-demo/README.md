@@ -20,7 +20,7 @@ Local **Node.js** server with **WebSocket** (`/ws`) plus a **Vite + TypeScript**
 
    Or run `npm install` in the same directory if you prefer.
 
-   Note: after updating the local `@ddlqhd/agent-sdk` source code (especially after `pnpm build` in repo root), run install again in `examples/web-demo` so the `file:../..` dependency picks up the latest SDK build.
+   Note: after updating the local `@ddlqhd/agent-sdk` source code (especially after `pnpm build` in repo root), run install again in `examples/web-demo` so the `file:../../packages/agent-sdk` dependency picks up the latest SDK build.
 
 3. `pnpm dev` runs **`ensure-sdk`** first (`scripts/ensure-agent-sdk.mjs`): if `node_modules/@ddlqhd/agent-sdk/dist/index.js` is missing, it exits with a hint to build the SDK and reinstall.
 

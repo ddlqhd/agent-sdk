@@ -1,6 +1,6 @@
-# Publishes @ddlqhd/agent-sdk using npm Trusted Publishing (OIDC). No NPM_TOKEN secret.
+# Publishes @ddlqhd/agent-sdk and @ddlqhd/agent-sdk-cli using npm Trusted Publishing (OIDC). No NPM_TOKEN secret.
 #
-# One-time setup on https://www.npmjs.com/ → your package → Settings → Trusted publishing:
+# One-time setup on https://www.npmjs.com/ → each package → Settings → Trusted publishing:
 #   • Provider: GitHub Actions
 #   • Repository + workflow filename: publish.yml (exact name and extension, case-sensitive)
 #   • Optional: GitHub Environment name if you use environments
@@ -9,7 +9,7 @@
 # package.json "repository.url" must match this GitHub repository URL.
 #
 # Usage:
-#   • Or run this workflow manually via Actions → Publish to npm → Run workflow (after bumping version on the default branch).
+#   • Or run this workflow manually via Actions → Publish to npm → Run workflow (after bumping versions on the default branch).
 
 name: Publish to npm
 
@@ -51,16 +51,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify release tag matches package.json
+      - name: Verify release tag matches SDK package.json
         if: github.event_name == 'release'
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_VERSION=$(node -p "require('./packages/agent-sdk/package.json').version")
           TAG_NAME="${{ github.event.release.tag_name }}"
           TAG_VERSION="${TAG_NAME#v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::package.json version ($PKG_VERSION) does not match release tag ($TAG_NAME). Expected tag v$PKG_VERSION"
+            echo "::error::@ddlqhd/agent-sdk version ($PKG_VERSION) does not match release tag ($TAG_NAME). Expected tag v$PKG_VERSION"
             exit 1
           fi
+
+      - name: Build
+        run: pnpm build
 
       - name: Lint
         run: pnpm lint
@@ -68,9 +71,8 @@ jobs:
       - name: Test
         run: pnpm test:run
 
-      - name: Build
-        run: pnpm build
+      - name: Publish SDK to npm
+        run: pnpm --filter @ddlqhd/agent-sdk publish --access public --no-git-checks
 
-      - name: Publish to npm
-        # OIDC auth is applied during publish only; do not use npm whoami — it does not reflect OIDC.
-        run: pnpm publish --access public --no-git-checks
+      - name: Publish CLI to npm
+        run: pnpm --filter @ddlqhd/agent-sdk-cli publish --access public --no-git-checks

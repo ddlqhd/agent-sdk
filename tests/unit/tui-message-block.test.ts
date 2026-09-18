@@ -3,7 +3,7 @@ import {
   borderColorForLine,
   displayTextForLine,
   isDimLine
-} from '../../src/cli/tui/message-block-styles.js';
+} from '../../packages/agent-sdk-cli/src/tui/message-block-styles.js';
 
 describe('borderColorForLine', () => {
   it('maps roles and tool kinds to border colors', () => {

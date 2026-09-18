@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { OpenAIAdapter, openaiContentPartsToWire } from '../../src/models/openai.js';
-import { buildAnthropicWireMessages, type AnthropicImageSource } from '../../src/models/anthropic.js';
-import { ollamaMessageContentToApi } from '../../src/models/ollama.js';
-import { messageContentToTranscriptText } from '../../src/core/compressor.js';
-import { messagesToTerminalLines } from '../../src/cli/utils/chat-history.js';
-import type { ContentPart, Message } from '../../src/core/types.js';
+import { OpenAIAdapter, openaiContentPartsToWire } from '../../packages/agent-sdk/src/models/openai.js';
+import { buildAnthropicWireMessages, type AnthropicImageSource } from '../../packages/agent-sdk/src/models/anthropic.js';
+import { ollamaMessageContentToApi } from '../../packages/agent-sdk/src/models/ollama.js';
+import { messageContentToTranscriptText } from '../../packages/agent-sdk/src/core/compressor.js';
+import { messagesToTerminalLines } from '../../packages/agent-sdk-cli/src/utils/chat-history.js';
+import type { ContentPart, Message } from '../../packages/agent-sdk/src/core/types.js';
 
 const base64Image: ContentPart = {
   type: 'image',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSubagentMd, metadataToSubagentProfile } from '../../src/subagents/parser.js';
+import { parseSubagentMd, metadataToSubagentProfile } from '../../packages/agent-sdk/src/subagents/parser.js';
 
 describe('subagent markdown parser', () => {
   it('parses tools as comma-separated string', () => {

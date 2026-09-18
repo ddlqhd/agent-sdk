@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from '../../src/core/prompts.js';
+import { buildDefaultSystemPromptShell, DEFAULT_SYSTEM_PROMPT } from '../../packages/agent-sdk/src/core/prompts.js';
 
 describe('buildDefaultSystemPromptShell', () => {
   it('with skills: includes Skills section, SKILL_LIST placeholder, and legacy Custom Tools phrasing', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Agent } from '../../src/core/agent.js';
-import type { AgentConfig } from '../../src/core/types.js';
-import { OpenAIAdapter } from '../../src/models/openai.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import type { AgentConfig } from '../../packages/agent-sdk/src/core/types.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
 
 describe('Agent modelConfig + mergeProcessEnv', () => {
   const key = 'OPENAI_API_KEY';

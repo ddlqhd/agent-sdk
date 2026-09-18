@@ -6,7 +6,7 @@ import {
   loadMCPConfig,
   validateMCPConfig,
   type MCPConfigFile
-} from '../../src/config/mcp-config.js';
+} from '../../packages/agent-sdk/src/config/mcp-config.js';
 
 describe('validateMCPConfig toolTimeoutMs', () => {
   it('accepts missing toolTimeoutMs', () => {

@@ -40,22 +40,22 @@ CLI 调试入口见 [`sdk-cli.md`](./sdk-cli.md)。
 
 ## 2. 源码级参考（Contributor）
 
-- Agent 生命周期：`src/core/agent.ts`
-- Subagent 委派执行：`src/tools/builtin/subagent.ts`、`src/subagents/`
-- 类型定义全集：`src/core/types.ts`
-- 模型工厂与 provider 分发：`src/models/index.ts`
-- OpenAI 适配：`src/models/openai.ts`
-- Anthropic 适配：`src/models/anthropic.ts`
-- Ollama 适配：`src/models/ollama.ts`
-- 工具注册与执行：`src/tools/registry.ts`
-- 内置工具聚合：`src/tools/builtin/index.ts`
-- 同名覆盖内置工具（配置层）：[`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 3 节、`src/core/agent.ts`（`registerInitialTools`）
-- 会话管理：`src/storage/session.ts`
-- MCP 配置加载：`src/config/mcp-config.ts`
-- Memory 管理：`src/memory/manager.ts`
-- Skill 注册与初始化：`src/skills/registry.ts`
-- Skill 加载：`src/skills/loader.ts`
-- Streaming 处理：`src/streaming/chunk-processor.ts`
+- Agent 生命周期：`packages/agent-sdk/src/core/agent.ts`
+- Subagent 委派执行：`packages/agent-sdk/src/tools/builtin/subagent.ts`、`packages/agent-sdk/src/subagents/`
+- 类型定义全集：`packages/agent-sdk/src/core/types.ts`
+- 模型工厂与 provider 分发：`packages/agent-sdk/src/models/index.ts`
+- OpenAI 适配：`packages/agent-sdk/src/models/openai.ts`
+- Anthropic 适配：`packages/agent-sdk/src/models/anthropic.ts`
+- Ollama 适配：`packages/agent-sdk/src/models/ollama.ts`
+- 工具注册与执行：`packages/agent-sdk/src/tools/registry.ts`
+- 内置工具聚合：`packages/agent-sdk/src/tools/builtin/index.ts`
+- 同名覆盖内置工具（配置层）：[`sdk-integration-recipes.md`](./sdk-integration-recipes.md) 第 3 节、`packages/agent-sdk/src/core/agent.ts`（`registerInitialTools`）
+- 会话管理：`packages/agent-sdk/src/storage/session.ts`
+- MCP 配置加载：`packages/agent-sdk/src/config/mcp-config.ts`
+- Memory 管理：`packages/agent-sdk/src/memory/manager.ts`
+- Skill 注册与初始化：`packages/agent-sdk/src/skills/registry.ts`
+- Skill 加载：`packages/agent-sdk/src/skills/loader.ts`
+- Streaming 处理：`packages/agent-sdk/src/streaming/chunk-processor.ts`
 
 ## 3. 测试用例参考
 
@@ -70,8 +70,8 @@ CLI 调试入口见 [`sdk-cli.md`](./sdk-cli.md)。
 
 当你发现**文档**与**当前行为**不一致时：
 
-1. 先以 `package.json` `exports` 与 `src/index.ts` 为公开边界
-2. 再以对应实现文件（`src/**`）确认最终行为
+1. 先以 `packages/agent-sdk/package.json` `exports` 与 `packages/agent-sdk/src/index.ts` 为公开边界
+2. 再以对应实现文件（`packages/agent-sdk/src/**`）确认最终行为
 3. 将关键参数显式写入你的接入配置，避免依赖隐式默认值
 
 若确认为文档错误，欢迎提 issue 或 PR。

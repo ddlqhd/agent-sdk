@@ -29,6 +29,7 @@
 
 ### Breaking
 
+- **Monorepo / CLI package**: `@ddlqhd/agent-sdk` is now a **library-only** package (no `bin`). The `agent-sdk` command ships as [`@ddlqhd/agent-sdk-cli`](./packages/agent-sdk-cli) (`npm install -g @ddlqhd/agent-sdk-cli` or `npx @ddlqhd/agent-sdk-cli`). In this repo, library sources live under `packages/agent-sdk/`, CLI under `packages/agent-sdk-cli/`.
 - **CLI**: `--model` no longer selects the provider. Use `--provider openai|anthropic|ollama`. A one-release shim still treats `--model openai|anthropic|ollama` as provider (with a stderr warning) so existing scripts do not silently send that string as the model ID.
 - **CLI**: removed `run` subcommand; use root-level `-p` / `--print` for non-interactive single-shot runs (e.g. `agent-sdk -p "prompt" --bare`).
 - **Agent token usage**: `session_summary.usage`, `onRunEnd.usage`, and `Agent.run().usage` now report **session cumulative** input/output (mapped to `TokenUsage.promptTokens` / `completionTokens`), not a per-`stream()` run snapshot. `iterations` still counts model rounds in the current `stream()` call. Compression and rewind no longer reset cumulative input/output; only `contextTokens` resets.

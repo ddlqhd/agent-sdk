@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseScriptDraft } from '../../src/workflow/parse-script-draft.js';
+import { parseScriptDraft } from '../../packages/agent-sdk/src/workflow/parse-script-draft.js';
 
 describe('parseScriptDraft', () => {
   it('parses JSON object with script field', () => {

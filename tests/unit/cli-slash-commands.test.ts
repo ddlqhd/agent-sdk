@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveSlashCommandName, matchSlashCommandsByPrefix } from '../../src/cli/utils/slash-registry.js';
+import { resolveSlashCommandName, matchSlashCommandsByPrefix } from '../../packages/agent-sdk-cli/src/utils/slash-registry.js';
 import {
   handleSlashCommand,
   resolvePickerSelection,
   type SlashContext
-} from '../../src/cli/utils/slash-commands.js';
-import type { Agent } from '../../src/core/agent.js';
-import type { SessionPickerItem } from '../../src/cli/utils/session-cli.js';
+} from '../../packages/agent-sdk-cli/src/utils/slash-commands.js';
+import type { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import type { SessionPickerItem } from '../../packages/agent-sdk-cli/src/utils/session-cli.js';
 
 function mockAgent(overrides: Partial<{
   sessionId: string | undefined;

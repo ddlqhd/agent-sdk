@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createEmptyStreamBuffers,
   reduceStreamEvent
-} from '../../src/cli/tui/stream-buffers.js';
+} from '../../packages/agent-sdk-cli/src/tui/stream-buffers.js';
 
 describe('reduceStreamEvent', () => {
   it('accumulates thinking then assistant text', () => {

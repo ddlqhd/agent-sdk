@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { JsonlStorage } from '../../src/storage/jsonl.js';
-import { MemoryStorage } from '../../src/storage/memory.js';
+import { JsonlStorage } from '../../packages/agent-sdk/src/storage/jsonl.js';
+import { MemoryStorage } from '../../packages/agent-sdk/src/storage/memory.js';
 import {
   SessionManager,
   reconstructActiveMessages,
@@ -13,11 +13,11 @@ import {
   listSessionCheckpointsFromRaw,
   encodeCheckpointId,
   decodeCheckpointId
-} from '../../src/storage/session.js';
-import { formatSyntheticUserSummary } from '../../src/core/compressor.js';
-import type { CompressionStats, Message, SummaryEntry } from '../../src/core/types.js';
-import { createAgent } from '../../src/core/agent.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/storage/session.js';
+import { formatSyntheticUserSummary } from '../../packages/agent-sdk/src/core/compressor.js';
+import type { CompressionStats, Message, SummaryEntry } from '../../packages/agent-sdk/src/core/types.js';
+import { createAgent } from '../../packages/agent-sdk/src/core/agent.js';
+import type { ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 
 const stats: CompressionStats = {
   originalMessageCount: 10,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createStreamFormatter, formatEvent } from '../../src/cli/utils/output.js';
+import { createStreamFormatter, formatEvent } from '../../packages/agent-sdk-cli/src/utils/output.js';
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, '');

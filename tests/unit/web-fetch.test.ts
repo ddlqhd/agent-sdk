@@ -7,7 +7,7 @@ import {
   isBlockedHostname,
   isDangerousIp,
   type DnsLookupFn
-} from '../../src/tools/builtin/web-fetch.js';
+} from '../../packages/agent-sdk/src/tools/builtin/web-fetch.js';
 
 const publicLookup: DnsLookupFn = async () => [{ address: '93.184.216.34', family: 4 }];
 

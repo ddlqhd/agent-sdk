@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { collectSessionStatus } from '../../src/cli/utils/session-status.js';
-import type { Agent } from '../../src/core/agent.js';
+import { collectSessionStatus } from '../../packages/agent-sdk-cli/src/utils/session-status.js';
+import type { Agent } from '../../packages/agent-sdk/src/core/agent.js';
 
 function makeAgent(overrides: Partial<{
   sessionId: string | undefined;

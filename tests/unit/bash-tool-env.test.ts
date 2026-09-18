@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { bashTool } from '../../src/tools/builtin/shell.js';
-import type { ToolExecutionContext } from '../../src/core/types.js';
+import { bashTool } from '../../packages/agent-sdk/src/tools/builtin/shell.js';
+import type { ToolExecutionContext } from '../../packages/agent-sdk/src/core/types.js';
 
 const KEY = 'AGENT_SDK_BASH_ENV_TEST';
 

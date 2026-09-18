@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createAgent, Agent } from '../../src/core/agent.js';
-import { MemoryManager } from '../../src/memory/manager.js';
+import { createAgent, Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { MemoryManager } from '../../packages/agent-sdk/src/memory/manager.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { ModelAdapter, StreamChunk, MemoryConfig } from '../../src/core/types.js';
+import type { ModelAdapter, StreamChunk, MemoryConfig } from '../../packages/agent-sdk/src/core/types.js';
 
 // Mock model adapter for testing
 const createMockModel = (): ModelAdapter => ({

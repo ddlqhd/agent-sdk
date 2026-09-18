@@ -8,14 +8,14 @@ import {
   readStdin,
   isHeadlessCli,
   PRINT_STDIN_MAX_BYTES
-} from '../../src/cli/utils/print-prompt.js';
+} from '../../packages/agent-sdk-cli/src/utils/print-prompt.js';
 import {
   addHeadlessOptions,
   addModelOptions,
   buildCliAgentConfig,
   reportMCPConfigLoad
-} from '../../src/cli/utils/agent-bootstrap.js';
-import { createChatCommand } from '../../src/cli/commands/chat.js';
+} from '../../packages/agent-sdk-cli/src/utils/agent-bootstrap.js';
+import { createChatCommand } from '../../packages/agent-sdk-cli/src/commands/chat.js';
 
 describe('print-prompt helpers', () => {
   describe('parseAllowedTools', () => {

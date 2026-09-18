@@ -17,7 +17,7 @@ export function ensureSdkBuilt(): void {
   }
 
   candidates.push(join(PKG_ROOT, 'node_modules', '@ddlqhd', 'agent-sdk', 'dist', 'index.js'));
-  candidates.push(join(PKG_ROOT, '..', '..', 'dist', 'index.js'));
+  candidates.push(join(PKG_ROOT, '..', 'agent-sdk', 'dist', 'index.js'));
 
   if (candidates.some((p) => existsSync(p))) {
     return;

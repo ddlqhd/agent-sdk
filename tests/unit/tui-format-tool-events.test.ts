@@ -6,7 +6,7 @@ import {
   formatToolErrorText,
   isPersistedToolErrorContent,
   toolLineFromPersistedToolMessage
-} from '../../src/cli/tui/format-tool-events.js';
+} from '../../packages/agent-sdk-cli/src/tui/format-tool-events.js';
 
 describe('summarizeToolArgs', () => {
   it('extracts file_path for Read', () => {

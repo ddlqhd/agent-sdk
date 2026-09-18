@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentConfig, SkillConfig } from '../../src/core/types.js';
+import type { AgentConfig, SkillConfig } from '../../packages/agent-sdk/src/core/types.js';
 
 const VITEST_TMP_ROOT = join(process.cwd(), '.vitest-tmp');
 

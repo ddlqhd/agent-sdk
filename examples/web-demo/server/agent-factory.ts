@@ -109,7 +109,7 @@ export interface BuildAgentOptions {
 }
 
 function ensureSdkBuilt(): void {
-  const distJs = join(SDK_ROOT, 'dist', 'index.js');
+  const distJs = join(SDK_ROOT, 'packages', 'agent-sdk', 'dist', 'index.js');
   if (!existsSync(distJs)) {
     throw new Error(
       `@ddlqhd/agent-sdk is not built. From the repository root run: pnpm build\nExpected: ${distJs}`

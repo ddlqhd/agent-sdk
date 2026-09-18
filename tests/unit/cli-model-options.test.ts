@@ -6,7 +6,7 @@ import {
   modelConfigFromOptions,
   parseProviderCli,
   resolveCliModelSelection
-} from '../../src/cli/utils/agent-bootstrap.js';
+} from '../../packages/agent-sdk-cli/src/utils/agent-bootstrap.js';
 
 describe('parseProviderCli', () => {
   it('accepts known providers case-insensitively', () => {

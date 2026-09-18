@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildShellInvocation } from '../../src/tools/shell/invocation.js';
+import { buildShellInvocation } from '../../packages/agent-sdk/src/tools/shell/invocation.js';
 
 /**
  * `buildShellInvocation` is driven only by the shell executable basename

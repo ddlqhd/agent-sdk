@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { z } from 'zod';
-import { TOOL_USER_ABORTED_MESSAGE } from '../../src/core/abort-constants.js';
-import { ToolRegistry, createTool } from '../../src/tools/registry.js';
+import { TOOL_USER_ABORTED_MESSAGE } from '../../packages/agent-sdk/src/core/abort-constants.js';
+import { ToolRegistry, createTool } from '../../packages/agent-sdk/src/tools/registry.js';
 import {
   createAskUserQuestionTool,
   type AskUserQuestionItem
-} from '../../src/tools/builtin/interaction.js';
-import type { ToolExecutionContext } from '../../src/core/types.js';
-import { runInteractiveAskUserQuestion } from '../../src/cli/utils/ask-user-question.js';
+} from '../../packages/agent-sdk/src/tools/builtin/interaction.js';
+import type { ToolExecutionContext } from '../../packages/agent-sdk/src/core/types.js';
+import { runInteractiveAskUserQuestion } from '../../packages/agent-sdk-cli/src/utils/ask-user-question.js';
 
 describe('ToolRegistry + abort signal', () => {
   it('skips handler when signal is already aborted (after param validation)', async () => {

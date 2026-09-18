@@ -13,7 +13,7 @@ A TypeScript library for building AI agents with multi-model support (OpenAI, An
 - JSONL or in-memory session storage
 - Long-term memory from `CLAUDE.md`
 - Streaming via `AsyncIterable` / `StreamEvent`
-- Optional CLI for trying the SDK (`agent-sdk`)
+- Optional CLI for trying the SDK (`@ddlqhd/agent-sdk-cli`, binary `agent-sdk`)
 
 ## Requirements
 
@@ -29,6 +29,14 @@ npm install @ddlqhd/agent-sdk zod
 
 ```bash
 pnpm add @ddlqhd/agent-sdk zod
+```
+
+Optional CLI (separate package; installing the SDK no longer provides the `agent-sdk` binary):
+
+```bash
+npm install -g @ddlqhd/agent-sdk-cli
+# or
+npx @ddlqhd/agent-sdk-cli --help
 ```
 
 ## Documentation

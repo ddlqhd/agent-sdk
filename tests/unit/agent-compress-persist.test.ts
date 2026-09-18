@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { Agent } from '../../src/core/agent.js';
-import { SessionManager } from '../../src/storage/session.js';
-import { getSessionStoragePath } from '../../src/storage/session-path.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { SessionManager } from '../../packages/agent-sdk/src/storage/session.js';
+import { getSessionStoragePath } from '../../packages/agent-sdk/src/storage/session-path.js';
+import type { ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 /**

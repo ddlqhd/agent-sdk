@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMcpToolName, isMcpPrefixedToolName, validateMcpNameSegment } from '../../src/mcp/mcp-tool-name.js';
+import { formatMcpToolName, isMcpPrefixedToolName, validateMcpNameSegment } from '../../packages/agent-sdk/src/mcp/mcp-tool-name.js';
 
 describe('formatMcpToolName', () => {
   it('builds mcp__server__tool', () => {

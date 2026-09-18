@@ -2,9 +2,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { Agent } from '../../src/core/agent.js';
-import { SkillRegistry } from '../../src/skills/registry.js';
-import type { MCPServerConfig, ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { SkillRegistry } from '../../packages/agent-sdk/src/skills/registry.js';
+import type { MCPServerConfig, ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 const noopModel: ModelAdapter = {

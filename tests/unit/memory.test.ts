@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryManager } from '../../src/memory/manager.js';
-import type { MemoryConfig } from '../../src/core/types.js';
+import { MemoryManager } from '../../packages/agent-sdk/src/memory/manager.js';
+import type { MemoryConfig } from '../../packages/agent-sdk/src/core/types.js';
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createFileJSONLLogger } from '../../src/core/file-logger.js';
-import type { LogEvent } from '../../src/core/types.js';
+import { createFileJSONLLogger } from '../../packages/agent-sdk/src/core/file-logger.js';
+import type { LogEvent } from '../../packages/agent-sdk/src/core/types.js';
 
 function makeEvent(over: Partial<LogEvent> = {}): LogEvent {
   return {

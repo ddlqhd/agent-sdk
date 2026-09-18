@@ -3,9 +3,9 @@ import {
   ollamaStreamChunksFromChatData,
   ollamaMessageContentToApiString,
   OllamaAdapter
-} from '../../src/models/ollama.js';
-import { createModel } from '../../src/models/index.js';
-import type { ModelParams } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/models/ollama.js';
+import { createModel } from '../../packages/agent-sdk/src/models/index.js';
+import type { ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 function parseToolArguments(args: unknown): Record<string, unknown> {
   if (args == null) return {};

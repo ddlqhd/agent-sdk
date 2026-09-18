@@ -31,7 +31,7 @@
 - **`callbacks.lifecycle.hooks`**：由 `Agent` 注入到 `ToolRegistry`，用于观察 Hook 管道（`onHookStart` / `onHookDecision` 等），不替代 `HookManager`。
 - **`onError`**：可选第二参数 `AgentErrorContext`，用于区分 `run` / `model` / `tool` 等阶段。
 
-类型定义见源码 [`src/core/callbacks.ts`](../src/core/callbacks.ts)（并由包根 `export * from './core/types.js'` 再导出常用别名）。
+类型定义见源码 [`src/core/callbacks.ts`](../packages/agent-sdk/src/core/callbacks.ts)（并由包根 `export * from './core/types.js'` 再导出常用别名）。
 
 `CanUseToolCallback` 为根入口导出的类型别名。`AskUserQuestionResolver` 由内置交互工具随 `export *` 从 `@ddlqhd/agent-sdk` 可见（与 `createAskUserQuestionTool` 等同级）。
 

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Agent } from '../../src/core/agent.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import type { ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
-import type { SessionManager } from '../../src/storage/session.js';
+import type { SessionManager } from '../../packages/agent-sdk/src/storage/session.js';
 
 async function loadActiveForManager(sm: SessionManager) {
   const id = sm.sessionId;

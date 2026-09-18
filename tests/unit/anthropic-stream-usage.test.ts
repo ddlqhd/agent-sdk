@@ -4,8 +4,8 @@ import {
   computeActualInputTokens,
   mergeAnthropicInputUsage,
   resolveAnthropicStreamUsage
-} from '../../src/models/anthropic.js';
-import type { ModelParams, StreamChunk } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/models/anthropic.js';
+import type { ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

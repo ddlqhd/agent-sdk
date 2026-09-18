@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ensureApiVersionSuffix, joinApiUrl, normalizeApiBaseUrl } from '../../src/models/base.js';
-import { AnthropicAdapter } from '../../src/models/anthropic.js';
-import { OpenAIAdapter } from '../../src/models/openai.js';
-import type { ModelParams } from '../../src/core/types.js';
+import { ensureApiVersionSuffix, joinApiUrl, normalizeApiBaseUrl } from '../../packages/agent-sdk/src/models/base.js';
+import { AnthropicAdapter } from '../../packages/agent-sdk/src/models/anthropic.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
+import type { ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 describe('normalizeApiBaseUrl / joinApiUrl', () => {
   it('strips trailing slashes', () => {

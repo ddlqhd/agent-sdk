@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { adaptMessageLogger } from '../../src/core/log-adapters.js';
-import type { LogEvent } from '../../src/core/types.js';
+import { adaptMessageLogger } from '../../packages/agent-sdk/src/core/log-adapters.js';
+import type { LogEvent } from '../../packages/agent-sdk/src/core/types.js';
 
 describe('log adapters', () => {
   it('adaptMessageLogger respects optional level methods', () => {

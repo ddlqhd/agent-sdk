@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { SessionManager, reconstructActiveMessages } from '../../src/storage/session.js';
-import { MemoryStorage } from '../../src/storage/memory.js';
+import { SessionManager, reconstructActiveMessages } from '../../packages/agent-sdk/src/storage/session.js';
+import { MemoryStorage } from '../../packages/agent-sdk/src/storage/memory.js';
 import { replaySessionHistory } from '../../packages/agent-sdk-acp/src/history-replay.js';
 import {
   buildToolCallStart,

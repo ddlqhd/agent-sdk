@@ -39,7 +39,7 @@ pnpm cli mcp connect "npx @modelcontextprotocol/server-filesystem /path"
 pnpm exec agent-sdk tools list
 ```
 
-未构建时 CLI 会提示执行 `pnpm build`。调试/CI 也可显式使用 `node dist/cli/index.js ...`。
+未构建时 CLI 会提示执行 `pnpm build`。调试/CI 也可显式使用 `node packages/agent-sdk-cli/dist/index.js ...`。
 
 ### 贡献者全局 link
 
@@ -47,40 +47,46 @@ pnpm exec agent-sdk tools list
 
 ```bash
 pnpm build
-pnpm link --global
+pnpm --filter @ddlqhd/agent-sdk-cli link --global
 agent-sdk chat --provider openai
 ```
 
 ## 通过 npm 安装后使用
 
-全局安装（`npm install -g @ddlqhd/agent-sdk`）后可直接使用 `agent-sdk` 命令；项目内推荐 `npx`：
+CLI 是独立包 **`@ddlqhd/agent-sdk-cli`**（会依赖 `@ddlqhd/agent-sdk`）。全局安装：
 
 ```bash
-npx @ddlqhd/agent-sdk --help
+npm install -g @ddlqhd/agent-sdk-cli
+```
+
+之后可直接使用 `agent-sdk` 命令；项目内推荐 `npx`：
+
+```bash
+npx @ddlqhd/agent-sdk-cli --help
 
 # 聊天模式
-npx @ddlqhd/agent-sdk chat --provider openai --api-key sk-xxx
+npx @ddlqhd/agent-sdk-cli chat --provider openai --api-key sk-xxx
 
 # 单次运行（headless / print 模式）
-npx @ddlqhd/agent-sdk -p "List files in current directory" --provider openai --bare
+npx @ddlqhd/agent-sdk-cli -p "List files in current directory" --provider openai --bare
 
 # 工具管理
-npx @ddlqhd/agent-sdk tools list
-npx @ddlqhd/agent-sdk tools show Read
-npx @ddlqhd/agent-sdk tools test Read -a "{}"
+npx @ddlqhd/agent-sdk-cli tools list
+npx @ddlqhd/agent-sdk-cli tools show Read
+npx @ddlqhd/agent-sdk-cli tools test Read -a "{}"
 # 或长选项：--args（JSON 对象字符串）
 
 # 会话管理（与 chat/-p 使用相同存储时须传相同 --user-base-path）
-npx @ddlqhd/agent-sdk sessions list
-npx @ddlqhd/agent-sdk sessions show <session-id>
-npx @ddlqhd/agent-sdk sessions checkpoints <session-id>
-npx @ddlqhd/agent-sdk sessions rewind <session-id> --user-turn-index 0
-npx @ddlqhd/agent-sdk sessions fork <source-id>
-npx @ddlqhd/agent-sdk sessions delete <session-id>
-npx @ddlqhd/agent-sdk sessions clear
+npx @ddlqhd/agent-sdk-cli sessions list
+npx @ddlqhd/agent-sdk-cli sessions show <session-id>
+npx @ddlqhd/agent-sdk-cli sessions checkpoints <session-id>
+npx @ddlqhd/agent-sdk-cli sessions rewind <session-id> --user-turn-index 0
+npx @ddlqhd/agent-sdk-cli sessions fork <source-id>
+npx @ddlqhd/agent-sdk-cli sessions delete <session-id>
+npx @ddlqhd/agent-sdk-cli sessions clear
 
 # MCP（当前 CLI 仅提供 connect；运行时 MCP 多用 Agent 配置或 mcp_config.json）
-npx @ddlqhd/agent-sdk mcp connect "npx @modelcontextprotocol/server-filesystem /path"
+npx @ddlqhd/agent-sdk-cli mcp connect "npx @modelcontextprotocol/server-filesystem /path"
 ```
 
 ## HTTP 代理

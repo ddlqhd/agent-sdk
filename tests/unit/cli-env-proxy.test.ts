@@ -8,7 +8,7 @@ import {
   resolveProxyUrlFromEnv,
   setUndiciFetchForTests,
   shouldBypassProxy
-} from '../../src/cli/utils/apply-env-proxy.js';
+} from '../../packages/agent-sdk-cli/src/utils/apply-env-proxy.js';
 
 const realFetch = globalThis.fetch;
 

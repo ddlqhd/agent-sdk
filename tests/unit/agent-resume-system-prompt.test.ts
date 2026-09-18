@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { Agent } from '../../src/core/agent.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import type { ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 function captureParamsModel(): { model: ModelAdapter; getLastParams: () => ModelParams | undefined } {

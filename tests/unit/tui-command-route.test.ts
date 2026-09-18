@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTuiModalCommand } from '../../src/cli/tui/tui-command-route.js';
+import { parseTuiModalCommand } from '../../packages/agent-sdk-cli/src/tui/tui-command-route.js';
 
 describe('parseTuiModalCommand', () => {
   it('maps UI-owned slash commands', () => {

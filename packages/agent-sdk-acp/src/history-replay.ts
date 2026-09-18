@@ -7,7 +7,11 @@ function messageText(content: string | ContentPart[]): string {
     .map((p) => {
       if (p.type === 'text') return p.text;
       if (p.type === 'thinking') return p.thinking;
-      if (p.type === 'image') return `[image: ${p.imageUrl}]`;
+      if (p.type === 'image') {
+        return p.source.type === 'base64'
+          ? `[image: ${p.source.mimeType}]`
+          : `[image: ${p.source.url}]`;
+      }
       return '';
     })
     .filter(Boolean)

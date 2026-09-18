@@ -4,11 +4,13 @@ This file provides instructions for AI coding agents working in this repository.
 
 ## Project Overview
 
-Agent SDK is a TypeScript library for building AI agents with multi-model support (`createModel` / per-provider factories), MCP integration (`MCPClient`, `MCPAdapter`, optional `mcp_config.json`), skill system, long-term memory via `MemoryManager`, streaming helpers under `src/streaming/`, and JSONL or in-memory session storage.
+This repo is a pnpm monorepo. The publishable library is `@ddlqhd/agent-sdk` (`packages/agent-sdk`). The optional CLI is `@ddlqhd/agent-sdk-cli` (`packages/agent-sdk-cli`, binary `agent-sdk`). The ACP bridge is `@ddlqhd/agent-sdk-acp`.
 
-Optional environment: set `TAVILY_API_KEY` to enable built-in **WebSearch** via the Tavily API (`src/tools/builtin/tavily-search.ts`). Optional tuning: `TAVILY_SEARCH_DEPTH`, `TAVILY_MAX_RESULTS`.
+Agent SDK is a TypeScript library for building AI agents with multi-model support (`createModel` / per-provider factories), MCP integration (`MCPClient`, `MCPAdapter`, optional `mcp_config.json`), skill system, long-term memory via `MemoryManager`, streaming helpers under `packages/agent-sdk/src/streaming/`, and JSONL or in-memory session storage.
 
-**Zod:** `zod` is a **peerDependency** (^4). It remains in **devDependencies** for this repo’s tests and builds; consumers must install `zod` themselves (see root `README.md` Installation).
+Optional environment: set `TAVILY_API_KEY` to enable built-in **WebSearch** via the Tavily API (`packages/agent-sdk/src/tools/builtin/tavily-search.ts`). Optional tuning: `TAVILY_SEARCH_DEPTH`, `TAVILY_MAX_RESULTS`.
+
+**Zod:** `zod` is a **peerDependency** (^4) of `@ddlqhd/agent-sdk`. It remains in this repo’s `devDependencies` for tests and builds; library consumers must install `zod` themselves (see root `README.md` Installation). The CLI package depends on `zod` directly.
 
 ## Build/Lint/Test Commands
 
@@ -22,7 +24,7 @@ pnpm build
 # Watch mode rebuild during development
 pnpm dev
 
-# Type checking (no emit)
+# Type checking (no emit). CLI / ACP lint after `pnpm build` so they resolve SDK dist types.
 pnpm lint
 
 # Run all tests once
@@ -205,7 +207,7 @@ export { createTool } from './registry.js';
 export type { ToolConfig, ToolResult } from './types.js';
 ```
 
-The root `src/index.ts` is the main public API; `package.json` also exposes `@ddlqhd/agent-sdk/models` and `@ddlqhd/agent-sdk/tools`.
+`packages/agent-sdk/src/index.ts` is the main public API; `packages/agent-sdk/package.json` also exposes `@ddlqhd/agent-sdk/models` and `@ddlqhd/agent-sdk/tools`. CLI code imports the SDK via `@ddlqhd/agent-sdk` (not relative paths into the library).
 
 ## Commit Messages
 

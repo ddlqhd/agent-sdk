@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isModelStreamEventType,
   MODEL_STREAM_EVENT_TYPES
-} from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/core/types.js';
 
 describe('isModelStreamEventType / MODEL_STREAM_EVENT_TYPES', () => {
   it('returns true for every listed model stream type', () => {

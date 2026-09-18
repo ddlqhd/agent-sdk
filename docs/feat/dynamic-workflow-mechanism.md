@@ -3,9 +3,9 @@
 ## 读者指引
 
 - **应用集成者**：若只想在项目里生成 / 执行工作流脚本，请优先阅读 **§1 概述**、**§3 工作流脚本方言**、**§7 对外 API 与 CLI**；面向应用的用法示例见 [`docs/workflow.md`](../workflow.md)。可跳过 **§4 模块设计**、**§5 执行运行时**、**§6 生成链路**、**§9 实现要点**（内部实现）。
-- **SDK 贡献者或深度排障**：可通读全文。源码位于 `src/workflow/`，CLI 位于 `src/cli/commands/workflow.ts`。
+- **SDK 贡献者或深度排障**：可通读全文。源码位于 `packages/agent-sdk/src/workflow/`，CLI 位于 `packages/agent-sdk-cli/src/commands/workflow.ts`。
 
-> 注：按仓库第三方文档政策，面向应用代码的唯一集成面仍是 [`Agent`](../../src/core/agent.ts)。工作流的 `agent()` 原语底层即是隔离的 `Agent` 实例，用户无需直接调用 `ModelAdapter.stream` / `complete`。
+> 注：按仓库第三方文档政策，面向应用代码的唯一集成面仍是 [`Agent`](../../packages/agent-sdk/src/core/agent.ts)。工作流的 `agent()` 原语底层即是隔离的 `Agent` 实例，用户无需直接调用 `ModelAdapter.stream` / `complete`。
 
 ---
 
@@ -39,9 +39,9 @@ flowchart LR
 
 | ODW | 本仓库 |
 |-----|--------|
-| `agent(prompt)` = spawn 外部 CLI | `agent(prompt)` = 每次起一个隔离 [`Agent`](../../src/core/agent.ts)，`await agent.run(prompt)` 走模型 API |
+| `agent(prompt)` = spawn 外部 CLI | `agent(prompt)` = 每次起一个隔离 [`Agent`](../../packages/agent-sdk/src/core/agent.ts)，`await agent.run(prompt)` 走模型 API |
 | `Scheduler` / `Bridge` / `Adapter` / `Runner` 四层 | 坍缩为 `Scheduler` + `Agent`（Agent 内部已封装模型调用与工具循环） |
-| 按字符估算预算 | 用 [`AgentResult.usage`](../../src/core/types.ts) 的**真实 token** 记账 |
+| 按字符估算预算 | 用 [`AgentResult.usage`](../../packages/agent-sdk/src/core/types.ts) 的**真实 token** 记账 |
 | detached worker + run 目录持久化 | 第一版简化为进程内 `runWorkflow()`；持久化 / HTTP 留作后续扩展 |
 
 ### 1.3 设计目标
@@ -251,7 +251,7 @@ const run = await runWorkflow(gen.script, {           // 人工确认后执行
 });
 ```
 
-### 7.2 CLI（`src/cli/commands/workflow.ts`）
+### 7.2 CLI（`packages/agent-sdk-cli/src/commands/workflow.ts`）
 
 - `agent-sdk workflow generate <task> [-o file] [--json]`：生成并预览脚本，可写文件。
 - `agent-sdk workflow run <file> [--args json] [--max-concurrency n] [--max-agents n] [--budget tokens] [--json]`：执行脚本，边执行边打印 phase / agent / log 事件与最终结果。
@@ -296,5 +296,5 @@ const run = await runWorkflow(gen.script, {           // 人工确认后执行
 - 应用向用法：[`docs/workflow.md`](../workflow.md)
 - 示例脚本：[`examples/workflows/fan-out-reduce.js`](../../examples/workflows/fan-out-reduce.js)
 - 单元测试：`tests/unit/workflow-loader.test.ts`、`tests/unit/workflow-scheduler.test.ts`、`tests/unit/workflow-runner.test.ts`
-- 源码：`src/workflow/`、CLI `src/cli/commands/workflow.ts`
+- 源码：`packages/agent-sdk/src/workflow/`、CLI `packages/agent-sdk-cli/src/commands/workflow.ts`
 - 集成面约束：[`docs/sdk-overview.md`](../sdk-overview.md) §3（`Agent` 为唯一支持的应用集成面）

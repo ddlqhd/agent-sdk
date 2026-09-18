@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ContextManager, runIterationCompaction } from '../../src/core/context-manager.js';
-import { SummarizationCompressor } from '../../src/core/compressor.js';
-import type { Message, ModelAdapter, SessionTokenUsage } from '../../src/core/types.js';
+import { ContextManager, runIterationCompaction } from '../../packages/agent-sdk/src/core/context-manager.js';
+import { SummarizationCompressor } from '../../packages/agent-sdk/src/core/compressor.js';
+import type { Message, ModelAdapter, SessionTokenUsage } from '../../packages/agent-sdk/src/core/types.js';
 
 // Mock model adapter
 const createMockModel = (capabilities?: { contextLength: number; maxOutputTokens?: number }): ModelAdapter => ({

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createSkillRegistry } from '../../src/skills/registry.js';
-import { invokeUserSkill } from '../../src/skills/user-invocation.js';
-import { buildSlashMenuItems } from '../../src/cli/tui/slash-menu.js';
+import { createSkillRegistry } from '../../packages/agent-sdk/src/skills/registry.js';
+import { invokeUserSkill } from '../../packages/agent-sdk/src/skills/user-invocation.js';
+import { buildSlashMenuItems } from '../../packages/agent-sdk-cli/src/tui/slash-menu.js';
 
 describe('user skill slash invocation with YAML metadata', () => {
   let workDir: string;

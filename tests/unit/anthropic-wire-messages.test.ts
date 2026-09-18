@@ -3,8 +3,8 @@ import {
   AnthropicAdapter,
   buildAnthropicWireMessages,
   computeActualInputTokens
-} from '../../src/models/anthropic.js';
-import type { Message, ModelParams } from '../../src/core/types.js';
+} from '../../packages/agent-sdk/src/models/anthropic.js';
+import type { Message, ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalUserParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

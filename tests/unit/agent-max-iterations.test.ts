@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Agent, DEFAULT_MAX_ITERATIONS } from '../../src/core/agent.js';
-import { createTool } from '../../src/tools/registry.js';
-import type { ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
+import { Agent, DEFAULT_MAX_ITERATIONS } from '../../packages/agent-sdk/src/core/agent.js';
+import { createTool } from '../../packages/agent-sdk/src/tools/registry.js';
+import type { ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 import { z } from 'zod';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 

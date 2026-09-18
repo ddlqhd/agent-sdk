@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { Agent } from '../../src/core/agent.js';
-import { formatSDKLog, resolveLogRedaction, sanitizeForLogging } from '../../src/core/logger.js';
-import type { LogEvent, ModelAdapter, ModelParams, StreamChunk } from '../../src/core/types.js';
-import { OpenAIAdapter } from '../../src/models/openai.js';
-import { createTool } from '../../src/tools/index.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { formatSDKLog, resolveLogRedaction, sanitizeForLogging } from '../../packages/agent-sdk/src/core/logger.js';
+import type { LogEvent, ModelAdapter, ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
+import { createTool } from '../../packages/agent-sdk/src/tools/index.js';
 import { SKILL_CONFIG_NO_AUTOLOAD } from '../helpers/agent-test-defaults.js';
 
 function createCaptureLogger(events: LogEvent[]) {

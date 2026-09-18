@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isNonBlankString } from '../../src/utils/index.js';
+import { isNonBlankString } from '../../packages/agent-sdk/src/utils/index.js';
 
 describe('isNonBlankString', () => {
   it('returns true for strings with non-whitespace', () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { coerceLogEventEpochMs, formatStructuredLogWallClock } from '../../src/core/log-timestamp.js';
+import { coerceLogEventEpochMs, formatStructuredLogWallClock } from '../../packages/agent-sdk/src/core/log-timestamp.js';
 
 describe('formatStructuredLogWallClock', () => {
   const fixed = Date.UTC(2026, 4, 16, 12, 34, 56, 789);

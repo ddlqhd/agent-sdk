@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Scheduler } from '../../src/workflow/scheduler.js';
-import { AgentLimitExceeded, BudgetExhausted } from '../../src/workflow/errors.js';
-import { createBudgetTracker } from '../../src/workflow/budget.js';
+import { Scheduler } from '../../packages/agent-sdk/src/workflow/scheduler.js';
+import { AgentLimitExceeded, BudgetExhausted } from '../../packages/agent-sdk/src/workflow/errors.js';
+import { createBudgetTracker } from '../../packages/agent-sdk/src/workflow/budget.js';
 
 describe('workflow scheduler', () => {
   it('limits concurrency', async () => {

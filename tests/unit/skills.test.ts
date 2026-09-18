@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSkillMd } from '../../src/skills/parser.js';
+import { parseSkillMd } from '../../packages/agent-sdk/src/skills/parser.js';
 
 describe('Skill Parser', () => {
   it('should parse SKILL.md with frontmatter', () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OpenAIAdapter } from '../../src/models/openai.js';
-import type { ModelParams, StreamChunk } from '../../src/core/types.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
+import type { ModelParams, StreamChunk } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

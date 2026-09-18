@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { OpenAIAdapter } from '../../src/models/openai.js';
-import { AnthropicAdapter } from '../../src/models/anthropic.js';
-import { OllamaAdapter } from '../../src/models/ollama.js';
-import { createModel } from '../../src/models/index.js';
-import type { ModelParams } from '../../src/core/types.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
+import { AnthropicAdapter } from '../../packages/agent-sdk/src/models/anthropic.js';
+import { OllamaAdapter } from '../../packages/agent-sdk/src/models/ollama.js';
+import { createModel } from '../../packages/agent-sdk/src/models/index.js';
+import type { ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

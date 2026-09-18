@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ToolRegistry } from '../../src/tools/registry.js';
+import { ToolRegistry } from '../../packages/agent-sdk/src/tools/registry.js';
 
 const { statMock } = vi.hoisted(() => ({
   statMock: vi.fn()
@@ -28,7 +28,7 @@ describe('Edit Tool max file size', () => {
     const readSpy = vi.spyOn(fs, 'readFile');
 
     try {
-      const { editTool } = await import('../../src/tools/builtin/filesystem.js');
+      const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/filesystem.js');
       const registry = new ToolRegistry();
       registry.register(editTool);
 

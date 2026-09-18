@@ -1,0 +1,91 @@
+{
+  "name": "@ddlqhd/agent-sdk",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "2.0.0",
+  "description": "A TypeScript Agent SDK with multi-model support, MCP integration, skill system, and streaming",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "import": "./dist/models/index.js",
+      "require": "./dist/models/index.cjs"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js",
+      "require": "./dist/tools/index.cjs"
+    },
+    "./workflow": {
+      "types": "./dist/workflow/index.d.ts",
+      "import": "./dist/workflow/index.js",
+      "require": "./dist/workflow/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "mcp",
+    "tools",
+    "streaming",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddlqhd/agent-sdk.git",
+    "directory": "packages/agent-sdk"
+  },
+  "homepage": "https://github.com/ddlqhd/agent-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/ddlqhd/agent-sdk/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "@mozilla/readability": "^0.6.0",
+    "chardet": "^2.1.1",
+    "fast-glob": "^3.3.3",
+    "iconv-lite": "^0.7.2",
+    "ignore": "^7.0.5",
+    "ipaddr.js": "^2.3.0",
+    "linkedom": "^0.18.12",
+    "micromatch": "^4.0.8",
+    "turndown": "^7.2.3",
+    "undici": "^6.28.1",
+    "yaml": "^2.7.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/micromatch": "^4.0.10",
+    "@types/node": "^20.0.0",
+    "@types/turndown": "^5.0.6",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "zod": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

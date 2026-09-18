@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { loadWorkflowScript, scanDualCompat, validateWorkflowSource } from '../../src/workflow/index.js';
-import { WorkflowScriptError } from '../../src/workflow/errors.js';
+import { loadWorkflowScript, scanDualCompat, validateWorkflowSource } from '../../packages/agent-sdk/src/workflow/index.js';
+import { WorkflowScriptError } from '../../packages/agent-sdk/src/workflow/errors.js';
 
 describe('workflow loader', () => {
   it('extracts meta and compiles a script with top-level return', async () => {

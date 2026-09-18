@@ -5,7 +5,7 @@ import {
   filterSlashMenuItems,
   slashMenuVisible,
   slashMenuDropdownOpen
-} from '../../src/cli/tui/slash-menu.js';
+} from '../../packages/agent-sdk-cli/src/tui/slash-menu.js';
 
 describe('slashMenuVisible', () => {
   it('shows for / and partial commands', () => {

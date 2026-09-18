@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ToolRegistry, createTool } from '../../src/tools/registry.js';
-import { createSkillRegistry } from '../../src/skills/registry.js';
+import { ToolRegistry, createTool } from '../../packages/agent-sdk/src/tools/registry.js';
+import { createSkillRegistry } from '../../packages/agent-sdk/src/skills/registry.js';
 import { z } from 'zod';
 
 describe('ToolRegistry', () => {
@@ -225,7 +225,7 @@ describe('Builtin Tools', () => {
   it(
     'should provide all builtin tools',
     async () => {
-      const { getAllBuiltinTools } = await import('../../src/tools/builtin/index.js');
+      const { getAllBuiltinTools } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
       const skillRegistry = createSkillRegistry();
       const tools = getAllBuiltinTools(skillRegistry);
       const names = tools.map(t => t.name);
@@ -259,7 +259,7 @@ describe('Builtin Tools', () => {
   );
 
   it('should filter safe tools (no dangerous)', async () => {
-    const { getSafeBuiltinTools } = await import('../../src/tools/builtin/index.js');
+    const { getSafeBuiltinTools } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const skillRegistry = createSkillRegistry();
     const tools = getSafeBuiltinTools(skillRegistry);
     const dangerous = tools.filter(t => t.isDangerous);
@@ -270,7 +270,7 @@ describe('Builtin Tools', () => {
 
 describe('Read Tool', () => {
   it('should read a file with line numbers', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(readFileTool);
 
@@ -292,7 +292,7 @@ describe('Read Tool', () => {
   });
 
   it('should truncate long lines', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(readFileTool);
 
@@ -315,7 +315,7 @@ describe('Read Tool', () => {
   });
 
   it('should decode GBK-encoded files when encoding is gbk', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const iconv = (await import('iconv-lite')).default;
     const registry = new ToolRegistry();
     registry.register(readFileTool);
@@ -342,7 +342,7 @@ describe('Read Tool', () => {
   });
 
   it('should auto-detect GBK-encoded files when encoding is omitted', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const iconv = (await import('iconv-lite')).default;
     const registry = new ToolRegistry();
     registry.register(readFileTool);
@@ -367,7 +367,7 @@ describe('Read Tool', () => {
   });
 
   it('should respect offset and limit parameters', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(readFileTool);
 
@@ -395,7 +395,7 @@ describe('Read Tool', () => {
   });
 
   it('should succeed for an empty file with zero lines (not an error)', async () => {
-    const { readFileTool } = await import('../../src/tools/builtin/index.js');
+    const { readFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(readFileTool);
 
@@ -418,7 +418,7 @@ describe('Read Tool', () => {
 
 describe('Write Tool', () => {
   it('should write GBK-encoded file when encoding is gbk', async () => {
-    const { writeFileTool } = await import('../../src/tools/builtin/index.js');
+    const { writeFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const iconv = (await import('iconv-lite')).default;
     const registry = new ToolRegistry();
     registry.register(writeFileTool);
@@ -444,7 +444,7 @@ describe('Write Tool', () => {
   });
 
   it('should reject unsupported encoding', async () => {
-    const { writeFileTool } = await import('../../src/tools/builtin/index.js');
+    const { writeFileTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(writeFileTool);
 
@@ -468,7 +468,7 @@ describe('Write Tool', () => {
 
 describe('Edit Tool', () => {
   it('should reject same old_string and new_string', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -492,7 +492,7 @@ describe('Edit Tool', () => {
   });
 
   it('should edit a file with exact string replacement', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -517,7 +517,7 @@ describe('Edit Tool', () => {
   });
 
   it('should edit GBK-encoded file when encoding is gbk', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const iconv = (await import('iconv-lite')).default;
     const registry = new ToolRegistry();
     registry.register(editTool);
@@ -545,7 +545,7 @@ describe('Edit Tool', () => {
   });
 
   it('should reject empty old_string', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -568,7 +568,7 @@ describe('Edit Tool', () => {
   });
 
   it('should match LF old_string in CRLF file and keep CRLF', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -593,7 +593,7 @@ describe('Edit Tool', () => {
   });
 
   it('should reject when path is not a regular file', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -616,7 +616,7 @@ describe('Edit Tool', () => {
   });
 
   it('should match CR-only line breaks in old_string when file uses LF', async () => {
-    const { editTool } = await import('../../src/tools/builtin/index.js');
+    const { editTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(editTool);
 
@@ -642,7 +642,7 @@ describe('Edit Tool', () => {
 
 describe('TodoWrite Tool', () => {
   it('should write a structured todo list', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const { todoWriteTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(todoWriteTool);
 
@@ -668,7 +668,7 @@ describe('TodoWrite Tool', () => {
   });
 
   it('should accept todos without activeForm', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const { todoWriteTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(todoWriteTool);
 
@@ -683,7 +683,7 @@ describe('TodoWrite Tool', () => {
   });
 
   it('should accept all pending (no in_progress yet)', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const { todoWriteTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(todoWriteTool);
 
@@ -699,7 +699,7 @@ describe('TodoWrite Tool', () => {
   });
 
   it('should accept all completed (no in_progress)', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const { todoWriteTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(todoWriteTool);
 
@@ -716,7 +716,7 @@ describe('TodoWrite Tool', () => {
   });
 
   it('should accept multiple in_progress (parallel work)', async () => {
-    const { todoWriteTool } = await import('../../src/tools/builtin/index.js');
+    const { todoWriteTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(todoWriteTool);
 
@@ -737,7 +737,7 @@ describe('TodoWrite Tool', () => {
 
 describe('AskUserQuestion Tool', () => {
   it('should format questions with options', async () => {
-    const { questionTool } = await import('../../src/tools/builtin/index.js');
+    const { questionTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(questionTool);
 
@@ -774,7 +774,7 @@ describe('AskUserQuestion interactive (injected resolve)', () => {
   };
 
   it('should record single selection and include answers in metadata', async () => {
-    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const { createAskUserQuestionTool } = await import('../../packages/agent-sdk/src/tools/builtin/interaction.js');
     const tool = createAskUserQuestionTool({
       resolve: async () => [{ questionIndex: 0, selectedLabels: ['Alpha'] }]
     });
@@ -793,7 +793,7 @@ describe('AskUserQuestion interactive (injected resolve)', () => {
   });
 
   it('should record Other with custom text', async () => {
-    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const { createAskUserQuestionTool } = await import('../../packages/agent-sdk/src/tools/builtin/interaction.js');
     const tool = createAskUserQuestionTool({
       resolve: async () => [{ questionIndex: 0, selectedLabels: [], otherText: 'custom reply' }]
     });
@@ -810,7 +810,7 @@ describe('AskUserQuestion interactive (injected resolve)', () => {
   });
 
   it('should record multi-select', async () => {
-    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const { createAskUserQuestionTool } = await import('../../packages/agent-sdk/src/tools/builtin/interaction.js');
     const q = {
       question: 'Pick many?',
       header: 'Multi',
@@ -836,7 +836,7 @@ describe('AskUserQuestion interactive (injected resolve)', () => {
   });
 
   it('should return isError when resolve throws', async () => {
-    const { createAskUserQuestionTool } = await import('../../src/tools/builtin/interaction.js');
+    const { createAskUserQuestionTool } = await import('../../packages/agent-sdk/src/tools/builtin/interaction.js');
     const tool = createAskUserQuestionTool({
       resolve: async () => {
         throw new Error('user dismissed');
@@ -867,7 +867,7 @@ describe('AskUserQuestion interactive (injected resolve)', () => {
 
 describe('Agent Tool', () => {
   it('should validate required prompt field', async () => {
-    const { agentTool } = await import('../../src/tools/builtin/subagent.js');
+    const { agentTool } = await import('../../packages/agent-sdk/src/tools/builtin/subagent.js');
     const registry = new ToolRegistry();
     registry.register(agentTool);
 
@@ -877,7 +877,7 @@ describe('Agent Tool', () => {
   });
 
   it('should return configured error when runner is missing', async () => {
-    const { agentTool } = await import('../../src/tools/builtin/subagent.js');
+    const { agentTool } = await import('../../packages/agent-sdk/src/tools/builtin/subagent.js');
     const registry = new ToolRegistry();
     registry.register(agentTool);
 
@@ -891,7 +891,7 @@ describe('Agent Tool', () => {
 
 describe('Builtin Tools cwd inheritance', () => {
   it('Glob should default to projectDir and allow explicit path override', async () => {
-    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const { globTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(globTool);
 
@@ -934,7 +934,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Glob **/* should match files at search root (regression)', async () => {
-    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const { globTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(globTool);
 
@@ -961,7 +961,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Glob should skip dotfiles by default but match when pattern targets them', async () => {
-    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const { globTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(globTool);
 
@@ -996,7 +996,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Glob should accept Windows backslash patterns by normalizing separators', async () => {
-    const { globTool } = await import('../../src/tools/builtin/index.js');
+    const { globTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(globTool);
 
@@ -1024,7 +1024,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep should default to projectDir and allow explicit path override', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1067,7 +1067,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('truncateMatchLineForDisplay keeps match when match is late in a long line', async () => {
-    const { truncateMatchLineForDisplay, MAX_LINE_LENGTH } = await import('../../src/tools/builtin/grep.js');
+    const { truncateMatchLineForDisplay, MAX_LINE_LENGTH } = await import('../../packages/agent-sdk/src/tools/builtin/grep.js');
     const line = `${'x'.repeat(3000)}FINDME${'y'.repeat(500)}`;
     const out = truncateMatchLineForDisplay(line, /FINDME/);
     expect(out).toContain('FINDME');
@@ -1075,7 +1075,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep should respect head_limit', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1103,7 +1103,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep glob should support brace expansion', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1133,7 +1133,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep should skip paths ignored by root .gitignore', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1158,7 +1158,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep should reject single file when glob does not match', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1185,7 +1185,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Grep should include far-right match in long line output', async () => {
-    const { grepTool } = await import('../../src/tools/builtin/index.js');
+    const { grepTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(grepTool);
 
@@ -1212,7 +1212,7 @@ describe('Builtin Tools cwd inheritance', () => {
   });
 
   it('Bash should default to projectDir and allow explicit cwd override', async () => {
-    const { bashTool } = await import('../../src/tools/builtin/index.js');
+    const { bashTool } = await import('../../packages/agent-sdk/src/tools/builtin/index.js');
     const registry = new ToolRegistry();
     registry.register(bashTool);
 
@@ -1256,7 +1256,7 @@ describe('Bash background shell tools', () => {
     'runs Bash with background:true, lists job, reads output, and kills',
     async () => {
       const { bashTool, bashListTool, bashOutputTool, bashKillTool } = await import(
-        '../../src/tools/builtin/shell.js'
+        '../../packages/agent-sdk/src/tools/builtin/shell.js'
       );
       const registry = new ToolRegistry();
       registry.register(bashTool);
@@ -1302,7 +1302,7 @@ describe('Bash background shell tools', () => {
   );
 
   it('foreground Bash respects AbortSignal', async () => {
-    const { bashTool } = await import('../../src/tools/builtin/shell.js');
+    const { bashTool } = await import('../../packages/agent-sdk/src/tools/builtin/shell.js');
     const registry = new ToolRegistry();
     registry.register(bashTool);
 
@@ -1322,7 +1322,7 @@ describe('Bash background shell tools', () => {
   });
 
   it('BashOutput returns not_found for unknown job id', async () => {
-    const { bashOutputTool } = await import('../../src/tools/builtin/shell.js');
+    const { bashOutputTool } = await import('../../packages/agent-sdk/src/tools/builtin/shell.js');
     const registry = new ToolRegistry();
     registry.register(bashOutputTool);
     const out = await registry.execute('BashOutput', {
@@ -1335,7 +1335,7 @@ describe('Bash background shell tools', () => {
 
   it('combined stream sinceCursor advances with limitChars paging', async () => {
     const { bashTool, bashOutputTool, bashKillTool } = await import(
-      '../../src/tools/builtin/shell.js'
+      '../../packages/agent-sdk/src/tools/builtin/shell.js'
     );
     const registry = new ToolRegistry();
     registry.register(bashTool);
@@ -1390,7 +1390,7 @@ describe('Bash background shell tools', () => {
   }, 35_000);
 
   it('remove_job_on_exit removes registry entry shortly after exit', async () => {
-    const { bashTool, bashListTool } = await import('../../src/tools/builtin/shell.js');
+    const { bashTool, bashListTool } = await import('../../packages/agent-sdk/src/tools/builtin/shell.js');
     const registry = new ToolRegistry();
     registry.register(bashTool);
     registry.register(bashListTool);

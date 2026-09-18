@@ -9,8 +9,8 @@ import {
   PaginationHintStrategy,
   SmartTruncateStrategy,
   OUTPUT_CONFIG
-} from '../../src/tools/output-handler.js';
-import { ToolRegistry, createTool } from '../../src/tools/registry.js';
+} from '../../packages/agent-sdk/src/tools/output-handler.js';
+import { ToolRegistry, createTool } from '../../packages/agent-sdk/src/tools/registry.js';
 import { z } from 'zod';
 
 describe('OutputHandler', () => {

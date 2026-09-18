@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Agent } from '../../src/core/agent.js';
-import { runWorkflow, PHASE_STARTED, AGENT_STARTED, AGENT_FINISHED } from '../../src/workflow/index.js';
-import type { AgentPrimitiveOptions, WorkflowAgentFactory } from '../../src/workflow/types.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
+import { runWorkflow, PHASE_STARTED, AGENT_STARTED, AGENT_FINISHED } from '../../packages/agent-sdk/src/workflow/index.js';
+import type { AgentPrimitiveOptions, WorkflowAgentFactory } from '../../packages/agent-sdk/src/workflow/types.js';
 
 describe('workflow runner', () => {
   it('runs fan-out-reduce with a mock agent factory', async () => {

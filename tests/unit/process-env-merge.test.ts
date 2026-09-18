@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mergeProcessEnv, mergeMcpStdioEnv } from '../../src/core/process-env-merge.js';
+import { mergeProcessEnv, mergeMcpStdioEnv } from '../../packages/agent-sdk/src/core/process-env-merge.js';
 
 const KEY_AGENT = 'AGENT_SDK_MERGE_TEST_AGENT';
 const KEY_SERVER = 'AGENT_SDK_MERGE_TEST_SERVER';

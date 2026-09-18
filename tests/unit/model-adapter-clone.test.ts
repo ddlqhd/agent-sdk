@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { OpenAIAdapter } from '../../src/models/openai.js';
-import { AnthropicAdapter } from '../../src/models/anthropic.js';
-import { OllamaAdapter } from '../../src/models/ollama.js';
+import { OpenAIAdapter } from '../../packages/agent-sdk/src/models/openai.js';
+import { AnthropicAdapter } from '../../packages/agent-sdk/src/models/anthropic.js';
+import { OllamaAdapter } from '../../packages/agent-sdk/src/models/ollama.js';
 
 describe('ModelAdapter clone + setModel', () => {
   it('OpenAIAdapter clone copies config; setModel updates name', () => {

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { SessionManager } from '../../src/storage/session.js';
-import { JsonlStorage } from '../../src/storage/jsonl.js';
+import { SessionManager } from '../../packages/agent-sdk/src/storage/session.js';
+import { JsonlStorage } from '../../packages/agent-sdk/src/storage/jsonl.js';
 
 describe('concurrent SessionManager.appendEntries (jsonl)', () => {
   let basePath: string;

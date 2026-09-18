@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { JsonlStorage } from '../../src/storage/jsonl.js';
-import { SessionManager, reconstructActiveMessages, buildSummaryEntry } from '../../src/storage/session.js';
-import type { CompressionStats, Message, SummaryEntry } from '../../src/core/types.js';
-import { formatSyntheticUserSummary } from '../../src/core/compressor.js';
+import { JsonlStorage } from '../../packages/agent-sdk/src/storage/jsonl.js';
+import { SessionManager, reconstructActiveMessages, buildSummaryEntry } from '../../packages/agent-sdk/src/storage/session.js';
+import type { CompressionStats, Message, SummaryEntry } from '../../packages/agent-sdk/src/core/types.js';
+import { formatSyntheticUserSummary } from '../../packages/agent-sdk/src/core/compressor.js';
 
 const stats: CompressionStats = {
   originalMessageCount: 10,

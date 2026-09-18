@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { AnthropicAdapter } from '../../src/models/anthropic.js';
-import type { ModelParams } from '../../src/core/types.js';
+import { AnthropicAdapter } from '../../packages/agent-sdk/src/models/anthropic.js';
+import type { ModelParams } from '../../packages/agent-sdk/src/core/types.js';
 
 function minimalUserParams(overrides: Partial<ModelParams> = {}): ModelParams {
   return {

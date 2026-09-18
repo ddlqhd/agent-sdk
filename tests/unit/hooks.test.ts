@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ToolRegistry, createTool } from '../../src/tools/registry.js';
-import { Agent } from '../../src/core/agent.js';
+import { ToolRegistry, createTool } from '../../packages/agent-sdk/src/tools/registry.js';
+import { Agent } from '../../packages/agent-sdk/src/core/agent.js';
 import {
   HookManager,
   createFunctionHook,
@@ -9,7 +9,7 @@ import {
   mergeCommandHookLayers,
   parseHooksSettingsFile,
   parsePreToolUseCommandOutput
-} from '../../src/tools/hooks/index.js';
+} from '../../packages/agent-sdk/src/tools/hooks/index.js';
 import { z } from 'zod';
 
 describe('matchTool', () => {

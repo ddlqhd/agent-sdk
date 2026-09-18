@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AgentStream } from '../../src/streaming/event-emitter.js';
+import { AgentStream } from '../../packages/agent-sdk/src/streaming/event-emitter.js';
 
 describe('AgentStream', () => {
   let stream: AgentStream;

@@ -2,10 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createSkillRegistry } from '../../src/skills/registry.js';
-import { buildSkillInvocationPayload } from '../../src/skills/invocation.js';
-import { createSkillTool } from '../../src/tools/builtin/skill-activation.js';
-import { ToolRegistry } from '../../src/tools/registry.js';
+import { createSkillRegistry } from '../../packages/agent-sdk/src/skills/registry.js';
+import { buildSkillInvocationPayload } from '../../packages/agent-sdk/src/skills/invocation.js';
+import { createSkillTool } from '../../packages/agent-sdk/src/tools/builtin/skill-activation.js';
+import { ToolRegistry } from '../../packages/agent-sdk/src/tools/registry.js';
 
 describe('buildSkillInvocationPayload and Skill tool alignment', () => {
   let workDir: string;
