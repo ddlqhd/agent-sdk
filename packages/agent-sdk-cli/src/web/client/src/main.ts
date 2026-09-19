@@ -4,6 +4,7 @@ import type { ClientMessage, ModelProvider, ServerMessage, WebUiDefaults } from 
 import { initChatUi, formatToolArguments, truncateForChatSnippet } from './chat-ui.js';
 import { initLayout } from './layout.js';
 import { initSessionsUi } from './sessions-ui.js';
+import { initSettingsUi } from './settings-ui.js';
 import { initTheme, toggleTheme, currentTheme } from './theme.js';
 import { shortId } from './util.js';
 
@@ -43,6 +44,11 @@ const panelTools = document.querySelector<HTMLDivElement>('#panel-tools')!;
 const panelEvents = document.querySelector<HTMLDivElement>('#panel-events')!;
 
 initTheme();
+
+initSettingsUi({
+  nav: document.querySelector<HTMLElement>('.settings-nav')!,
+  panes: Array.from(document.querySelectorAll<HTMLElement>('.settings-pane'))
+});
 
 const layout = initLayout({
   app,

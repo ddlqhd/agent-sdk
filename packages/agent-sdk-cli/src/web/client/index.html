@@ -207,99 +207,154 @@
             </svg>
           </button>
         </header>
-        <form id="form-config" class="settings-form">
-          <fieldset class="fieldset">
-            <legend>模型与推理</legend>
-            <label>
-              提供商
-              <select name="provider" id="cfg-provider">
-                <option value="openai" selected>OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama</option>
-              </select>
-            </label>
-            <label>
-              模型 ID
-              <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
-            </label>
-            <label id="cfg-thinking-wrap">
-              Thinking（布尔）
-              <select name="thinking" id="cfg-thinking">
-                <option value="">默认（按提供商）</option>
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label id="cfg-thinking-level-wrap">
-              Thinking 档位（可选用；由各提供商按需采纳）
-              <select name="thinkingLevel" id="cfg-thinking-level">
-                <option value="">不使用档位</option>
-                <option value="low">low（GPT-OSS）</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </label>
-            <div class="field-row">
-              <label class="field-half">
-                温度
-                <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
+        <div class="settings-body">
+          <nav class="settings-nav" role="tablist" aria-label="设置分类">
+            <button
+              type="button"
+              class="settings-nav-item"
+              role="tab"
+              id="settings-tab-model"
+              aria-controls="settings-pane-model"
+              aria-selected="true"
+            >
+              模型与推理
+            </button>
+            <button
+              type="button"
+              class="settings-nav-item"
+              role="tab"
+              id="settings-tab-behavior"
+              aria-controls="settings-pane-behavior"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              行为与安全
+            </button>
+            <button
+              type="button"
+              class="settings-nav-item"
+              role="tab"
+              id="settings-tab-paths"
+              aria-controls="settings-pane-paths"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              路径
+            </button>
+          </nav>
+          <form id="form-config" class="settings-form">
+            <section
+              class="settings-pane"
+              role="tabpanel"
+              id="settings-pane-model"
+              aria-labelledby="settings-tab-model"
+            >
+              <h3 class="settings-pane-title">模型与推理</h3>
+              <label>
+                提供商
+                <select name="provider" id="cfg-provider">
+                  <option value="openai" selected>OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="ollama">Ollama</option>
+                </select>
               </label>
-              <label class="field-half">
-                上下文长度
-                <input
-                  name="contextLength"
-                  type="number"
-                  min="1"
-                  placeholder="留空=默认"
-                  title="上下文窗口（tokens），用于压缩与预算；留空则用模型/SDK 默认。与单次回复最大输出无关。仅在开启「上下文压缩」时生效。"
-                />
+              <label>
+                模型 ID
+                <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
               </label>
-            </div>
-            <label>
-              会话存储
-              <select name="storage">
-                <option value="jsonl">jsonl</option>
-                <option value="memory">memory</option>
-              </select>
-            </label>
-          </fieldset>
-          <fieldset class="fieldset">
-            <legend>行为与安全</legend>
-            <label class="checkbox">
-              <input name="safeToolsOnly" type="checkbox" />
-              <span>仅安全工具（移除危险内置）</span>
-            </label>
-            <label class="checkbox">
-              <input name="memory" type="checkbox" checked />
-              <span>长期记忆（CLAUDE.md）</span>
-            </label>
-            <label class="checkbox">
-              <input name="contextManagement" type="checkbox" checked />
-              <span>上下文压缩</span>
-            </label>
-            <label class="checkbox">
-              <input id="chat-use-run" type="checkbox" />
-              <span>使用 chat_run（调试，与 chat 同源流）</span>
-            </label>
-          </fieldset>
-          <fieldset class="fieldset">
-            <legend>路径</legend>
-            <label>
-              工作目录（技能 / CLAUDE.md）
-              <input name="cwd" type="text" placeholder="默认：当前工作目录" autocomplete="off" />
-            </label>
-            <label>
-              用户根路径（会话目录）
-              <input name="userBasePath" type="text" placeholder="默认：用户主目录" autocomplete="off" />
-            </label>
-            <label>
-              MCP 配置路径
-              <input name="mcpConfigPath" type="text" placeholder="可选，相对工作目录" autocomplete="off" />
-            </label>
-          </fieldset>
-          <button type="submit" class="btn btn-primary btn-block">应用配置</button>
+              <label id="cfg-thinking-wrap">
+                Thinking（布尔）
+                <select name="thinking" id="cfg-thinking">
+                  <option value="">默认（按提供商）</option>
+                  <option value="true">开启</option>
+                  <option value="false">关闭</option>
+                </select>
+              </label>
+              <label id="cfg-thinking-level-wrap">
+                Thinking 档位（可选用；由各提供商按需采纳）
+                <select name="thinkingLevel" id="cfg-thinking-level">
+                  <option value="">不使用档位</option>
+                  <option value="low">low（GPT-OSS）</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </label>
+              <div class="field-row">
+                <label class="field-half">
+                  温度
+                  <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
+                </label>
+                <label class="field-half">
+                  上下文长度
+                  <input
+                    name="contextLength"
+                    type="number"
+                    min="1"
+                    placeholder="留空=默认"
+                    title="上下文窗口（tokens），用于压缩与预算；留空则用模型/SDK 默认。与单次回复最大输出无关。仅在开启「上下文压缩」时生效。"
+                  />
+                </label>
+              </div>
+              <label>
+                会话存储
+                <select name="storage">
+                  <option value="jsonl">jsonl</option>
+                  <option value="memory">memory</option>
+                </select>
+              </label>
+            </section>
+            <section
+              class="settings-pane"
+              role="tabpanel"
+              id="settings-pane-behavior"
+              aria-labelledby="settings-tab-behavior"
+              hidden
+            >
+              <h3 class="settings-pane-title">行为与安全</h3>
+              <label class="checkbox">
+                <input name="safeToolsOnly" type="checkbox" />
+                <span>仅安全工具（移除危险内置）</span>
+              </label>
+              <label class="checkbox">
+                <input name="memory" type="checkbox" checked />
+                <span>长期记忆（CLAUDE.md）</span>
+              </label>
+              <label class="checkbox">
+                <input name="contextManagement" type="checkbox" checked />
+                <span>上下文压缩</span>
+              </label>
+              <label class="checkbox">
+                <input id="chat-use-run" type="checkbox" />
+                <span>使用 chat_run（调试，与 chat 同源流）</span>
+              </label>
+            </section>
+            <section
+              class="settings-pane"
+              role="tabpanel"
+              id="settings-pane-paths"
+              aria-labelledby="settings-tab-paths"
+              hidden
+            >
+              <h3 class="settings-pane-title">路径</h3>
+              <label>
+                工作目录（技能 / CLAUDE.md）
+                <input name="cwd" type="text" placeholder="默认：当前工作目录" autocomplete="off" />
+              </label>
+              <label>
+                用户根路径（会话目录）
+                <input name="userBasePath" type="text" placeholder="默认：用户主目录" autocomplete="off" />
+              </label>
+              <label>
+                MCP 配置路径
+                <input name="mcpConfigPath" type="text" placeholder="可选，相对工作目录" autocomplete="off" />
+              </label>
+            </section>
+          </form>
+        </div>
+        <footer class="settings-panel-foot">
+          <button type="submit" class="btn btn-primary btn-block" form="form-config">应用配置</button>
           <p id="cfg-warnings" class="warnings" role="alert"></p>
-        </form>
+        </footer>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
