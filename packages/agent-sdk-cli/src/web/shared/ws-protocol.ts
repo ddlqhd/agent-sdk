@@ -48,6 +48,7 @@ export type ClientMessage =
   | { type: 'sessions:list' }
   | { type: 'sessions:new'; sessionId?: string }
   | { type: 'sessions:resume'; sessionId: string }
+  | { type: 'sessions:delete'; sessionId: string }
   | { type: 'sessions:checkpoints'; sessionId?: string }
   | {
       type: 'sessions:rewind';
@@ -97,6 +98,7 @@ export type ServerMessage =
     }
   | { type: 'sessions:list'; sessions: SessionListItem[] }
   | { type: 'sessions:new'; sessionId: string }
+  | { type: 'sessions:deleted'; sessionId: string }
   | { type: 'sessions:checkpoints'; sessionId: string; checkpoints: SessionCheckpoint[] }
   | {
       type: 'sessions:rewind';

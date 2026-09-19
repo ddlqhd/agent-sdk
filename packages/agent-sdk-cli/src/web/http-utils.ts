@@ -213,6 +213,11 @@ export function parseClientMessage(raw: unknown): ParseClientMessageResult {
         return { ok: false, error: 'sessions:resume: sessionId is required' };
       }
       return { ok: true, msg: { type: 'sessions:resume', sessionId: obj.sessionId } };
+    case 'sessions:delete':
+      if (typeof obj.sessionId !== 'string' || !obj.sessionId) {
+        return { ok: false, error: 'sessions:delete: sessionId is required' };
+      }
+      return { ok: true, msg: { type: 'sessions:delete', sessionId: obj.sessionId } };
     case 'sessions:checkpoints':
       return {
         ok: true,

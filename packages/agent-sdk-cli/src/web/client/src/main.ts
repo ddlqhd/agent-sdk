@@ -94,6 +94,18 @@ const sessionsUi = initSessionsUi({
   },
   onFork: (id) => {
     send({ type: 'sessions:fork', sessionId: id });
+  },
+  onDelete: (id) => {
+    const title = sessionsUi.titleOf(id)?.trim() || '新会话';
+    void showConfirmDialog({
+      title: '删除会话',
+      message: `确定删除「${title}」？此操作无法撤销。`,
+      confirmLabel: '删除',
+      danger: true
+    }).then((ok) => {
+      if (!ok) return;
+      send({ type: 'sessions:delete', sessionId: id });
+    });
   }
 });
 
@@ -156,6 +168,9 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'sessions:resume':
       console.log(`${LOG_PREFIX} send sessions:resume sessionId=${msg.sessionId.slice(0, 8)}…`);
+      break;
+    case 'sessions:delete':
+      console.log(`${LOG_PREFIX} send sessions:delete sessionId=${msg.sessionId.slice(0, 8)}…`);
       break;
     case 'ask_user_question_reply':
       console.log(`${LOG_PREFIX} send ask_user_question_reply requestId=${msg.requestId}`);
@@ -297,6 +312,75 @@ function send(msg: ClientMessage): void {
   if (ws?.readyState !== WebSocket.OPEN) return;
   logOutbound(msg);
   ws.send(JSON.stringify(msg));
+}
+
+function showConfirmDialog(opts: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ask-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'ask-modal confirm-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'confirm-modal-title');
+
+    const h = document.createElement('h2');
+    h.id = 'confirm-modal-title';
+    h.className = 'ask-modal-title';
+    h.textContent = opts.title;
+
+    const p = document.createElement('p');
+    p.className = 'confirm-modal-message';
+    p.textContent = opts.message;
+
+    const footer = document.createElement('div');
+    footer.className = 'ask-modal-footer';
+    const btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.className = 'btn btn-secondary';
+    btnCancel.textContent = '取消';
+    const btnOk = document.createElement('button');
+    btnOk.type = 'button';
+    btnOk.className = opts.danger === true ? 'btn btn-danger-outline' : 'btn btn-primary';
+    btnOk.textContent = opts.confirmLabel ?? '确定';
+
+    let settled = false;
+    function finish(ok: boolean): void {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(ok);
+    }
+
+    function onKey(ev: KeyboardEvent): void {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        finish(false);
+      }
+    }
+
+    btnCancel.addEventListener('click', () => finish(false));
+    btnOk.addEventListener('click', () => finish(true));
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) finish(false);
+    });
+    document.addEventListener('keydown', onKey);
+
+    footer.appendChild(btnCancel);
+    footer.appendChild(btnOk);
+    modal.appendChild(h);
+    modal.appendChild(p);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    btnCancel.focus();
+  });
 }
 
 function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<AskUserQuestionAnswer[]> {
@@ -582,6 +666,9 @@ function handleServerMessage(msg: ServerMessage): void {
     case 'sessions:list':
       sessionsUi.render(msg.sessions, currentSessionId);
       refreshSessionLabel();
+      return;
+    case 'sessions:deleted':
+      requestSessionList();
       return;
     case 'sessions:new':
       currentSessionId = msg.sessionId;

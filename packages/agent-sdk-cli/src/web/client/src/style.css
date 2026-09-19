@@ -316,14 +316,24 @@ body {
   margin-top: 0.1rem;
 }
 
-.session-row-fork {
+.session-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
   opacity: 0;
+}
+
+.session-row-action {
   padding: 0.15rem 0.4rem;
   font-size: 0.7rem;
 }
 
-.session-row:hover .session-row-fork,
-.session-row:focus-within .session-row-fork {
+.session-row-delete {
+  color: var(--color-danger);
+}
+
+.session-row:hover .session-row-actions,
+.session-row:focus-within .session-row-actions {
   opacity: 1;
 }
 
@@ -1412,6 +1422,17 @@ code {
   margin-top: 1rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
+}
+
+.confirm-modal {
+  width: min(22rem, 100%);
+  max-height: none;
+}
+
+.confirm-modal-message {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
 }
 
 @media (max-width: 1180px) {

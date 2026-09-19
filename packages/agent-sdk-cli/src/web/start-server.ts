@@ -193,6 +193,15 @@ function attachSocketHandlers(
     return agent;
   }
 
+  async function startNewSession(requestedSessionId?: string): Promise<string> {
+    abortSessionRequests(state.activeSessionId);
+    const agent = await createConfiguredAgent();
+    const id = agent.getSessionManager().createSession(requestedSessionId);
+    state.agentsBySession.set(id, agent);
+    state.activeSessionId = id;
+    return id;
+  }
+
   function abortSessionRequests(sessionId: string | null): void {
     if (!sessionId) return;
     let aborted = false;
@@ -358,13 +367,44 @@ function attachSocketHandlers(
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          abortSessionRequests(state.activeSessionId);
-          const agent = await createConfiguredAgent();
-          const id = agent.getSessionManager().createSession(msg.sessionId);
-          state.agentsBySession.set(id, agent);
-          state.activeSessionId = id;
+          const id = await startNewSession(msg.sessionId);
           console.log(`${LOG_PREFIX} [${connId}] sessions:new ok sessionId=${id.slice(0, 8)}…`);
           sendJson(socket, { type: 'sessions:new', sessionId: id });
+          return;
+        }
+
+        case 'sessions:delete': {
+          console.log(`${LOG_PREFIX} [${connId}] sessions:delete sessionId=${msg.sessionId.slice(0, 8)}…`);
+          if (!state.runtimeConfig) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:delete rejected: Configure the agent first.`);
+            sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
+            return;
+          }
+          const target = state.agentsBySession.get(msg.sessionId);
+          const deleter =
+            target ?? (state.activeSessionId ? state.agentsBySession.get(state.activeSessionId) : undefined);
+          if (!deleter) {
+            console.warn(`${LOG_PREFIX} [${connId}] sessions:delete rejected: Active session runtime not found.`);
+            sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
+            return;
+          }
+          abortSessionRequests(msg.sessionId);
+          await deleter.getSessionManager().deleteSession(msg.sessionId);
+          if (target) {
+            await target.destroy();
+            state.agentsBySession.delete(msg.sessionId);
+          }
+          const wasActive = state.activeSessionId === msg.sessionId;
+          if (wasActive) {
+            state.activeSessionId = null;
+          }
+          console.log(`${LOG_PREFIX} [${connId}] sessions:delete ok sessionId=${msg.sessionId.slice(0, 8)}…`);
+          sendJson(socket, { type: 'sessions:deleted', sessionId: msg.sessionId });
+          if (wasActive) {
+            const id = await startNewSession();
+            console.log(`${LOG_PREFIX} [${connId}] sessions:new ok sessionId=${id.slice(0, 8)}… (after delete)`);
+            sendJson(socket, { type: 'sessions:new', sessionId: id });
+          }
           return;
         }
 

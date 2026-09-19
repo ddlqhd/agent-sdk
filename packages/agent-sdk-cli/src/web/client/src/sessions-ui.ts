@@ -12,6 +12,7 @@ export function initSessionsUi(opts: {
   searchEl: HTMLInputElement;
   onResume: (id: string) => void;
   onFork: (id: string) => void;
+  onDelete: (id: string) => void;
 }): SessionsUi {
   let cached: SessionListItem[] = [];
   let currentId: string | undefined;
@@ -56,18 +57,32 @@ export function initSessionsUi(opts: {
       main.appendChild(titleEl);
       main.appendChild(meta);
 
+      const actions = document.createElement('div');
+      actions.className = 'session-row-actions';
+
       const fork = document.createElement('button');
       fork.type = 'button';
-      fork.className = 'btn btn-ghost btn-sm session-row-fork';
+      fork.className = 'btn btn-ghost btn-sm session-row-action';
       fork.textContent = '分支';
       fork.addEventListener('click', (ev) => {
         ev.stopPropagation();
         opts.onFork(s.id);
       });
 
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn btn-ghost btn-sm session-row-action session-row-delete';
+      del.textContent = '删除';
+      del.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        opts.onDelete(s.id);
+      });
+
+      actions.appendChild(fork);
+      actions.appendChild(del);
       li.appendChild(dot);
       li.appendChild(main);
-      li.appendChild(fork);
+      li.appendChild(actions);
       li.addEventListener('click', () => opts.onResume(s.id));
       li.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {

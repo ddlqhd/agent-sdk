@@ -135,10 +135,16 @@ describe('parseClientMessage', () => {
     }
     const chat = parseClientMessage({ type: 'chat', text: 'hi', requestId: 'r1' });
     expect(chat.ok).toBe(true);
+    const del = parseClientMessage({ type: 'sessions:delete', sessionId: 's1' });
+    expect(del.ok).toBe(true);
+    if (del.ok && del.msg.type === 'sessions:delete') {
+      expect(del.msg.sessionId).toBe('s1');
+    }
   });
 
   it('rejects unknown types and missing required fields', () => {
     expect(parseClientMessage({ type: 'sessions:resume' }).ok).toBe(false);
+    expect(parseClientMessage({ type: 'sessions:delete' }).ok).toBe(false);
     expect(parseClientMessage({ type: 'chat', text: 'hi' }).ok).toBe(false);
     expect(parseClientMessage({ type: 'nope' }).ok).toBe(false);
     expect(parseClientMessage(null).ok).toBe(false);
