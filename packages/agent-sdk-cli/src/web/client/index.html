@@ -112,8 +112,7 @@
       <main class="conversation" aria-label="对话">
         <header class="session-header">
           <div class="session-header-id">
-            <span class="session-header-label">会话</span>
-            <code id="current-session">—</code>
+            <span id="current-session">—</span>
           </div>
           <p id="app-banner" class="app-banner" hidden></p>
           <div class="session-header-actions">
@@ -133,6 +132,28 @@
               </div>
             </div>
             <button type="button" id="btn-details-toggle" class="btn btn-secondary btn-sm">详情</button>
+            <div class="session-more-wrap">
+              <button
+                type="button"
+                id="btn-session-more"
+                class="btn btn-ghost btn-icon"
+                title="会话菜单"
+                aria-label="会话菜单"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="session-more-menu"
+                disabled
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1.75" />
+                  <circle cx="12" cy="12" r="1.75" />
+                  <circle cx="19" cy="12" r="1.75" />
+                </svg>
+              </button>
+              <div id="session-more-menu" class="session-more-menu" role="menu" hidden>
+                <button type="button" id="btn-copy-session-id" role="menuitem">复制会话 ID</button>
+              </div>
+            </div>
           </div>
         </header>
         <section class="chat">

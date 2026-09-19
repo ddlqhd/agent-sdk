@@ -6,7 +6,6 @@ import { initLayout } from './layout.js';
 import { initSessionsUi } from './sessions-ui.js';
 import { initSettingsUi } from './settings-ui.js';
 import { initTheme, toggleTheme, currentTheme } from './theme.js';
-import { shortId } from './util.js';
 
 const app = document.querySelector<HTMLElement>('#app')!;
 const detailsEl = document.querySelector<HTMLElement>('#details')!;
@@ -18,6 +17,9 @@ const cfgWarnings = document.querySelector<HTMLParagraphElement>('#cfg-warnings'
 const cfgProvider = document.querySelector<HTMLSelectElement>('#cfg-provider')!;
 const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
+const btnSessionMore = document.querySelector<HTMLButtonElement>('#btn-session-more')!;
+const sessionMoreMenu = document.querySelector<HTMLElement>('#session-more-menu')!;
+const btnCopySessionId = document.querySelector<HTMLButtonElement>('#btn-copy-session-id')!;
 const btnSessionNew = document.querySelector<HTMLButtonElement>('#btn-session-new')!;
 const btnSessionFork = document.querySelector<HTMLButtonElement>('#btn-session-fork')!;
 const btnSessionCheckpoints = document.querySelector<HTMLButtonElement>('#btn-session-checkpoints')!;
@@ -196,15 +198,52 @@ function refreshComposerHint(): void {
   composerHint.textContent = model ? `${provider} · ${model}` : provider;
 }
 
+function setSessionMoreOpen(open: boolean): void {
+  sessionMoreMenu.hidden = !open;
+  btnSessionMore.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeSessionMore(): void {
+  setSessionMoreOpen(false);
+}
+
 function refreshSessionLabel(): void {
   if (!currentSessionId) {
     currentSessionEl.textContent = '—';
     currentSessionEl.removeAttribute('title');
+    btnSessionMore.disabled = true;
+    closeSessionMore();
     return;
   }
-  currentSessionEl.textContent = shortId(currentSessionId);
-  currentSessionEl.title = currentSessionId;
+  const title = sessionsUi.titleOf(currentSessionId)?.trim() || '新会话';
+  currentSessionEl.textContent = title;
+  currentSessionEl.title = title;
+  btnSessionMore.disabled = false;
   sessionsUi.setCurrent(currentSessionId);
+}
+
+async function copySessionId(): Promise<void> {
+  if (!currentSessionId) return;
+  const id = currentSessionId;
+  try {
+    await navigator.clipboard.writeText(id);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = id;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  const prev = btnCopySessionId.textContent;
+  btnCopySessionId.textContent = '已复制';
+  window.setTimeout(() => {
+    btnCopySessionId.textContent = prev || '复制会话 ID';
+    closeSessionMore();
+  }, 900);
 }
 
 function requestSessionList(): void {
@@ -545,6 +584,7 @@ function handleServerMessage(msg: ServerMessage): void {
       return;
     case 'sessions:list':
       sessionsUi.render(msg.sessions, currentSessionId);
+      refreshSessionLabel();
       return;
     case 'sessions:new':
       currentSessionId = msg.sessionId;
@@ -939,11 +979,37 @@ btnSessionFork.addEventListener('click', () => {
 });
 
 btnSessionCheckpoints.addEventListener('click', () => {
+  closeSessionMore();
   if (!checkpointPopover.hidden) {
     layout.closeCheckpoints();
     return;
   }
   send({ type: 'sessions:checkpoints', sessionId: currentSessionId });
+});
+
+btnSessionMore.addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  if (btnSessionMore.disabled) return;
+  layout.closeCheckpoints();
+  setSessionMoreOpen(sessionMoreMenu.hidden);
+});
+
+btnCopySessionId.addEventListener('click', () => {
+  void copySessionId();
+});
+
+document.addEventListener('click', (ev) => {
+  if (sessionMoreMenu.hidden) return;
+  const t = ev.target;
+  if (!(t instanceof Node)) return;
+  if (sessionMoreMenu.contains(t) || btnSessionMore.contains(t)) return;
+  closeSessionMore();
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !sessionMoreMenu.hidden) {
+    closeSessionMore();
+  }
 });
 
 formChat.addEventListener('submit', (e) => {

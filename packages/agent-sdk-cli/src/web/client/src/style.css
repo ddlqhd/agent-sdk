@@ -427,26 +427,63 @@ body {
 
 .session-header-id {
   display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
+  align-items: center;
   min-width: 0;
-}
-
-.session-header-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  max-width: min(28rem, 55%);
 }
 
 #current-session {
+  flex: 1;
+  min-width: 0;
   font-size: var(--text-ui-sm);
-  font-family: var(--font-mono);
-  font-variant-ligatures: none;
+  font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-more-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.session-more-wrap .btn-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.session-more-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 16;
+  min-width: 9.5rem;
+  padding: 0.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.session-more-menu button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-ui-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-more-menu button:hover,
+.session-more-menu button:focus-visible {
+  background: var(--color-hover);
+  outline: none;
 }
 
 .app-banner {

@@ -4,6 +4,7 @@ import { formatRelativeTime } from './util.js';
 export interface SessionsUi {
   render(sessions: SessionListItem[], currentId?: string): void;
   setCurrent(id?: string): void;
+  titleOf(id?: string): string | undefined;
 }
 
 export function initSessionsUi(opts: {
@@ -92,6 +93,10 @@ export function initSessionsUi(opts: {
     setCurrent(id) {
       currentId = id;
       paint();
+    },
+    titleOf(id) {
+      if (!id) return undefined;
+      return cached.find((s) => s.id === id)?.title;
     }
   };
 }
