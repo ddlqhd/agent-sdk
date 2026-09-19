@@ -214,7 +214,7 @@ agent-sdk tui [options]
 
 本地 **Agent Studio** Web UI：同一进程提供静态页面与 WebSocket `/ws`。浏览器不接触 API Key；密钥走服务端环境变量或 `--api-key`。
 
-界面是会话优先的三栏工作台：左侧会话列表（`ready` / 新建 / 分支 / 发送后自动刷新，可收成图标轨），中间居中对话，右侧可开关的工具执行与事件流。模型、路径与安全选项在侧栏底部的**设置**浮层（左侧分类、右侧表单项）；连接后按该表单自动 `configure`。默认暗色，可切浅色（`localStorage`，首次跟随系统）。`chat_run` 调试开关也在设置里。
+界面是会话优先的三栏工作台：左侧会话列表（`ready` / 新建 / 分支 / 发送后自动刷新，可收成图标轨），中间居中对话，右侧可开关的工具执行与事件流。助手正文按 **GitHub Flavored Markdown** 渲染（标题、列表、代码块、表格、链接等）；思考过程与工具卡片仍是纯文本。模型、路径与安全选项在侧栏底部的**设置**浮层（左侧分类、右侧表单项）；连接后按该表单自动 `configure`。默认暗色，可切浅色（`localStorage`，首次跟随系统）。`chat_run` 调试开关也在设置里。
 
 设置里点「应用配置」会把**非密钥**字段写到 `<userBase>/.claude/agent-sdk-settings.json`（`userBase` 为启动时的 `--user-base-path`，默认 `~`）。自动握手 `configure` 只读不写。清空可选字段（temperature / thinking / thinkingLevel / contextLength / mcpConfigPath）会从文件中删除对应键。`agent-sdk chat` / `-p` / `web` 共用这份默认模型；覆盖顺序是 **显式 CLI flag > settings 文件 > 内置默认**。文件不含 API Key（仍走环境变量 / `--api-key`），也不存 `cwd`。CLI 只读不写该文件。
 

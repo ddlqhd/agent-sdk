@@ -17,6 +17,7 @@
 - **CLI TUI**: OpenCode-style message blocks with left border colors for user, assistant, thinking, tool call/result/error; tool lines use `Name: value` format; `>` input prompt.
 - **CLI**: `agent-sdk web` serves the Agent Studio UI (HTTP + WebSocket `/ws`) from `@ddlqhd/agent-sdk-cli`. Defaults match `chat` (`cwd` = process cwd, `userBasePath` = homedir, jsonl sessions). Removed the standalone `examples/web-demo` app and its fixtures. Loopback-only by default: `/ws` checks browser `Origin`; non-loopback `--host` requires `--allow-remote`; shutdown closes open sockets.
 - **Web UI**: checkpoint list, rewind/fork over WebSocket; `sessions:history` on resume.
+- **Web UI**: assistant message body is rendered as GitHub Flavored Markdown (headings, lists, code fences, tables, links); thinking and tool cards stay plain text.
 
 ### Changed
 

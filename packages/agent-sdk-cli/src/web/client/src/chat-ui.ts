@@ -1,4 +1,5 @@
 import type { ChatHistoryItem } from '../../shared/message-text.js';
+import { renderMarkdownInto } from './markdown.js';
 
 const MAX_TOOL_SNIPPET_CHARS = 14_000;
 const CHAT_LOG_NEAR_BOTTOM_PX = 48;
@@ -40,7 +41,8 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
   let streamingAssistantMsgEl: HTMLDivElement | null = null;
   let streamingAssistantThinkingEl: HTMLPreElement | null = null;
   let streamingThinkingWrap: HTMLDetailsElement | null = null;
-  let streamingAssistantBodyEl: HTMLSpanElement | null = null;
+  let streamingAssistantBodyEl: HTMLElement | null = null;
+  let streamingAssistantMarkdown = '';
   const toolCards = new Map<string, HTMLElement>();
 
   function syncHero(): void {
@@ -69,6 +71,13 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     streamingAssistantThinkingEl = null;
     streamingThinkingWrap = null;
     streamingAssistantBodyEl = null;
+    streamingAssistantMarkdown = '';
+  }
+
+  function createAssistantBody(): HTMLDivElement {
+    const body = document.createElement('div');
+    body.className = 'msg-body markdown-body';
+    return body;
   }
 
   function ensureStreamingAssistantMsg(): HTMLDivElement {
@@ -86,6 +95,7 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     streamingAssistantThinkingEl = null;
     streamingThinkingWrap = null;
     streamingAssistantBodyEl = null;
+    streamingAssistantMarkdown = '';
     syncHero();
     return div;
   }
@@ -113,9 +123,8 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     const role = document.createElement('div');
     role.className = 'role';
     role.textContent = '助手';
-    const body = document.createElement('span');
-    body.className = 'msg-body';
-    body.textContent = text;
+    const body = createAssistantBody();
+    renderMarkdownInto(body, text);
     div.appendChild(role);
     div.appendChild(body);
     logEl.appendChild(div);
@@ -243,12 +252,13 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
       const pinned = isNearBottom();
       const msg = ensureStreamingAssistantMsg();
       if (!streamingAssistantBodyEl) {
-        const body = document.createElement('span');
-        body.className = 'msg-body';
+        const body = createAssistantBody();
         msg.appendChild(body);
         streamingAssistantBodyEl = body;
+        streamingAssistantMarkdown = '';
       }
-      streamingAssistantBodyEl.textContent += chunk;
+      streamingAssistantMarkdown += chunk;
+      renderMarkdownInto(streamingAssistantBodyEl, streamingAssistantMarkdown);
       scrollIfPinned(pinned);
     },
     finishStreaming,
