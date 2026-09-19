@@ -30,6 +30,7 @@ import type {
   ProcessStartRequest,
   ProcessTerminateResult,
   ProcessWaitResult,
+  SkillListItem,
   ReadFileOptions,
   ReadTextOptions,
   ReadTextResult,
@@ -284,6 +285,12 @@ class RemoteProcessRuntime implements ProcessRuntime {
           ...opts
         })) as ProcessReadResult;
       },
+      async write(data: Uint8Array): Promise<void> {
+        await rpc.request(METHODS.processWrite, {
+          processId: started.processId,
+          data: encodeBytes(data)
+        });
+      },
       async signal(sig?: NodeJS.Signals): Promise<void> {
         await rpc.request(METHODS.processSignal, { processId: started.processId, signal: sig });
       },
@@ -316,11 +323,18 @@ export async function connectRemoteEnvironment(config: RemoteEnvironmentConfig):
       platformOs: info.platformOs,
       shellPath: info.shell.path,
       workspaceRoot: info.workspaceRoot,
+      userHome: info.userHome,
       remoteUrl: config.url
     },
     fs: new RemoteFileSystem(rpc),
     process: new RemoteProcessRuntime(rpc),
     http: new RemoteHttpRuntime(rpc),
+    listSkills: async (opts) => {
+      const result = (await rpc.request(METHODS.skillsList, {
+        workspaceSkillsPath: opts?.workspaceSkillsPath
+      })) as { skills: SkillListItem[] };
+      return result.skills;
+    },
     close: () => rpc.close()
   };
 }
@@ -353,6 +367,7 @@ export function createFailedEnvironment(error: Error): Environment {
       listJobs: fail,
       getJob: fail
     },
-    http: { request: fail }
+    http: { request: fail },
+    listSkills: fail
   };
 }

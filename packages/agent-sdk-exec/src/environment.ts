@@ -86,15 +86,42 @@ export interface FileSystem {
   search(opts: SearchOptions): Promise<SearchResult>;
 }
 
+export interface SkillListOptions {
+  /** Override `{cwd}/.claude/skills` (maps to `SkillConfig.workspacePath`). */
+  workspaceSkillsPath?: string;
+}
+
+export type SkillScope = 'user' | 'workspace';
+
+export interface SkillListItem {
+  name: string;
+  description: string;
+  /** Absolute path to SKILL.md on the execution plane. */
+  path: string;
+  scope: SkillScope;
+  argumentHint?: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+}
+
 export interface ProcessStartRequest {
   command: string;
+  /** When set, spawn `command` with this argv (no shell). */
+  args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  /**
+   * When true, `env` is the complete child environment (MCP stdio).
+   * Default false: merge `env` on top of the executor `process.env`.
+   */
+  replaceEnv?: boolean;
   shellPath?: string;
   background?: boolean;
   title?: string;
   maxRingChars?: number;
   removeJobOnExit?: boolean;
+  /** Keep stdin open and allow {@link ProcessHandle.write}. Default false. */
+  pipeStdin?: boolean;
 }
 
 export interface ProcessWaitResult {
@@ -115,6 +142,8 @@ export interface ProcessReadOptions {
   limitChars?: number;
   waitMs?: number;
   pattern?: string;
+  /** Skip the Bash-tool header and return stream bytes only (MCP stdio). */
+  raw?: boolean;
 }
 
 export interface ProcessReadResult {
@@ -162,6 +191,7 @@ export interface ProcessHandle {
   logFilePath?: string;
   wait(opts?: { timeoutMs?: number; signal?: AbortSignal; maxOutputBytes?: number }): Promise<ProcessWaitResult>;
   read(opts?: ProcessReadOptions): Promise<ProcessReadResult>;
+  write(data: Uint8Array): Promise<void>;
   signal(sig?: NodeJS.Signals): Promise<void>;
   terminate(opts?: { killDelayMs?: number }): Promise<ProcessTerminateResult>;
 }
@@ -210,12 +240,15 @@ export interface Environment {
     platformOs: string;
     shellPath?: string;
     workspaceRoot?: string;
+    /** Exec-process home directory (`os.homedir()` on the execution plane). */
+    userHome?: string;
     /** Set when this environment talks to a remote exec-server. */
     remoteUrl?: string;
   };
   readonly fs: FileSystem;
   readonly process: ProcessRuntime;
   readonly http: HttpRuntime;
+  listSkills(options?: SkillListOptions): Promise<SkillListItem[]>;
   close?(): Promise<void>;
 }
 
@@ -225,6 +258,7 @@ export const EXEC_ENV_TOKEN = 'AGENT_SDK_EXEC_SERVER_TOKEN';
 export type LocalEnvironmentConfig = {
   type: 'local';
   workspaceRoot?: string;
+  userHome?: string;
 };
 
 export type RemoteEnvironmentConfig = {

@@ -1,4 +1,6 @@
+import type { Environment } from '@ddlqhd/agent-sdk-exec';
 import type { SkillRegistry } from './registry.js';
+import { skillDirFromPath } from './registry.js';
 import { createSkillTemplateProcessor } from './template.js';
 
 /**
@@ -8,6 +10,7 @@ import { createSkillTemplateProcessor } from './template.js';
 export interface SkillInvocationRuntime {
   sessionId?: string;
   cwd?: string;
+  environment?: Environment;
 }
 
 /**
@@ -28,11 +31,14 @@ export async function buildSkillInvocationPayload(
     throw new Error(`Skill "${name}" not found`);
   }
 
-  const rawBody = skill.instructions;
+  const rawBody = await skillRegistry.resolveInstructions(name);
+  const skillDir = skillDirFromPath(skill.path || '');
+  const environment = runtime.environment ?? skillRegistry.getEnvironment();
   const processor = createSkillTemplateProcessor({
-    skillDir: skill.path || '',
+    skillDir,
     sessionId: runtime.sessionId,
-    cwd: runtime.cwd ?? process.cwd()
+    cwd: runtime.cwd ?? skillDir ?? process.cwd(),
+    environment
   });
   let processedContent = await processor.process(rawBody, args);
 
@@ -41,9 +47,7 @@ export async function buildSkillInvocationPayload(
   }
 
   const basePathLine =
-    skill.path && skill.path.length > 0
-      ? `Base Path: ${skill.path}`
-      : 'Base Path: (unknown)';
+    skillDir.length > 0 ? `Base Path: ${skillDir}` : 'Base Path: (unknown)';
 
   const successLine = `${skill.metadata.name} skill loaded successfully.`;
 

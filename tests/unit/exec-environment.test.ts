@@ -67,6 +67,147 @@ describe('LocalEnvironment', () => {
     const env = createLocalEnvironment({ workspaceRoot: root });
     await expect(env.fs.stat('/etc/passwd')).rejects.toThrow(/outside workspace root/);
   });
+
+  it('allows the user skills root and rejects other HOME paths', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'exec-ws-jail-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-home-jail-'));
+    const skillDir = join(userHome, '.claude', 'skills', 'demo');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: demo\ndescription: From home\n---\n\nBody\n');
+    writeFileSync(join(userHome, 'secret.txt'), 'nope');
+
+    const env = createLocalEnvironment({ workspaceRoot: workspace, userHome });
+    const text = await env.fs.readText(join(skillDir, 'SKILL.md'));
+    expect(text.text ?? text.lines.join('\n')).toContain('From home');
+    await expect(env.fs.stat(join(userHome, 'secret.txt'))).rejects.toThrow(/outside workspace root/);
+    await expect(env.fs.writeText(join(skillDir, 'evil.md'), 'nope')).rejects.toThrow(/outside workspace root/);
+    await expect(env.process.start({ command: 'true', cwd: skillDir })).rejects.toThrow(/outside workspace root/);
+  });
+
+  it('lists user and workspace skills without bodies', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'exec-skill-ws-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-skill-home-'));
+    const userSkill = join(userHome, '.claude', 'skills', 'home-skill');
+    const wsSkill = join(workspace, '.claude', 'skills', 'ws-skill');
+    mkdirSync(userSkill, { recursive: true });
+    mkdirSync(wsSkill, { recursive: true });
+    writeFileSync(
+      join(userSkill, 'SKILL.md'),
+      '---\nname: home-skill\ndescription: User catalog\nargumentHint: "[x]"\n---\n\nSECRET_BODY\n'
+    );
+    writeFileSync(
+      join(wsSkill, 'SKILL.md'),
+      '---\nname: ws-skill\ndescription: Workspace catalog\ndisableModelInvocation: true\n---\n\nWS_BODY\n'
+    );
+
+    const env = createLocalEnvironment({ workspaceRoot: workspace, userHome });
+    const skills = await env.listSkills();
+    expect(skills.map((s) => s.name).sort()).toEqual(['home-skill', 'ws-skill']);
+    const home = skills.find((s) => s.name === 'home-skill')!;
+    expect(home.description).toBe('User catalog');
+    expect(home.scope).toBe('user');
+    expect(home.argumentHint).toBe('[x]');
+    expect(home.path).toBe(join(userSkill, 'SKILL.md'));
+    expect(JSON.stringify(skills)).not.toContain('SECRET_BODY');
+    expect(JSON.stringify(skills)).not.toContain('WS_BODY');
+  });
+
+  it('lists skills from SkillConfig.workspacePath instead of cwd/.claude/skills', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'exec-skill-custom-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-skill-custom-home-'));
+    const custom = join(workspace, 'custom-skills', 'custom-demo');
+    mkdirSync(custom, { recursive: true });
+    writeFileSync(
+      join(custom, 'SKILL.md'),
+      '---\nname: custom-demo\ndescription: |\n  Line one\n  Line two\n---\n\nBody\n'
+    );
+
+    const env = createLocalEnvironment({ workspaceRoot: workspace, userHome });
+    const skills = await env.listSkills({ workspaceSkillsPath: join(workspace, 'custom-skills') });
+    expect(skills.map((s) => s.name)).toEqual(['custom-demo']);
+    expect(skills[0]!.description).toContain('Line one');
+    expect(skills[0]!.description).toContain('Line two');
+  });
+
+  it('echoes process/write through piped stdin', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-stdin-'));
+    const env = createLocalEnvironment({ workspaceRoot: root });
+    const handle = await env.process.start({
+      command: process.execPath,
+      args: ['-e', 'process.stdin.on("data", (d) => { process.stdout.write(d); process.exit(0); })'],
+      background: true,
+      pipeStdin: true
+    });
+    await handle.write(new TextEncoder().encode('hello-stdin\n'));
+    const out = await handle.read({ stream: 'stdout', raw: true, waitMs: 3000 });
+    expect(out.content).toContain('hello-stdin');
+    await handle.terminate({ killDelayMs: 200 }).catch(() => undefined);
+  });
+
+  it('advances stdout cursor by returned chars when the 32k default limit applies', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-limit-'));
+    const env = createLocalEnvironment({ workspaceRoot: root });
+    const handle = await env.process.start({
+      command: process.execPath,
+      args: ['-e', "process.stdout.write('x'.repeat(40000) + 'DONE\\n')"],
+      background: true
+    });
+    await handle.wait({ timeoutMs: 5000 });
+    const first = await handle.read({ stream: 'stdout', raw: true, sinceCursor: 0 });
+    expect(first.content.length).toBe(32_000);
+    expect(first.nextCursorStdout).toBe(32_000);
+    const second = await handle.read({
+      stream: 'stdout',
+      raw: true,
+      sinceCursor: first.nextCursorStdout,
+      waitMs: 1000
+    });
+    expect(second.content).toContain('DONE');
+    await handle.terminate({ killDelayMs: 200 }).catch(() => undefined);
+  });
+
+  it('does not inherit process.env when replaceEnv is true', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-env-'));
+    const env = createLocalEnvironment({ workspaceRoot: root });
+    const marker = 'agent-sdk-exec-env-leak';
+    process.env.AGENT_SDK_TEST_SECRET = marker;
+    try {
+      const leaked = await env.process.start({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write(process.env.AGENT_SDK_TEST_SECRET || '')"],
+        background: true
+      });
+      const leakedOut = await leaked.wait({ timeoutMs: 5000 });
+      expect(leakedOut.stdout).toContain(marker);
+      await leaked.terminate({ killDelayMs: 200 }).catch(() => undefined);
+
+      const isolated = await env.process.start({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write(process.env.AGENT_SDK_TEST_SECRET || '')"],
+        replaceEnv: true,
+        env: { PATH: process.env.PATH ?? '' },
+        background: true
+      });
+      const isolatedOut = await isolated.wait({ timeoutMs: 5000 });
+      expect(isolatedOut.stdout).not.toContain(marker);
+      await isolated.terminate({ killDelayMs: 200 }).catch(() => undefined);
+    } finally {
+      delete process.env.AGENT_SDK_TEST_SECRET;
+    }
+  });
+
+  it('returns stderr for foreground raw reads', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-fg-stderr-'));
+    const env = createLocalEnvironment({ workspaceRoot: root });
+    const handle = await env.process.start({
+      command: process.execPath,
+      args: ['-e', "process.stderr.write('err-only'); process.stdout.write('out-only')"]
+    });
+    await handle.wait({ timeoutMs: 5000 });
+    const err = await handle.read({ stream: 'stderr', raw: true });
+    expect(err.content).toContain('err-only');
+    expect(err.content).not.toContain('out-only');
+  });
 });
 
 describe('builtin tools via Environment', () => {
@@ -165,8 +306,13 @@ describe('remote exec-server loopback', () => {
       clientName: 'vitest'
     });
 
+    expect(remote.info.userHome).toBeTruthy();
+
     const text = await remote.fs.readText(join(root, 'remote.txt'));
     expect(text.lines.join('\n')).toContain('from-exec');
+
+    const skills = await remote.listSkills();
+    expect(Array.isArray(skills)).toBe(true);
 
     const handle = await remote.process.start({ command: 'printf remote-hi' });
     const wait = await handle.wait({ timeoutMs: 10_000 });

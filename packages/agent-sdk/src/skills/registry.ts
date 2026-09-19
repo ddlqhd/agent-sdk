@@ -1,9 +1,27 @@
 import { existsSync, promises as fs } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { basename, dirname, join } from 'path';
+import type { Environment, SkillListItem } from '@ddlqhd/agent-sdk-exec';
 import { sdkLog } from '../core/log-context.js';
 import type { SkillConfig, SkillDefinition, SDKLogContext } from '../core/types.js';
 import { SkillLoader, type SkillLoaderConfig } from './loader.js';
+import { parseSkillMd } from './parser.js';
+
+export function skillDirFromPath(skillPath: string): string {
+  const base = basename(skillPath);
+  if (base.toLowerCase() === 'skill.md') {
+    return dirname(skillPath);
+  }
+  return skillPath;
+}
+
+function skillMdPathFromPath(skillPath: string): string {
+  const base = basename(skillPath);
+  if (base.toLowerCase() === 'skill.md') {
+    return skillPath;
+  }
+  return join(skillPath, 'SKILL.md');
+}
 
 /**
  * Skill 注册中心
@@ -16,6 +34,7 @@ export class SkillRegistry {
   private userBasePath: string;
   private skillConfig?: SkillConfig;
   private readonly sdkLog?: SDKLogContext;
+  private environment?: Environment;
 
   constructor(config?: SkillLoaderConfig & { userBasePath?: string }) {
     this.loader = new SkillLoader(config);
@@ -240,6 +259,35 @@ ${modelSkillsText}`);
     return skill?.path;
   }
 
+  getEnvironment(): Environment | undefined {
+    return this.environment;
+  }
+
+  /**
+   * Resolve the SKILL.md body (no frontmatter). Uses Environment.fs when this
+   * registry was initialized from `skills/list`.
+   */
+  async resolveInstructions(name: string): Promise<string> {
+    const skill = this.skills.get(name);
+    if (!skill) {
+      throw new Error(`Skill "${name}" not found`);
+    }
+    if (skill.instructions) {
+      return skill.instructions;
+    }
+    const mdPath = skillMdPathFromPath(skill.path);
+    let content: string;
+    if (this.environment) {
+      const text = await this.environment.fs.readText(mdPath);
+      content = text.text ?? text.lines.join('\n');
+    } else {
+      content = await fs.readFile(mdPath, 'utf-8');
+    }
+    const parsed = parseSkillMd(content);
+    skill.instructions = parsed.content;
+    return skill.instructions;
+  }
+
   /**
    * 加载 Skill 全量内容
    */
@@ -249,31 +297,80 @@ ${modelSkillsText}`);
       throw new Error(`Skill "${name}" not found`);
     }
 
-    // 如果是目录，读取 SKILL.md
     if (skill.path) {
       try {
-        const pathStat = await fs.stat(skill.path);
-        let skillMdPath: string;
-
-        if (pathStat.isDirectory()) {
-          skillMdPath = join(skill.path, 'SKILL.md');
-        } else {
-          skillMdPath = skill.path;
+        const mdPath = skillMdPathFromPath(skill.path);
+        if (this.environment) {
+          const text = await this.environment.fs.readText(mdPath);
+          return text.text ?? text.lines.join('\n');
         }
-
-        const content = await fs.readFile(skillMdPath, 'utf-8');
-        return content;
+        const pathStat = await fs.stat(skill.path);
+        const skillMdPath = pathStat.isDirectory() ? join(skill.path, 'SKILL.md') : skill.path;
+        return await fs.readFile(skillMdPath, 'utf-8');
       } catch (error) {
         throw new Error(`Failed to read skill file: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
-    // 如果已有instructions，直接返回
     if (skill.instructions) {
       return skill.instructions;
     }
 
     throw new Error(`No content available for skill "${name}"`);
+  }
+
+  private registerCatalogItem(item: SkillListItem): void {
+    this.register({
+      metadata: {
+        name: item.name,
+        description: item.description,
+        ...(item.argumentHint !== undefined ? { argumentHint: item.argumentHint } : {}),
+        ...(item.userInvocable !== undefined ? { userInvocable: item.userInvocable } : {}),
+        ...(item.disableModelInvocation !== undefined
+          ? { disableModelInvocation: item.disableModelInvocation }
+          : {})
+      },
+      path: item.path,
+      instructions: ''
+    });
+  }
+
+  private async loadFromEnvironmentCatalog(environment: Environment): Promise<void> {
+    const listed = await environment.listSkills({
+      workspaceSkillsPath: this.skillConfig?.workspacePath
+    });
+    for (const item of listed) {
+      try {
+        this.registerCatalogItem(item);
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        sdkLog(this.sdkLog, 'warn', {
+          component: 'skill',
+          event: 'skill.register.error',
+          message: 'Failed to register exec skill catalog entry',
+          operation: 'skill_load',
+          cwd: this.workspaceRoot,
+          errorName: err.name,
+          errorMessage: err.message,
+          metadata: { skillName: item.name, path: item.path }
+        });
+      }
+    }
+  }
+
+  private async loadFromEnvironmentPath(environment: Environment, skillPath: string): Promise<void> {
+    const mdPath = skillMdPathFromPath(skillPath);
+    const text = await environment.fs.readText(mdPath);
+    const parsed = parseSkillMd(text.text ?? text.lines.join('\n'));
+    const name =
+      parsed.metadata.name && parsed.metadata.name !== 'unknown'
+        ? parsed.metadata.name
+        : basename(skillDirFromPath(skillPath));
+    this.register({
+      metadata: { ...parsed.metadata, name },
+      path: mdPath,
+      instructions: ''
+    });
   }
 
   /**
@@ -303,12 +400,20 @@ ${modelSkillsText}`);
    * @param config Skill 配置
    * @param additionalPaths 额外的 skill 路径（来自 AgentConfig.skills）
    */
-  async initialize(config?: SkillConfig, additionalPaths?: string[]): Promise<void> {
+  async initialize(
+    config?: SkillConfig,
+    additionalPaths?: string[],
+    environment?: Environment
+  ): Promise<void> {
     this.skillConfig = config;
+    this.environment = environment;
 
     // 1. 加载默认路径
     if (config?.autoLoad !== false) {
-      const defaultPaths = this.getDefaultPaths();
+      if (environment) {
+        await this.loadFromEnvironmentCatalog(environment);
+      }
+      const defaultPaths = environment ? [] : this.getDefaultPaths();
       for (const dirPath of defaultPaths) {
         try {
           const beforeCount = this.skills.size;
@@ -344,7 +449,11 @@ ${modelSkillsText}`);
     const allPaths = [...(config?.additionalPaths || []), ...(additionalPaths || [])];
     for (const path of allPaths) {
       try {
-        await this.load(path);
+        if (environment) {
+          await this.loadFromEnvironmentPath(environment, path);
+        } else {
+          await this.load(path);
+        }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         sdkLog(this.sdkLog, 'warn', {

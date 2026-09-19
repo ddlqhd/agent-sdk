@@ -31,6 +31,9 @@ export type {
   ProcessHandle,
   ProcessReadResult,
   ProcessListItem,
+  SkillListItem,
+  SkillListOptions,
+  SkillScope,
   HttpRequest,
   HttpResponse,
   DnsLookupFn,
@@ -65,6 +68,9 @@ export {
   writeFileFromUnicodeString
 } from './local/encoding.js';
 export { truncateMatchLineForDisplay, DEFAULT_GREP_HEAD_LIMIT, MAX_GREP_LINE_LENGTH } from './local/glob-search.js';
+export { assertWithinRoot, userSkillsRoot, workspaceSkillsRoot } from './path-guard.js';
+export { parseSkillFrontmatter, listSkillsFromRoots } from './local/skills.js';
+export { writeJobStdin } from './local/process-manager.js';
 export { buildShellInvocation } from './local/invocation.js';
 export type { ShellInvocation } from './local/invocation.js';
 export {

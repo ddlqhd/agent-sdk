@@ -42,9 +42,16 @@ function toFileStat(stat: Stats): FileStat {
 }
 
 export class LocalFileSystem implements FileSystem {
-  constructor(private readonly workspaceRoot?: string) {}
+  constructor(
+    private readonly workspaceRoot?: string,
+    private readonly extraRoots: string[] = []
+  ) {}
 
   resolve(target: string): string {
+    return assertWithinRoot(this.workspaceRoot, target, this.extraRoots);
+  }
+
+  private resolveWrite(target: string): string {
     return assertWithinRoot(this.workspaceRoot, target);
   }
 
@@ -75,7 +82,7 @@ export class LocalFileSystem implements FileSystem {
   }
 
   async writeFile(filePath: string, data: Uint8Array, opts?: { mkdir?: boolean }): Promise<void> {
-    const resolved = this.resolve(filePath);
+    const resolved = this.resolveWrite(filePath);
     if (opts?.mkdir !== false) {
       await fs.mkdir(path.dirname(resolved), { recursive: true });
     }
@@ -83,7 +90,7 @@ export class LocalFileSystem implements FileSystem {
   }
 
   async mkdir(dirPath: string, opts?: { recursive?: boolean }): Promise<void> {
-    await fs.mkdir(this.resolve(dirPath), { recursive: opts?.recursive !== false });
+    await fs.mkdir(this.resolveWrite(dirPath), { recursive: opts?.recursive !== false });
   }
 
   async readDir(dirPath: string): Promise<DirEntry[]> {
@@ -100,11 +107,11 @@ export class LocalFileSystem implements FileSystem {
   }
 
   async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
-    await fs.rm(this.resolve(filePath), { recursive: opts?.recursive === true, force: true });
+    await fs.rm(this.resolveWrite(filePath), { recursive: opts?.recursive === true, force: true });
   }
 
   async copy(src: string, dest: string): Promise<void> {
-    await fs.cp(this.resolve(src), this.resolve(dest), { recursive: true });
+    await fs.cp(this.resolve(src), this.resolveWrite(dest), { recursive: true });
   }
 
   async readText(filePath: string, opts?: ReadTextOptions): Promise<ReadTextResult> {
@@ -235,7 +242,7 @@ export class LocalFileSystem implements FileSystem {
   }
 
   async writeText(filePath: string, text: string, opts?: WriteTextOptions): Promise<void> {
-    const resolved = this.resolve(filePath);
+    const resolved = this.resolveWrite(filePath);
     const normalized = normalizeFilesystemEncoding(opts?.encoding);
     if (!isFilesystemEncodingSupported(normalized)) {
       throw new Error(`unsupported encoding: ${opts?.encoding?.trim() || 'utf8'}`);

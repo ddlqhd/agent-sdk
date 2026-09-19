@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = '1.0.0';
+export const PROTOCOL_VERSION = '1.1.0';
 
 export const METHODS = {
   initialize: 'initialize',
@@ -12,6 +12,7 @@ export const METHODS = {
   processTerminate: 'process/terminate',
   processWait: 'process/wait',
   processList: 'process/list',
+  skillsList: 'skills/list',
   fsReadFile: 'fs/readFile',
   fsWriteFile: 'fs/writeFile',
   fsCreateDirectory: 'fs/createDirectory',
@@ -94,6 +95,7 @@ export interface EnvironmentInfo {
   cwd: string;
   platformOs: string;
   workspaceRoot?: string;
+  userHome?: string;
 }
 
 export interface InitializeResult {

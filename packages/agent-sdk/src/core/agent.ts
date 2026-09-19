@@ -252,6 +252,14 @@ export class Agent {
     }
   }
 
+  private readyExecutionEnvironment(): Environment | undefined {
+    const env = this.executionEnvironment;
+    if (!env || env.kind === 'failed') {
+      return undefined;
+    }
+    return env;
+  }
+
   /** Current log context with session/run scope refreshed. */
   private getLogCtx(): SDKLogContext {
     this.logCtx.sessionId = this.sessionManager.sessionId ?? undefined;
@@ -286,7 +294,8 @@ export class Agent {
       resolve: this.config.askUserQuestion,
       skillInvocationRuntime: () => ({
         sessionId: this.sessionManager.sessionId || undefined,
-        cwd: this.config.cwd
+        cwd: this.readyExecutionEnvironment()?.info.cwd ?? this.config.cwd,
+        environment: this.readyExecutionEnvironment()
       })
     }).filter(t => !this.toolRegistry.isDisallowed(t.name));
 
@@ -325,10 +334,59 @@ export class Agent {
       });
     }
 
+    const environment: AgentResourceInitStepResult = { ok: true };
+    try {
+      if (this.config.environment !== undefined && isEnvironment(this.config.environment)) {
+        this.executionEnvironment = this.config.environment;
+        this.ownsExecutionEnvironment = false;
+      } else {
+        this.executionEnvironment = await createEnvironmentFromConfig(this.config.environment, {
+          env: this.config.env ? { ...process.env, ...this.config.env } : process.env
+        });
+        this.ownsExecutionEnvironment = true;
+        this.config.environment = this.executionEnvironment;
+      }
+      const env = this.executionEnvironment;
+      const kind = env.kind ?? (env.id.startsWith('remote-') ? 'remote' : env.id === 'failed' ? 'failed' : 'local');
+      this.log('info', {
+        component: 'agent',
+        event: 'agent.initialize.environment',
+        message:
+          kind === 'remote'
+            ? 'Connected to remote exec-server'
+            : 'Using in-process execution environment',
+        metadata: {
+          kind,
+          environmentId: env.id,
+          cwd: env.info.cwd,
+          workspaceRoot: env.info.workspaceRoot,
+          ...(env.info.userHome ? { userHome: env.info.userHome } : {}),
+          ...(env.info.remoteUrl ? { url: env.info.remoteUrl } : {})
+        }
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      environment.ok = false;
+      environment.error = { name: error.name, message: error.message };
+      this.executionEnvironment = createFailedEnvironment(error);
+      this.ownsExecutionEnvironment = false;
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.initialize.environment.error',
+        message: 'Failed to initialize execution environment',
+        errorName: error.name,
+        errorMessage: error.message
+      });
+    }
+
     const skills: AgentResourceInitStepResult = { ok: true };
     try {
       if (this.config.loadSkills !== false) {
-        await this.skillRegistry.initialize(this.config.skillConfig, this.config.skills);
+        await this.skillRegistry.initialize(
+          this.config.skillConfig,
+          this.config.skills,
+          this.readyExecutionEnvironment()
+        );
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -362,50 +420,6 @@ export class Agent {
           errorMessage: error.message
         });
       }
-    }
-
-    const environment: AgentResourceInitStepResult = { ok: true };
-    try {
-      if (this.config.environment !== undefined && isEnvironment(this.config.environment)) {
-        this.executionEnvironment = this.config.environment;
-        this.ownsExecutionEnvironment = false;
-      } else {
-        this.executionEnvironment = await createEnvironmentFromConfig(this.config.environment, {
-          env: this.config.env ? { ...process.env, ...this.config.env } : process.env
-        });
-        this.ownsExecutionEnvironment = true;
-        this.config.environment = this.executionEnvironment;
-      }
-      const env = this.executionEnvironment;
-      const kind = env.kind ?? (env.id.startsWith('remote-') ? 'remote' : env.id === 'failed' ? 'failed' : 'local');
-      this.log('info', {
-        component: 'agent',
-        event: 'agent.initialize.environment',
-        message:
-          kind === 'remote'
-            ? 'Connected to remote exec-server'
-            : 'Using in-process execution environment',
-        metadata: {
-          kind,
-          environmentId: env.id,
-          cwd: env.info.cwd,
-          workspaceRoot: env.info.workspaceRoot,
-          ...(env.info.remoteUrl ? { url: env.info.remoteUrl } : {})
-        }
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      environment.ok = false;
-      environment.error = { name: error.name, message: error.message };
-      this.executionEnvironment = createFailedEnvironment(error);
-      this.ownsExecutionEnvironment = false;
-      this.log('error', {
-        component: 'agent',
-        event: 'agent.initialize.environment.error',
-        message: 'Failed to initialize execution environment',
-        errorName: error.name,
-        errorMessage: error.message
-      });
     }
 
     return { hooks, skills, mcp, subagent, environment };
@@ -472,7 +486,7 @@ export class Agent {
         : empty;
     }
 
-    this.mcpAdapter = new MCPAdapter();
+    this.mcpAdapter = new MCPAdapter({ environment: this.readyExecutionEnvironment() });
     const firstIndexByName = new Map<string, number>();
     for (let i = 0; i < mergedServers.length; i++) {
       const name = mergedServers[i]!.name;
@@ -1855,7 +1869,8 @@ export class Agent {
   }> {
     return processUserInputForSkills(this.skillRegistry, input, {
       sessionId: this.sessionManager.sessionId || undefined,
-      cwd: this.config.cwd
+      cwd: this.readyExecutionEnvironment()?.info.cwd ?? this.config.cwd,
+      environment: this.readyExecutionEnvironment()
     });
   }
 
@@ -1868,7 +1883,8 @@ export class Agent {
   async invokeSkill(name: string, args: string = ''): Promise<string> {
     return invokeUserSkill(this.skillRegistry, name, args, {
       sessionId: this.sessionManager.sessionId || undefined,
-      cwd: this.config.cwd
+      cwd: this.readyExecutionEnvironment()?.info.cwd ?? this.config.cwd,
+      environment: this.readyExecutionEnvironment()
     });
   }
 
@@ -1894,7 +1910,7 @@ export class Agent {
     });
 
     if (!this.mcpAdapter) {
-      this.mcpAdapter = new MCPAdapter();
+      this.mcpAdapter = new MCPAdapter({ environment: this.readyExecutionEnvironment() });
     }
 
     const resolved: MCPServerConfig =
@@ -1904,7 +1920,7 @@ export class Agent {
             env: mergeMcpStdioEnv(this.config.env, config.env),
             cwd: isNonBlankString(config.cwd)
               ? config.cwd.trim()
-              : this.config.cwd || process.cwd()
+              : this.readyExecutionEnvironment()?.info.cwd || this.config.cwd || process.cwd()
           }
         : config;
 

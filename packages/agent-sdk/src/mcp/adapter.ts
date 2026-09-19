@@ -1,19 +1,29 @@
+import type { Environment } from '@ddlqhd/agent-sdk-exec';
 import type { MCPServerConfig, ToolDefinition, ToolResult } from '../core/types.js';
 import { MCPClient, type MCPTool } from './client.js';
 import { formatMcpToolName } from './mcp-tool-name.js';
 
 const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 30_000;
 
+export interface MCPAdapterOptions {
+  environment?: Environment;
+}
+
 export class MCPAdapter {
   private clients: Map<string, MCPClient> = new Map();
   private toolMap: Map<string, { client: MCPClient; toolName: string }> = new Map();
+  private readonly environment?: Environment;
+
+  constructor(options?: MCPAdapterOptions) {
+    this.environment = options?.environment;
+  }
 
   async addServer(config: MCPServerConfig): Promise<void> {
     if (this.clients.has(config.name)) {
       throw new Error(`MCP server "${config.name}" already exists`);
     }
 
-    const client = new MCPClient(config);
+    const client = new MCPClient(config, { environment: this.environment });
     const timeoutMs = normalizeConnectTimeoutMs(config.connectTimeoutMs);
     const connectPromise = client.connect();
 
@@ -127,8 +137,8 @@ export class MCPAdapter {
   }
 }
 
-export function createMCPAdapter(): MCPAdapter {
-  return new MCPAdapter();
+export function createMCPAdapter(options?: MCPAdapterOptions): MCPAdapter {
+  return new MCPAdapter(options);
 }
 
 function normalizeConnectTimeoutMs(raw: unknown): number {

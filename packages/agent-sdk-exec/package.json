@@ -51,7 +51,8 @@
     "ignore": "^7.0.5",
     "ipaddr.js": "^2.3.0",
     "micromatch": "^4.0.8",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/micromatch": "^4.0.10",

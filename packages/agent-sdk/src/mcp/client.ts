@@ -4,10 +4,16 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import type { Environment } from '@ddlqhd/agent-sdk-exec';
 import { z } from 'zod';
 import type { MCPServerConfig, ToolDefinition, ToolExecutionContext, ToolResult } from '../core/types.js';
 import { PACKAGE_VERSION } from '../version.js';
 import { formatMcpToolName } from './mcp-tool-name.js';
+import { EnvironmentStdioTransport } from './environment-stdio-transport.js';
+
+export interface MCPClientOptions {
+  environment?: Environment;
+}
 
 export interface MCPTool {
   name: string;
@@ -43,15 +49,19 @@ export interface PromptMessage {
 
 export class MCPClient {
   private client: Client;
-  private transport: Transport;
+  private transport: Transport | undefined;
   private _name: string;
   private _connected = false;
   private _tools: MCPTool[] = [];
   private _serverInfo?: { name: string; version: string };
   private readonly _toolTimeoutMs?: number;
+  private readonly _config: MCPServerConfig;
+  private readonly _environment?: Environment;
 
-  constructor(config: MCPServerConfig) {
+  constructor(config: MCPServerConfig, options?: MCPClientOptions) {
     this._name = config.name;
+    this._config = config;
+    this._environment = options?.environment;
     const t = config.toolTimeoutMs;
     this._toolTimeoutMs =
       typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : undefined;
@@ -60,32 +70,46 @@ export class MCPClient {
       { name: 'agent-sdk-client', version: PACKAGE_VERSION },
       { capabilities: {} }
     );
+  }
 
+  private createTransport(): Transport {
+    const config = this._config;
     if (config.transport === 'stdio') {
       if (!config.command) {
         throw new Error(`MCP server "${config.name}": stdio transport requires command`);
       }
+      const env = this._environment;
+      if (env?.kind === 'remote') {
+        return new EnvironmentStdioTransport({
+          environment: env,
+          command: config.command,
+          args: config.args,
+          cwd: config.cwd,
+          env: config.env,
+          title: `mcp:${config.name}`
+        });
+      }
       const cwd = (config.cwd ?? '').trim();
-      this.transport = new StdioClientTransport({
+      return new StdioClientTransport({
         command: config.command,
         args: config.args,
         env: config.env,
         ...(cwd !== '' ? { cwd } : {})
       });
-    } else {
-      if (!config.url) {
-        throw new Error(`MCP server "${config.name}": http transport requires url`);
-      }
-      this.transport = new StreamableHTTPClientTransport(
-        new URL(config.url),
-        { requestInit: { headers: config.headers } }
-      );
     }
+    if (!config.url) {
+      throw new Error(`MCP server "${config.name}": http transport requires url`);
+    }
+    return new StreamableHTTPClientTransport(
+      new URL(config.url),
+      { requestInit: { headers: config.headers } }
+    );
   }
 
   async connect(): Promise<void> {
     if (this._connected) return;
 
+    this.transport = this.createTransport();
     await this.client.connect(this.transport);
     this._connected = true;
 
@@ -314,6 +338,6 @@ function formatMcpToolCallFailure(toolName: string, error: unknown): string {
   return `MCP tool error: ${error instanceof Error ? error.message : String(error)}`;
 }
 
-export function createMCPClient(config: MCPServerConfig): MCPClient {
-  return new MCPClient(config);
+export function createMCPClient(config: MCPServerConfig, options?: MCPClientOptions): MCPClient {
+  return new MCPClient(config, options);
 }

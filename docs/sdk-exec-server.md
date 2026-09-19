@@ -55,10 +55,27 @@ const agent = new Agent({
 
 ## 协议要点
 
-WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，之后才接受 `fs/*`、`process/*`、`http/request`。`sessionId` 在连接建立时生成，`initialize` 原样返回。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
+WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，之后才接受 `fs/*`、`process/*`、`http/request`、`skills/list`。`sessionId` 在连接建立时生成，`initialize` 原样返回。`environmentInfo` 含执行面 `userHome`。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
 
 `chat` / `tui` / `web` / `-p` / ACP 在远程 environment 初始化失败时不会进入会话。
 
+## Skill
+
+会话启动用 `skills/list` 注入 system prompt 的 name / description，**不从控制面扫盘、不传输 skill 目录**。
+
+exec 扫描两棵根（jail **只读**放行 `{userHome}/.claude/skills`，写与进程 cwd 仍只允许 `--cwd`，不开放整个 HOME）：
+
+- `{userHome}/.claude/skills`（跑 `agent-sdk-exec` 的 OS 用户 HOME）
+- `{cwd}/.claude/skills`，或 `SkillConfig.workspacePath`（`skills/list` 的 `workspaceSkillsPath`）
+
+列表只含 frontmatter（name、description、path、scope，以及可选 argumentHint / userInvocable / disableModelInvocation），不含正文。`Skill` 调用时再通过 `env.fs` 读 SKILL.md；模板 `!`command`` 走 `environment.process`。
+
+远程部署：把 user skill **预装**到 exec-server 进程那个 OS 用户的 `~/.claude/skills`。控制面 HOME 里的 skill 不会出现在远端列表里。
+
+## MCP
+
+控制面仍持有 MCP 协议与工具注册。`transport: 'stdio'` 且 Environment 为 **remote** 时，stdio 子进程在执行面 spawn（`process/start` + `replaceEnv` + `pipeStdin` + `process/write` + `process/read`）。本地 Environment 仍用官方 `StdioClientTransport`。HTTP MCP 仍在控制面。stdio 子进程环境与官方 SDK 相同：白名单默认变量再合并 `config.env`，不继承 exec 进程的完整 `process.env`。
+
 ## 仍留在控制面
 
-模型 HTTP、Session JSONL、工具审批 / Hook 决策、自定义 JS 工具、MCP 客户端、WebSearch（Tavily）、TodoWrite、AskUserQuestion。Hook / Skill 模板里的本地 `spawn` 一期仍走控制面进程。
+模型 HTTP、Session JSONL、工具审批 / Hook 决策、自定义 JS 工具、MCP 协议客户端、WebSearch（Tavily）、TodoWrite、AskUserQuestion。

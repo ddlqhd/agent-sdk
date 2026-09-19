@@ -63,7 +63,8 @@ How to invoke:
           args,
           {
             sessionId: runtime.sessionId,
-            cwd: runtime.cwd
+            cwd: runtime.cwd,
+            environment: runtime.environment
           }
         );
 

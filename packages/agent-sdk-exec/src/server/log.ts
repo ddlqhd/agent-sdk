@@ -94,7 +94,15 @@ export function summarizeRpcParams(
     case METHODS.processWait:
     case METHODS.processSignal:
     case METHODS.processTerminate:
-      return typeof p.processId === 'string' ? { processId: p.processId } : undefined;
+    case METHODS.processWrite:
+      return {
+        ...(typeof p.processId === 'string' ? { processId: p.processId } : {}),
+        ...(method === METHODS.processWrite && typeof p.data === 'string'
+          ? { dataChars: p.data.length }
+          : {})
+      };
+    case METHODS.skillsList:
+      return undefined;
     case METHODS.httpRequest:
       return {
         httpMethod: typeof p.method === 'string' ? p.method : 'GET',

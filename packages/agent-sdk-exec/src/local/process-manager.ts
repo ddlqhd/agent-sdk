@@ -23,6 +23,8 @@ export type BashJobStatus = 'running' | 'exited' | 'spawn_error' | 'not_found';
 
 export interface BashSpawnOptions {
   command: string;
+  /** When set, spawn `command` with this argv (no shell). */
+  args?: string[];
   shellPath: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -30,6 +32,8 @@ export interface BashSpawnOptions {
   maxRingChars?: number;
   /** When true, remove job from registry as soon as the child process exits (default false: keep for BashList/output until BashKill). */
   removeJobOnExit?: boolean;
+  /** Keep child.stdin open for {@link writeJobStdin}. */
+  pipeStdin?: boolean;
   /** Optional explicit log dir; otherwise uses tmp/agent-sdk-bash-bg */
   logDir?: string | null;
 }
@@ -54,6 +58,7 @@ export interface BashJobRecord {
   child?: ChildProcess;
   /** When true, registry entry removed on successful process close */
   removeJobOnExit?: boolean;
+  pipeStdin?: boolean;
 }
 
 // Process-local registry. Imported singleton tools share this map inside one Node.js
@@ -176,7 +181,8 @@ export async function spawnBackgroundJob(options: BashSpawnOptions): Promise<Bas
     stderr,
     ringGenerationStdout: 0,
     ringGenerationStderr: 0,
-    removeJobOnExit: options.removeJobOnExit === true
+    removeJobOnExit: options.removeJobOnExit === true,
+    pipeStdin: options.pipeStdin === true
   };
 
   jobs.set(id, job);
@@ -199,10 +205,14 @@ export async function spawnBackgroundJob(options: BashSpawnOptions): Promise<Bas
     }
   };
 
-  const invocation = buildShellInvocation(options.command, options.shellPath);
+  const invocation =
+    options.args !== undefined
+      ? { file: options.command, args: options.args, windowsVerbatimArguments: false }
+      : buildShellInvocation(options.command, options.shellPath);
   const child = spawn(invocation.file, invocation.args, {
     cwd: options.cwd,
     env: options.env ?? { ...process.env },
+    stdio: options.pipeStdin ? ['pipe', 'pipe', 'pipe'] : undefined,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments
   });
 
@@ -260,6 +270,29 @@ export function getBackgroundJob(id: string): BashJobRecord | undefined {
   return jobs.get(id);
 }
 
+export async function writeJobStdin(id: string, data: Uint8Array): Promise<void> {
+  const job = getBackgroundJob(id);
+  if (!job) {
+    throw new Error(`No job "${id}"`);
+  }
+  if (!job.pipeStdin) {
+    throw new Error(`Process "${id}" was not started with pipeStdin`);
+  }
+  const stdin = job.child?.stdin;
+  if (!stdin || stdin.destroyed || stdin.writableEnded) {
+    throw new Error(`Process "${id}" stdin is closed`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    stdin.write(Buffer.from(data), (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 export interface BashJobSummary {
   id: string;
   command: string;
@@ -310,6 +343,7 @@ export interface BashReadOutputOptions {
   limitChars?: number;
   waitMs?: number;
   pattern?: string;
+  raw?: boolean;
 }
 
 export interface BashOutputResult {
@@ -439,8 +473,13 @@ export async function readJobOutput(jobId: string, opts?: BashReadOutputOptions)
 
   let truncatedNote = '';
 
+  const cursorFiltersStale = !!(opts?.pattern?.trim() || (opts?.tailChars && opts.tailChars > 0));
+  let stdoutConsumed = 0;
+  let stderrConsumed = 0;
+
   if (stream === 'stdout') {
-    text = sliceFrom(job.stdout, sinceStdout);
+    const rawSlice = sliceFrom(job.stdout, sinceStdout);
+    text = rawSlice;
     if (opts?.pattern?.trim()) {
       text = filterLinesMatchingPattern(text, opts.pattern);
     }
@@ -451,8 +490,10 @@ export async function readJobOutput(jobId: string, opts?: BashReadOutputOptions)
       truncatedNote = `\n...[truncated at ${effectiveLimitChars} chars]`;
       text = text.slice(0, effectiveLimitChars);
     }
+    stdoutConsumed = cursorFiltersStale ? rawSlice.length : Math.min(rawSlice.length, effectiveLimitChars);
   } else if (stream === 'stderr') {
-    text = sliceFrom(job.stderr, sinceStderr);
+    const rawSlice = sliceFrom(job.stderr, sinceStderr);
+    text = rawSlice;
     if (opts?.pattern?.trim()) {
       text = filterLinesMatchingPattern(text, opts.pattern);
     }
@@ -463,6 +504,7 @@ export async function readJobOutput(jobId: string, opts?: BashReadOutputOptions)
       truncatedNote = `\n...[truncated at ${effectiveLimitChars} chars]`;
       text = text.slice(0, effectiveLimitChars);
     }
+    stderrConsumed = cursorFiltersStale ? rawSlice.length : Math.min(rawSlice.length, effectiveLimitChars);
   } else {
     mergedForCombined = flattenCombined(job);
     let baseSince = opts?.sinceCursor ?? 0;
@@ -514,14 +556,10 @@ export async function readJobOutput(jobId: string, opts?: BashReadOutputOptions)
   const mergedNow = flattenCombined(job);
 
   const nextStdoutAdv =
-    stream === 'stdout'
-      ? sinceStdout + sliceFrom(job.stdout, sinceStdout).length
-      : job.stdout.emittedTotal;
+    stream === 'stdout' ? sinceStdout + stdoutConsumed : job.stdout.emittedTotal;
 
   const nextStderrAdv =
-    stream === 'stderr'
-      ? sinceStderr + sliceFrom(job.stderr, sinceStderr).length
-      : job.stderr.emittedTotal;
+    stream === 'stderr' ? sinceStderr + stderrConsumed : job.stderr.emittedTotal;
 
   let nextCursorCombinedApprox: number;
   if (stream !== 'all') {
@@ -537,7 +575,7 @@ export async function readJobOutput(jobId: string, opts?: BashReadOutputOptions)
   }
 
   return {
-    content: `${header}\n${text}`,
+    content: opts?.raw ? text : `${header}\n${text}`,
     nextCursorStdout: Math.min(nextStdoutAdv, job.stdout.emittedTotal),
     nextCursorStderr: Math.min(nextStderrAdv, job.stderr.emittedTotal),
     nextCursorCombinedApprox,

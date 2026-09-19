@@ -35,7 +35,10 @@ export async function createEnvironmentFromConfig(
   }
 
   if (config && typeof config === 'object' && config.type === 'local') {
-    return createLocalEnvironment({ workspaceRoot: config.workspaceRoot });
+    return createLocalEnvironment({
+      workspaceRoot: config.workspaceRoot,
+      userHome: config.userHome
+    });
   }
 
   if (config === 'local') {

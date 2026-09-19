@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import type { Environment } from '@ddlqhd/agent-sdk-exec';
 
 const execAsync = promisify(exec);
 
@@ -15,6 +16,9 @@ export interface SkillTemplateContext {
 
   /** 工作目录，默认 process.cwd() */
   cwd?: string;
+
+  /** When set, `!`command`` runs on the execution plane. */
+  environment?: Environment;
 }
 
 /**
@@ -61,10 +65,7 @@ export class SkillTemplateProcessor {
     for (const match of matches) {
       const command = match[1];
       try {
-        const { stdout } = await execAsync(command, {
-          cwd: this.context.cwd,
-          timeout: 30000
-        });
+        const stdout = await this.runShellCommand(command);
         content = content.replace(match[0], stdout.trim());
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -73,6 +74,32 @@ export class SkillTemplateProcessor {
     }
 
     return content;
+  }
+
+  private async runShellCommand(command: string): Promise<string> {
+    const env = this.context.environment;
+    if (env) {
+      const handle = await env.process.start({
+        command,
+        cwd: this.context.cwd
+      });
+      const result = await handle.wait({ timeoutMs: 30_000 });
+      if (result.aborted) {
+        throw new Error('Command aborted');
+      }
+      if (result.timedOut) {
+        throw new Error('Command timed out after 30000ms');
+      }
+      if (result.spawnError) {
+        throw new Error(result.spawnError);
+      }
+      return result.stdout;
+    }
+    const { stdout } = await execAsync(command, {
+      cwd: this.context.cwd,
+      timeout: 30000
+    });
+    return stdout;
   }
 
   /**

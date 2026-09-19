@@ -18,6 +18,7 @@ import {
   readJobOutput,
   spawnBackgroundJob,
   terminateJob,
+  writeJobStdin,
   type BashJobRecord
 } from './process-manager.js';
 import { getExecutorShellPath } from './shell-path.js';
@@ -47,6 +48,9 @@ function jobToHandle(job: BashJobRecord): ProcessHandle {
     },
     async read(opts?: ProcessReadOptions): Promise<ProcessReadResult> {
       return readJobOutput(job.id, opts);
+    },
+    async write(data: Uint8Array): Promise<void> {
+      await writeJobStdin(job.id, data);
     },
     async signal(sig?: NodeJS.Signals): Promise<void> {
       try {
@@ -106,22 +110,28 @@ export class LocalProcessRuntime implements ProcessRuntime {
   async start(req: ProcessStartRequest): Promise<ProcessHandle> {
     const cwd = this.resolveCwd(req.cwd);
     const shellPath = req.shellPath ?? getExecutorShellPath();
-    const env = mergeExecutorEnv(req.env);
+    const env = req.replaceEnv === true ? { ...(req.env ?? {}) } : mergeExecutorEnv(req.env);
+    const pipeStdin = req.pipeStdin === true;
 
     if (req.background) {
       const job = await spawnBackgroundJob({
         command: req.command,
+        args: req.args,
         shellPath,
         cwd,
         env,
         title: req.title,
         maxRingChars: req.maxRingChars,
-        removeJobOnExit: req.removeJobOnExit === true
+        removeJobOnExit: req.removeJobOnExit === true,
+        pipeStdin
       });
       return jobToHandle(job);
     }
 
-    return startForeground(req.command, shellPath, cwd, env);
+    return startForeground(req.command, shellPath, cwd, env, {
+      args: req.args,
+      pipeStdin
+    });
   }
 
   async listJobs(): Promise<ProcessListItem[]> {
@@ -138,12 +148,17 @@ function startForeground(
   command: string,
   shellPath: string,
   cwd: string | undefined,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: { args?: string[]; pipeStdin: boolean } = { pipeStdin: false }
 ): ProcessHandle {
-  const invocation = buildShellInvocation(command, shellPath);
+  const invocation =
+    options.args !== undefined
+      ? { file: command, args: options.args, windowsVerbatimArguments: false }
+      : buildShellInvocation(command, shellPath);
   const child = spawn(invocation.file, invocation.args, {
     cwd,
     env,
+    stdio: options.pipeStdin ? ['pipe', 'pipe', 'pipe'] : undefined,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments
   });
 
@@ -277,9 +292,20 @@ function startForeground(
         });
       });
     },
-    async read(): Promise<ProcessReadResult> {
+    async read(opts?: ProcessReadOptions): Promise<ProcessReadResult> {
+      const stream = opts?.stream ?? 'all';
+      const rawStdout = stream === 'stderr' ? '' : stdout;
+      const rawStderr = stream === 'stdout' ? '' : stderr;
+      const content =
+        stream === 'stdout'
+          ? rawStdout
+          : stream === 'stderr'
+            ? rawStderr
+            : opts?.raw
+              ? stdout + stderr
+              : stdout + (stderr ? `\nSTDERR:\n${stderr}` : '');
       return {
-        content: stdout + (stderr ? `\nSTDERR:\n${stderr}` : ''),
+        content,
         nextCursorStdout: stdout.length,
         nextCursorStderr: stderr.length,
         nextCursorCombinedApprox: stdout.length + stderr.length,
@@ -290,6 +316,24 @@ function startForeground(
         ringGenerationStdout: 0,
         ringGenerationStderr: 0
       };
+    },
+    async write(data: Uint8Array): Promise<void> {
+      if (!options.pipeStdin) {
+        throw new Error('Process was not started with pipeStdin');
+      }
+      const stdin = child.stdin;
+      if (!stdin || stdin.destroyed || stdin.writableEnded) {
+        throw new Error('Process stdin is closed');
+      }
+      await new Promise<void>((resolve, reject) => {
+        stdin.write(Buffer.from(data), (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
     },
     async signal(sig?: NodeJS.Signals): Promise<void> {
       try {

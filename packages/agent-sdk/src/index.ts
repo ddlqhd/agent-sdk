@@ -132,10 +132,11 @@ export {
   createMCPClient,
   MCPAdapter,
   createMCPAdapter,
+  EnvironmentStdioTransport,
   formatMcpToolName,
   isMcpPrefixedToolName
 } from './mcp/index.js';
-export type { MCPTool, MCPResource, MCPPrompt, PromptMessage } from './mcp/index.js';
+export type { MCPTool, MCPResource, MCPPrompt, PromptMessage, MCPClientOptions } from './mcp/index.js';
 
 // Skills
 export {
@@ -143,7 +144,8 @@ export {
   createSkillLoader,
   SkillRegistry,
   createSkillRegistry,
-  parseSkillMd
+  parseSkillMd,
+  skillDirFromPath
 } from './skills/index.js';
 export type { SkillLoaderConfig } from './skills/index.js';
 
@@ -228,7 +230,9 @@ export type {
   Environment,
   EnvironmentKind,
   RemoteEnvironmentConfig,
-  RunningExecServer
+  RunningExecServer,
+  SkillListItem,
+  SkillListOptions
 } from '@ddlqhd/agent-sdk-exec';
 
 // Config

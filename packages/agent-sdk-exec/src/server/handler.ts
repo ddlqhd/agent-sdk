@@ -58,6 +58,17 @@ function num(obj: Record<string, unknown>, key: string): number | undefined {
   return v;
 }
 
+function strArr(obj: Record<string, unknown>, key: string): string[] | undefined {
+  const v = obj[key];
+  if (v === undefined || v === null) {
+    return undefined;
+  }
+  if (!Array.isArray(v) || v.some((item) => typeof item !== 'string')) {
+    throw new ExecError(`Param ${key} must be an array of strings`, JSON_RPC_INVALID_PARAMS);
+  }
+  return v as string[];
+}
+
 function bool(obj: Record<string, unknown>, key: string): boolean | undefined {
   const v = obj[key];
   if (v === undefined || v === null) return undefined;
@@ -75,7 +86,8 @@ export function environmentInfoFrom(env: Environment): EnvironmentInfo {
     executorVersion: PACKAGE_VERSION,
     cwd: env.info.cwd,
     platformOs: env.info.platformOs,
-    workspaceRoot: env.info.workspaceRoot
+    workspaceRoot: env.info.workspaceRoot,
+    userHome: env.info.userHome
   };
 }
 
@@ -202,13 +214,16 @@ export async function handleRequest(
     case METHODS.processStart: {
       const handle = await env.process.start({
         command: str(params, 'command', true)!,
+        args: strArr(params, 'args'),
         cwd: str(params, 'cwd'),
         env: (params.env as Record<string, string> | undefined) ?? undefined,
+        replaceEnv: bool(params, 'replaceEnv'),
         shellPath: str(params, 'shellPath'),
         background: bool(params, 'background'),
         title: str(params, 'title'),
         maxRingChars: num(params, 'maxRingChars'),
-        removeJobOnExit: bool(params, 'removeJobOnExit')
+        removeJobOnExit: bool(params, 'removeJobOnExit'),
+        pipeStdin: bool(params, 'pipeStdin')
       });
       ctx.session.processes.set(handle.id, handle);
       return {
@@ -235,11 +250,25 @@ export async function handleRequest(
         tailChars: num(params, 'tailChars'),
         limitChars: num(params, 'limitChars'),
         waitMs: num(params, 'waitMs'),
-        pattern: str(params, 'pattern')
+        pattern: str(params, 'pattern'),
+        raw: bool(params, 'raw')
       });
     }
-    case METHODS.processWrite:
-      throw new ExecError('process/write is not supported in this protocol version', JSON_RPC_INVALID_PARAMS);
+    case METHODS.processWrite: {
+      const id = str(params, 'processId', true)!;
+      const handle = ctx.session.processes.get(id) ?? (await env.process.getJob(id));
+      if (!handle) {
+        throw new ExecError(`Unknown process: ${id}`, EXEC_NOT_FOUND);
+      }
+      await handle.write(decodeBytes(str(params, 'data', true)!));
+      return {};
+    }
+    case METHODS.skillsList:
+      return {
+        skills: await env.listSkills({
+          workspaceSkillsPath: str(params, 'workspaceSkillsPath')
+        })
+      };
     case METHODS.processSignal: {
       const id = str(params, 'processId', true)!;
       const handle = ctx.session.processes.get(id) ?? (await env.process.getJob(id));
