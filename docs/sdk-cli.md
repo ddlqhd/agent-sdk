@@ -253,7 +253,7 @@ agent-sdk web [options]
 agent-sdk exec-server --listen 127.0.0.1:8787 --cwd /repo --token "$TOKEN"
 ```
 
-stdout 会打印连接、RPC method 和断开，用来确认控制面请求是否打到执行面。
+stdout 会打印连接、RPC method 和断开，用来确认控制面请求是否打到执行面。`--exec-server` 连不上时 `chat` / `tui` / `web` / `-p` 会直接失败，不会进会话。
 
 连接后 UI 会按表单自动 `configure`。路径栏留空则使用上述 CLI 默认值。会话默认 **jsonl**，可与 `agent-sdk sessions` / `chat --resume` 共用存储。UI 若改选 **memory** 存储，每个会话是独立的内存实例，列出/恢复只对当前连接里仍活着的 runtime 有效。
 

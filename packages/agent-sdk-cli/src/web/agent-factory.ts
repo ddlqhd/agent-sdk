@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import {
   Agent,
+  assertAgentEnvironmentReady,
   createFileJSONLLogger,
   createModel,
   loadMCPConfig,
@@ -247,7 +248,13 @@ export async function buildAgent(
       : {})
   });
 
-  await agent.waitForInit();
+  const initResult = await agent.waitForInit();
+  try {
+    assertAgentEnvironmentReady(initResult);
+  } catch (err) {
+    await agent.destroy();
+    throw err;
+  }
   if (config.safeToolsOnly) {
     const reg = agent.getToolRegistry();
     for (const tool of [...reg.getAll()]) {

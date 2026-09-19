@@ -2695,3 +2695,16 @@ export class Agent {
 export function createAgent(config: AgentConfig): Agent {
   return new Agent(config);
 }
+
+/**
+ * Throw when {@link Agent.waitForInit} reported a failed execution environment.
+ * Control-plane hosts (CLI / web / ACP) should call this before accepting user turns.
+ */
+export function assertAgentEnvironmentReady(result: Pick<AgentInitResult, 'environment'>): void {
+  if (result.environment.ok) {
+    return;
+  }
+  const detail =
+    result.environment.error?.message ?? result.environment.error?.name ?? 'unknown error';
+  throw new Error(`Failed to initialize execution environment: ${detail}`);
+}

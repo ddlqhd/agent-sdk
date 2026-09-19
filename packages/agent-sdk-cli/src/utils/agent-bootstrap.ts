@@ -1,7 +1,7 @@
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import type { ModelProvider } from '@ddlqhd/agent-sdk';
-import { Agent } from '@ddlqhd/agent-sdk';
+import { Agent, assertAgentEnvironmentReady } from '@ddlqhd/agent-sdk';
 import type { AgentForkSessionOptions, StreamOptions } from '@ddlqhd/agent-sdk';
 import type { AgentModelConfig, MCPInitializationSummary } from '@ddlqhd/agent-sdk';
 import type { CLIConfig } from '../types.js';
@@ -352,6 +352,12 @@ export async function createCliAgent(options: CLIConfig): Promise<CliAgentBundle
   const agent = new Agent(buildCliAgentConfig(options, mcpResult.servers, fileLogger));
 
   const initResult = await agent.waitForInit();
+  try {
+    assertAgentEnvironmentReady(initResult);
+  } catch (err) {
+    await destroyCliAgent(agent, fileLogger);
+    throw err;
+  }
   reportMCPInitResult(initResult.mcp);
 
   return { agent, fileLogger, initResult, cwd };

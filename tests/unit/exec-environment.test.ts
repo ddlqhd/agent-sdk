@@ -17,6 +17,9 @@ import {
   type ExecServerLogEvent,
   type RunningExecServer
 } from '@ddlqhd/agent-sdk-exec';
+import { assertAgentEnvironmentReady } from '@ddlqhd/agent-sdk';
+import { createCliAgent } from '../../packages/agent-sdk-cli/src/utils/agent-bootstrap.js';
+import { handleRequest, type ExecSession } from '../../packages/agent-sdk-exec/src/server/handler.js';
 import { readFileTool, writeFileTool, globTool } from '../../packages/agent-sdk/src/tools/builtin/filesystem.js';
 import { grepTool } from '../../packages/agent-sdk/src/tools/builtin/grep.js';
 import { bashTool } from '../../packages/agent-sdk/src/tools/builtin/shell.js';
@@ -180,5 +183,90 @@ describe('remote exec-server loopback', () => {
     expect(methods).toContain('process/start');
     expect(logs.some((e) => e.event === 'connection')).toBe(true);
     expect(JSON.stringify(logs)).not.toContain('secret');
+    const sessionIds = new Set(logs.map((e) => e.sessionId));
+    expect(sessionIds.size).toBe(1);
+  });
+
+  it('rejects fs RPCs until initialize then initialized, and keeps session.id', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-hs-'));
+    writeFileSync(join(root, 'remote.txt'), 'from-exec\n');
+    const environment = createLocalEnvironment({ workspaceRoot: root });
+    const session: ExecSession = {
+      id: 'sess-fixed',
+      initializeAccepted: false,
+      initialized: false,
+      environment,
+      processes: new Map()
+    };
+    const ctx = { token: 'secret', environment, session };
+
+    await expect(
+      handleRequest(ctx, { jsonrpc: '2.0', id: 1, method: 'initialized' }, 'secret')
+    ).rejects.toThrow(/not initialized/i);
+    await expect(
+      handleRequest(
+        ctx,
+        { jsonrpc: '2.0', id: 2, method: 'fs/getMetadata', params: { path: join(root, 'remote.txt') } },
+        'secret'
+      )
+    ).rejects.toThrow(/not initialized/i);
+
+    const init = (await handleRequest(
+      ctx,
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'initialize',
+        params: { clientName: 'vitest', protocolVersion: PROTOCOL_VERSION, token: 'secret' }
+      },
+      'secret'
+    )) as { sessionId: string };
+    expect(init.sessionId).toBe('sess-fixed');
+    expect(session.id).toBe('sess-fixed');
+
+    await expect(
+      handleRequest(
+        ctx,
+        { jsonrpc: '2.0', id: 4, method: 'fs/getMetadata', params: { path: join(root, 'remote.txt') } },
+        'secret'
+      )
+    ).rejects.toThrow(/not initialized/i);
+
+    await handleRequest(ctx, { jsonrpc: '2.0', id: 5, method: 'initialized' }, 'secret');
+    const meta = (await handleRequest(
+      ctx,
+      { jsonrpc: '2.0', id: 6, method: 'fs/getMetadata', params: { path: join(root, 'remote.txt') } },
+      'secret'
+    )) as { isFile: boolean };
+    expect(meta.isFile).toBe(true);
+  });
+});
+
+describe('assertAgentEnvironmentReady', () => {
+  it('passes when environment init succeeded', () => {
+    expect(() => assertAgentEnvironmentReady({ environment: { ok: true } })).not.toThrow();
+  });
+
+  it('throws the init error when environment failed', () => {
+    expect(() =>
+      assertAgentEnvironmentReady({
+        environment: { ok: false, error: { name: 'Error', message: 'getaddrinfo ENOTFOUND workspace' } }
+      })
+    ).toThrow(/getaddrinfo ENOTFOUND workspace/);
+  });
+});
+
+describe('createCliAgent environment init', () => {
+  it('does not start when exec-server is unreachable', async () => {
+    await expect(
+      createCliAgent({
+        provider: 'openai',
+        apiKey: 'test',
+        model: 'gpt-4o',
+        bare: true,
+        execServer: 'ws://127.0.0.1:1',
+        logLevel: 'silent'
+      })
+    ).rejects.toThrow(/Failed to initialize execution environment/);
   });
 });

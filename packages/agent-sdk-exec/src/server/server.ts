@@ -58,6 +58,7 @@ export async function startExecServer(options: ExecServerOptions = {}): Promise<
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const session: ExecSession = {
       id: randomUUID(),
+      initializeAccepted: false,
       initialized: false,
       environment,
       processes: new Map()
@@ -102,6 +103,16 @@ export async function startExecServer(options: ExecServerOptions = {}): Promise<
 
         if (!isJsonRpcRequest(parsed)) {
           if (parsed && 'method' in parsed && parsed.method === 'initialized') {
+            if (!session.initializeAccepted) {
+              log?.({
+                event: 'error',
+                sessionId,
+                method: parsed.method,
+                ok: false,
+                error: 'Session is not initialized'
+              });
+              return;
+            }
             session.initialized = true;
             log?.({
               event: 'notification',

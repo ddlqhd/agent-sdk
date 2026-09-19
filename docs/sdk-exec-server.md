@@ -55,7 +55,9 @@ const agent = new Agent({
 
 ## 协议要点
 
-WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，再接受 `fs/*`、`process/*`、`http/request`。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
+WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，之后才接受 `fs/*`、`process/*`、`http/request`。`sessionId` 在连接建立时生成，`initialize` 原样返回。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
+
+`chat` / `tui` / `web` / `-p` / ACP 在远程 environment 初始化失败时不会进入会话。
 
 ## 仍留在控制面
 

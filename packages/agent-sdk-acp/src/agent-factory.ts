@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import {
   Agent,
+  assertAgentEnvironmentReady,
   createModel,
   type AgentLifecycleCallbacks,
   type AskUserQuestionResolver,
@@ -88,6 +89,12 @@ export async function buildSessionAgent(options: BuildSessionAgentOptions): Prom
     logLevel: process.env.AGENT_SDK_LOG_LEVEL === 'debug' ? 'debug' : 'warn'
   });
 
-  await agent.waitForInit();
+  const initResult = await agent.waitForInit();
+  try {
+    assertAgentEnvironmentReady(initResult);
+  } catch (err) {
+    await agent.destroy();
+    throw err;
+  }
   return agent;
 }

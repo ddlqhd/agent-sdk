@@ -6,6 +6,7 @@ export { PACKAGE_VERSION } from './version.js';
 export {
   Agent,
   createAgent,
+  assertAgentEnvironmentReady,
   DEFAULT_MAX_ITERATIONS,
   DEFAULT_SUBAGENT_TIMEOUT_MS
 } from './core/agent.js';

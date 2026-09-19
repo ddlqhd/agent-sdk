@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   decodeBytes,
   encodeBytes,
@@ -15,6 +14,9 @@ import { getExecutorShellPath } from '../local/shell-path.js';
 
 export interface ExecSession {
   id: string;
+  /** Set after a successful `initialize`. `initialized` notification is accepted only then. */
+  initializeAccepted: boolean;
+  /** Set after `initialized`; fs/process/http RPCs require this. */
   initialized: boolean;
   environment: Environment;
   processes: Map<string, ProcessHandle>;
@@ -92,8 +94,7 @@ export async function handleRequest(
     if (!init.clientName) {
       throw new ExecError('clientName is required', JSON_RPC_INVALID_PARAMS);
     }
-    ctx.session.initialized = true;
-    ctx.session.id = randomUUID();
+    ctx.session.initializeAccepted = true;
     return {
       sessionId: ctx.session.id,
       protocolVersion: PROTOCOL_VERSION,
@@ -101,12 +102,16 @@ export async function handleRequest(
     };
   }
 
-  if (!ctx.session.initialized && request.method !== METHODS.initialized) {
-    throw new ExecError('Session is not initialized', EXEC_NOT_INITIALIZED);
+  if (request.method === METHODS.initialized) {
+    if (!ctx.session.initializeAccepted) {
+      throw new ExecError('Session is not initialized', EXEC_NOT_INITIALIZED);
+    }
+    ctx.session.initialized = true;
+    return {};
   }
 
-  if (request.method === METHODS.initialized) {
-    return {};
+  if (!ctx.session.initialized) {
+    throw new ExecError('Session is not initialized', EXEC_NOT_INITIALIZED);
   }
 
   const env = ctx.environment;

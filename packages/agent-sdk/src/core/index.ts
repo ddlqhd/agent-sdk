@@ -1,4 +1,4 @@
-export { Agent, createAgent } from './agent.js';
+export { Agent, createAgent, assertAgentEnvironmentReady } from './agent.js';
 export type { StreamOptions } from './agent.js';
 export * from './types.js';
 export { ContextManager } from './context-manager.js';
