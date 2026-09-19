@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { parseProviderCli } from '../utils/agent-bootstrap.js';
 import { describeCliLogLevelOption, parseCliLogLevel } from '../utils/sdk-log.js';
+import { loadUserSettings } from '../utils/user-settings.js';
 import type { ModelProvider } from '../web/shared/ws-protocol.js';
 import { resolveWebClientDist } from '../web/paths.js';
 import { parseListenPort, resolveListenPort } from '../web/http-utils.js';
@@ -54,9 +55,12 @@ export function createWebCommand(): Command {
     .action(async (options: WebCommandOptions) => {
       try {
         const { startWebServer } = await import('../web/start-server.js');
-        const provider = options.provider ? parseProviderCli(options.provider) : 'openai';
         const cwd = options.cwd ? resolve(options.cwd) : process.cwd();
         const userBasePath = options.userBasePath ? resolve(options.userBasePath) : homedir();
+        const settings = loadUserSettings(userBasePath);
+        const provider = options.provider
+          ? parseProviderCli(options.provider)
+          : (settings?.agentDefaultModel?.provider ?? 'openai');
         const port = resolveListenPort(options.port, process.env.PORT);
         const host = options.host ?? '127.0.0.1';
 
@@ -68,16 +72,24 @@ export function createWebCommand(): Command {
           defaults: {
             cwd,
             userBasePath,
-            mcpConfigPath: options.mcpConfig,
+            mcpConfigPath: options.mcpConfig ?? settings?.agent?.mcpConfigPath,
             provider: provider as ModelProvider,
-            model: options.model,
+            model: options.model ?? settings?.agentDefaultModel?.model,
             apiKey: options.apiKey,
             baseUrl: options.baseUrl,
             includeDemoTools: options.demoTools === true,
             logLevel: options.logLevel,
             logFile: options.logFile,
             execServer: options.execServer,
-            execToken: options.execToken
+            execToken: options.execToken,
+            temperature: settings?.agentDefaultModel?.temperature,
+            thinking: settings?.agentDefaultModel?.thinking,
+            thinkingLevel: settings?.agentDefaultModel?.thinkingLevel,
+            memory: settings?.agent?.memory,
+            contextManagement: settings?.agent?.contextManagement,
+            contextLength: settings?.agent?.contextLength,
+            storage: settings?.web?.storage,
+            safeToolsOnly: settings?.web?.safeToolsOnly
           }
         });
       } catch (err) {

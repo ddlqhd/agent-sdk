@@ -39,6 +39,8 @@ export type ClientMessage =
       thinking?: boolean;
       /** Maps to AgentModelConfig.thinkingLevel (omit for default; adapters use when supported). */
       thinkingLevel?: 'low' | 'medium' | 'high';
+      /** When true, write non-secret fields to the user settings file after configure. */
+      persist?: boolean;
     }
   | { type: 'chat'; text: string; sessionId?: string; requestId: string; forkSession?: boolean }
   | { type: 'chat_run'; text: string; sessionId?: string; requestId: string; forkSession?: boolean }
@@ -71,6 +73,14 @@ export interface WebUiDefaults {
   mcpConfigPath?: string;
   provider?: ModelProvider;
   model?: string;
+  temperature?: number;
+  contextLength?: number;
+  thinking?: boolean;
+  thinkingLevel?: 'low' | 'medium' | 'high';
+  storage?: 'memory' | 'jsonl';
+  safeToolsOnly?: boolean;
+  memory?: boolean;
+  contextManagement?: boolean;
 }
 
 export type ServerMessage =

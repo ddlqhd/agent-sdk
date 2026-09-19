@@ -118,7 +118,7 @@ export NO_PROXY=localhost,127.0.0.1
 agent-sdk chat [options]
 
 选项:
-  --provider <provider>    模型提供商 (openai, anthropic, ollama；默认 openai)
+  --provider <provider>    模型提供商 (openai, anthropic, ollama；未指定时读用户设置，再默认 openai)
   -m, --model <model>      模型 ID（如 gpt-4o、claude-sonnet-4）
   -k, --api-key <key>      API Key
   -u, --base-url <url>     基础 URL
@@ -214,6 +214,10 @@ agent-sdk tui [options]
 
 本地 **Agent Studio** Web UI：同一进程提供静态页面与 WebSocket `/ws`。浏览器不接触 API Key；密钥走服务端环境变量或 `--api-key`。
 
+界面是会话优先的三栏工作台：左侧会话列表（`ready` / 新建 / 分支 / 发送后自动刷新，可收成图标轨），中间居中对话，右侧可开关的工具执行与事件流。模型、路径与安全选项在侧栏底部的**设置**浮层；连接后按该表单自动 `configure`。默认暗色，可切浅色（`localStorage`，首次跟随系统）。`chat_run` 调试开关也在设置里。
+
+设置里点「应用配置」会把**非密钥**字段写到 `<userBase>/.claude/agent-sdk-settings.json`（`userBase` 为启动时的 `--user-base-path`，默认 `~`）。自动握手 `configure` 只读不写。清空可选字段（temperature / thinking / thinkingLevel / contextLength / mcpConfigPath）会从文件中删除对应键。`agent-sdk chat` / `-p` / `web` 共用这份默认模型；覆盖顺序是 **显式 CLI flag > settings 文件 > 内置默认**。文件不含 API Key（仍走环境变量 / `--api-key`），也不存 `cwd`。CLI 只读不写该文件。
+
 ```bash
 # 默认 http://127.0.0.1:3001（与 chat 共用 cwd / userBasePath / 会话目录）
 agent-sdk web
@@ -233,8 +237,8 @@ agent-sdk web [options]
   --host <host>            监听地址（默认 127.0.0.1）
   --allow-remote           允许绑定非回环地址，并关闭 WebSocket Origin 校验（危险）
   --demo-tools             注册 DemoCalculator 示例工具
-  --provider <provider>    模型提供商（写入 UI 默认值）
-  -m, --model <model>      模型 ID（写入 UI 默认值）
+  --provider <provider>    模型提供商（覆盖 settings / 写入 UI 默认值）
+  -m, --model <model>      模型 ID（覆盖 settings / 写入 UI 默认值）
   -k, --api-key <key>      API Key（仅服务端使用）
   -u, --base-url <url>     仅当 UI 仍使用上述 --provider 时生效
   --mcp-config <path>      MCP 配置文件（UI 未填路径时使用）
@@ -255,7 +259,7 @@ agent-sdk exec-server --listen 127.0.0.1:8787 --cwd /repo --token "$TOKEN"
 
 stdout 会打印连接、RPC method 和断开，用来确认控制面请求是否打到执行面。`--exec-server` 连不上时 `chat` / `tui` / `web` / `-p` 会直接失败，不会进会话。
 
-连接后 UI 会按表单自动 `configure`。路径栏留空则使用上述 CLI 默认值。会话默认 **jsonl**，可与 `agent-sdk sessions` / `chat --resume` 共用存储。UI 若改选 **memory** 存储，每个会话是独立的内存实例，列出/恢复只对当前连接里仍活着的 runtime 有效。
+连接后 UI 会按设置表单自动 `configure`。路径栏留空则使用上述 CLI 默认值。会话默认 **jsonl**，可与 `agent-sdk sessions` / `chat --resume` 共用存储。UI 若改选 **memory** 存储，每个会话是独立的内存实例，列出/恢复只对当前连接里仍活着的 runtime 有效。
 
 本仓库需先 `pnpm build`：CLI 包会把 Vite 客户端打进 `dist/web-client`，发布的 `@ddlqhd/agent-sdk-cli` 已包含该静态资源。未构建时 `agent-sdk web` 会提示先 build。`tsup --watch` 不会清空已构建的 `dist/web-client`。
 

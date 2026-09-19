@@ -82,6 +82,24 @@ describe('resolveCliModelSelection', () => {
   it('throws on invalid --provider', () => {
     expect(() => resolveCliModelSelection({ provider: 'foo' })).toThrow(/Invalid --provider: foo/);
   });
+
+  it('uses persisted settings when flags are omitted', () => {
+    expect(
+      resolveCliModelSelection(
+        {},
+        { version: 1, agentDefaultModel: { provider: 'anthropic', model: 'claude-xxx' } }
+      )
+    ).toEqual({ provider: 'anthropic', model: 'claude-xxx' });
+  });
+
+  it('lets explicit --provider/--model override settings', () => {
+    expect(
+      resolveCliModelSelection(
+        { provider: 'openai', model: 'gpt-4o' },
+        { version: 1, agentDefaultModel: { provider: 'anthropic', model: 'claude-xxx' } }
+      )
+    ).toEqual({ provider: 'openai', model: 'gpt-4o' });
+  });
 });
 
 describe('modelConfigFromOptions', () => {
@@ -107,6 +125,15 @@ describe('modelConfigFromOptions', () => {
       thinking: true,
       thinkingLevel: 'high'
     });
+  });
+
+  it('fills thinking from settings when flags omit it', () => {
+    const cfg = modelConfigFromOptions(
+      { provider: 'openai' },
+      { version: 1, agentDefaultModel: { thinking: false, thinkingLevel: 'low' } }
+    );
+    expect(cfg.thinking).toBe(false);
+    expect(cfg.thinkingLevel).toBe('low');
   });
 });
 

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import type { ModelProvider } from '@ddlqhd/agent-sdk';
@@ -18,6 +19,7 @@ import { createTtyAskUserQuestionResolver } from './ask-user-question.js';
 import { getLatestSessionId } from '@ddlqhd/agent-sdk';
 import { parseAllowedTools, isHeadlessCli } from './print-prompt.js';
 import { applyEnvHttpProxy } from './apply-env-proxy.js';
+import { loadUserSettings, type UserSettings } from './user-settings.js';
 
 function parseThinkingCli(value?: string): boolean {
   if (value === undefined || value === '') return true;
@@ -59,17 +61,21 @@ export interface CliModelSelection {
  * Resolve Goose-style `--provider` + `--model`, plus one-release aliases:
  * `--model openai|anthropic|ollama` as provider, and hidden `--model-name`.
  */
-export function resolveCliModelSelection(options: CLIConfig): CliModelSelection {
+export function resolveCliModelSelection(
+  options: CLIConfig,
+  settings?: UserSettings | null
+): CliModelSelection {
   const explicitProvider = options.provider;
   const modelFlag = options.model;
   const legacyModelName = options.modelName;
+  const stored = settings?.agentDefaultModel;
 
   if (explicitProvider !== undefined && explicitProvider !== '') {
     const provider = parseProviderCli(explicitProvider);
     if (legacyModelName !== undefined) {
       warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
     }
-    return { provider, model: modelFlag ?? legacyModelName };
+    return { provider, model: modelFlag ?? legacyModelName ?? stored?.model };
   }
 
   const normalizedModel = modelFlag?.trim().toLowerCase();
@@ -80,14 +86,17 @@ export function resolveCliModelSelection(options: CLIConfig): CliModelSelection 
     if (legacyModelName !== undefined) {
       warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
     }
-    return { provider: normalizedModel, model: legacyModelName };
+    return { provider: normalizedModel, model: legacyModelName ?? stored?.model };
   }
 
   if (legacyModelName !== undefined) {
     warnCliDeprecated('Warning: --model-name is deprecated; use --model <name>.');
   }
 
-  return { provider: 'openai', model: modelFlag ?? legacyModelName };
+  return {
+    provider: stored?.provider ?? 'openai',
+    model: modelFlag ?? legacyModelName ?? stored?.model
+  };
 }
 
 export function addHeadlessOptions(cmd: Command): Command {
@@ -204,15 +213,18 @@ export function buildStreamOptions(
   return { sessionId, signal };
 }
 
-export function modelConfigFromOptions(options: CLIConfig): AgentModelConfig {
-  const { provider, model } = resolveCliModelSelection(options);
+export function modelConfigFromOptions(
+  options: CLIConfig,
+  settings?: UserSettings | null
+): AgentModelConfig {
+  const { provider, model } = resolveCliModelSelection(options, settings);
   return {
     provider,
     apiKey: options.apiKey,
     baseUrl: options.baseUrl,
     model,
-    thinking: options.thinking,
-    thinkingLevel: options.thinkingLevel
+    thinking: options.thinking ?? settings?.agentDefaultModel?.thinking,
+    thinkingLevel: options.thinkingLevel ?? settings?.agentDefaultModel?.thinkingLevel
   };
 }
 
@@ -286,18 +298,20 @@ export async function resolveCliSessionId(options: CLIConfig): Promise<string | 
   return sessionId;
 }
 
-function loadCliMcpConfig(options: CLIConfig): MCPConfigLoadResult {
+function loadCliMcpConfig(options: CLIConfig, settings?: UserSettings | null): MCPConfigLoadResult {
   if (options.bare && !options.mcpConfig) {
     return { servers: [] };
   }
-  return loadMCPConfig(options.mcpConfig, options.cwd || process.cwd(), options.userBasePath);
+  const mcpConfig = options.mcpConfig ?? settings?.agent?.mcpConfigPath;
+  return loadMCPConfig(mcpConfig, options.cwd || process.cwd(), options.userBasePath);
 }
 
 /** @internal Exported for unit tests. */
 export function buildCliAgentConfig(
   options: CLIConfig,
   mcpServers: MCPConfigLoadResult['servers'],
-  fileLogger: CliFileLogger | null
+  fileLogger: CliFileLogger | null,
+  settings?: UserSettings | null
 ) {
   const cwd = options.cwd || process.cwd();
   const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
@@ -310,14 +324,22 @@ export function buildCliAgentConfig(
         subagent: { enabled: false as const, loadProfilesFromFiles: false as const }
       }
     : {
-        hookConfigDir: cwd
+        hookConfigDir: cwd,
+        ...(typeof settings?.agent?.memory === 'boolean' ? { memory: settings.agent.memory } : {}),
+        ...(settings?.agent?.contextManagement === false
+          ? { contextManagement: false as const }
+          : settings?.agent?.contextLength != null
+            ? { contextManagement: { contextLength: settings.agent.contextLength } }
+            : typeof settings?.agent?.contextManagement === 'boolean'
+              ? { contextManagement: settings.agent.contextManagement }
+              : {})
       };
 
   return {
-    modelConfig: modelConfigFromOptions(options),
+    modelConfig: modelConfigFromOptions(options, settings),
     cwd,
     systemPrompt: options.system,
-    temperature: options.temperature,
+    temperature: options.temperature ?? settings?.agentDefaultModel?.temperature,
     maxTokens: options.maxTokens,
     mcpServers,
     userBasePath: options.userBasePath,
@@ -338,18 +360,24 @@ export function buildCliAgentConfig(
   };
 }
 
+/**
+ * Build a CLI Agent. Shared settings are loaded from
+ * `<userBase>/.claude/agent-sdk-settings.json` (`userBase` = `options.userBasePath` or `~`).
+ * Tests must pass an isolated `userBasePath` so they do not read the real home directory.
+ */
 export async function createCliAgent(options: CLIConfig): Promise<CliAgentBundle> {
   applyEnvHttpProxy();
   const headless = isHeadlessCli(options);
   const logOptions: CliLogOptions = { headless: headless || options.bare === true };
-  const mcpResult = loadCliMcpConfig(options);
+  const settings = loadUserSettings(options.userBasePath ?? homedir());
+  const mcpResult = loadCliMcpConfig(options, settings);
   reportMCPConfigLoad(mcpResult, logOptions);
 
   const cwd = options.cwd || process.cwd();
   const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
   const fileLogger = createCliFileLogger(effectiveLogLevel, options.logFile, options.userBasePath);
 
-  const agent = new Agent(buildCliAgentConfig(options, mcpResult.servers, fileLogger));
+  const agent = new Agent(buildCliAgentConfig(options, mcpResult.servers, fileLogger, settings));
 
   const initResult = await agent.waitForInit();
   try {

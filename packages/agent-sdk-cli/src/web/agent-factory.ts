@@ -39,6 +39,14 @@ export interface WebRuntimeDefaults {
   logFile?: string;
   execServer?: string;
   execToken?: string;
+  temperature?: number;
+  contextLength?: number;
+  thinking?: boolean;
+  thinkingLevel?: 'low' | 'medium' | 'high';
+  storage?: 'memory' | 'jsonl';
+  safeToolsOnly?: boolean;
+  memory?: boolean;
+  contextManagement?: boolean;
 }
 
 export interface BuildAgentOptions {

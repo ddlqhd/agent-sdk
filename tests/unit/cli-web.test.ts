@@ -117,6 +117,20 @@ describe('parseClientMessage', () => {
       storage: 'jsonl'
     });
     expect(cfg.ok).toBe(true);
+    if (cfg.ok && cfg.msg.type === 'configure') {
+      expect(cfg.msg.persist).toBeUndefined();
+    }
+    const persisted = parseClientMessage({
+      type: 'configure',
+      provider: 'openai',
+      model: 'gpt-4o',
+      storage: 'jsonl',
+      persist: true
+    });
+    expect(persisted.ok).toBe(true);
+    if (persisted.ok && persisted.msg.type === 'configure') {
+      expect(persisted.msg.persist).toBe(true);
+    }
     const chat = parseClientMessage({ type: 'chat', text: 'hi', requestId: 'r1' });
     expect(chat.ok).toBe(true);
   });

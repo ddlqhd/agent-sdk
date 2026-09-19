@@ -30,6 +30,7 @@ import {
   parseClientMessage,
   resolveStaticFile
 } from './http-utils.js';
+import { persistConfigureSettings } from '../utils/user-settings.js';
 
 const LOG_PREFIX = '[agent-sdk web]';
 
@@ -64,7 +65,17 @@ function toUiDefaults(defaults: WebRuntimeDefaults): WebUiDefaults {
     userBasePath: defaults.userBasePath,
     ...(defaults.mcpConfigPath ? { mcpConfigPath: defaults.mcpConfigPath } : {}),
     ...(defaults.provider ? { provider: defaults.provider } : {}),
-    ...(defaults.model ? { model: defaults.model } : {})
+    ...(defaults.model ? { model: defaults.model } : {}),
+    ...(defaults.temperature !== undefined ? { temperature: defaults.temperature } : {}),
+    ...(defaults.contextLength !== undefined ? { contextLength: defaults.contextLength } : {}),
+    ...(defaults.thinking !== undefined ? { thinking: defaults.thinking } : {}),
+    ...(defaults.thinkingLevel ? { thinkingLevel: defaults.thinkingLevel } : {}),
+    ...(defaults.storage ? { storage: defaults.storage } : {}),
+    ...(defaults.safeToolsOnly === true ? { safeToolsOnly: true } : {}),
+    ...(typeof defaults.memory === 'boolean' ? { memory: defaults.memory } : {}),
+    ...(typeof defaults.contextManagement === 'boolean'
+      ? { contextManagement: defaults.contextManagement }
+      : {})
   };
 }
 
@@ -230,8 +241,30 @@ function attachSocketHandlers(
 
         case 'configure': {
           console.log(
-            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} contextLength=${msg.contextLength ?? '(default)'} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
+            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} persist=${msg.persist === true} contextLength=${msg.contextLength ?? '(default)'} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
           );
+          const persistWarnings: string[] = [];
+          if (msg.persist === true) {
+            try {
+              persistConfigureSettings(defaults.userBasePath, {
+                provider: msg.provider,
+                model: msg.model,
+                temperature: msg.temperature,
+                thinking: msg.thinking,
+                thinkingLevel: msg.thinkingLevel,
+                memory: msg.memory,
+                contextManagement: msg.contextManagement,
+                contextLength: msg.contextLength,
+                mcpConfigPath: msg.mcpConfigPath,
+                storage: msg.storage,
+                safeToolsOnly: msg.safeToolsOnly
+              });
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              persistWarnings.push(`Failed to save settings: ${detail}`);
+              console.warn(`${LOG_PREFIX} [${connId}] persist settings failed: ${detail}`);
+            }
+          }
           rejectAllAskPending('reconfigured');
           await destroyAllAgents();
           state.runtimeConfig = {
@@ -253,15 +286,16 @@ function attachSocketHandlers(
             { ...state.runtimeConfig, askUserQuestion },
             defaults
           );
+          const allWarnings = [...persistWarnings, ...warnings];
           const sessionId = agent.getSessionManager().createSession();
           state.agentsBySession.set(sessionId, agent);
           state.activeSessionId = sessionId;
           console.log(
-            `${LOG_PREFIX} [${connId}] ready sessionId=${sessionId.slice(0, 8)}… warnings=${warnings.length}`
+            `${LOG_PREFIX} [${connId}] ready sessionId=${sessionId.slice(0, 8)}… warnings=${allWarnings.length}`
           );
           sendJson(socket, {
             type: 'ready',
-            warnings: warnings.length ? warnings : undefined,
+            warnings: allWarnings.length ? allWarnings : undefined,
             sessionId
           });
           return;

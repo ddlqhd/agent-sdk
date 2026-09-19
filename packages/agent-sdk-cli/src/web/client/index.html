@@ -1,183 +1,149 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent Studio — agent-sdk 演示</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <title>Agent Studio</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('agent-studio-theme');
+          if (t !== 'dark' && t !== 'light') {
+            t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <a class="skip-link" href="#chat-log">跳到聊天内容</a>
-    <div id="app">
-      <header class="app-header">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
-              <rect x="13" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
-              <rect x="3" y="13" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
-              <path
-                d="M15.5 15.5h5v5h-5v-5z"
-                stroke="currentColor"
-                stroke-width="1.75"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </span>
-          <div class="brand-text">
-            <h1>Agent Studio</h1>
-            <p class="brand-sub">WebSocket · 多模型 · 密钥仅服务端</p>
+    <div id="app" class="app-frame">
+      <aside id="sidebar" class="sidebar" aria-label="会话">
+        <div class="sidebar-top">
+          <div class="sidebar-brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
+                <rect x="13" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
+                <rect x="3" y="13" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.75" />
+                <path d="M15.5 15.5h5v5h-5v-5z" stroke="currentColor" stroke-width="1.75" />
+              </svg>
+            </span>
+            <div class="brand-text">
+              <h1>Agent Studio</h1>
+            </div>
+            <button
+              type="button"
+              id="btn-sidebar-toggle"
+              class="btn btn-ghost btn-icon"
+              title="折叠侧栏"
+              aria-label="折叠侧栏"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M15 6L9 12l6 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+              </svg>
+            </button>
           </div>
+          <button type="button" id="btn-session-new" class="btn btn-primary btn-new-session">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+            </svg>
+            <span class="btn-label">新建会话</span>
+          </button>
+          <label class="session-search-wrap">
+            <span class="visually-hidden">搜索会话</span>
+            <input type="search" id="session-search" placeholder="搜索会话" autocomplete="off" />
+          </label>
         </div>
-        <div class="header-actions">
-          <p id="conn-status" class="status-pill" role="status" aria-live="polite">未连接</p>
-          <button type="button" id="btn-reconnect" class="btn btn-secondary">重新连接</button>
-        </div>
-      </header>
-
-      <div class="app-shell">
-        <aside class="sidebar" aria-label="系统设置">
-          <div class="sidebar-section-head">
-            <span class="sidebar-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-                <circle cx="12" cy="12" r="3" />
+        <ul id="session-list" class="session-list" aria-label="会话列表"></ul>
+        <div class="sidebar-foot">
+          <p id="conn-status" class="status-dot" role="status" aria-live="polite">未连接</p>
+          <div class="sidebar-foot-actions">
+            <button type="button" id="btn-reconnect" class="btn btn-ghost btn-icon" title="重新连接" aria-label="重新连接">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
-                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                  d="M20 12a8 8 0 1 1-2.2-5.5M20 4v4h-4"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
                 />
               </svg>
-            </span>
-            <h2>系统设置</h2>
-          </div>
-
-          <form id="form-config" class="settings-form">
-            <fieldset class="fieldset">
-              <legend>模型与推理</legend>
-              <label>
-                提供商
-                <select name="provider" id="cfg-provider">
-                  <option value="openai" selected>OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </label>
-              <label>
-                模型 ID
-                <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
-              </label>
-              <label id="cfg-thinking-wrap">
-                Thinking（布尔）
-                <select name="thinking" id="cfg-thinking">
-                  <option value="">默认（按提供商）</option>
-                  <option value="true">开启</option>
-                  <option value="false">关闭</option>
-                </select>
-              </label>
-              <label id="cfg-thinking-level-wrap">
-                Thinking 档位（可选用；由各提供商按需采纳）
-                <select name="thinkingLevel" id="cfg-thinking-level">
-                  <option value="">不使用档位</option>
-                  <option value="low">low（GPT-OSS）</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                </select>
-              </label>
-              <div class="field-row">
-                <label class="field-half">
-                  温度
-                  <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
-                </label>
-                <label class="field-half">
-                  上下文长度
-                  <input
-                    name="contextLength"
-                    type="number"
-                    min="1"
-                    placeholder="留空=默认"
-                    title="上下文窗口（tokens），用于压缩与预算；留空则用模型/SDK 默认。与单次回复最大输出无关。仅在开启「上下文压缩」时生效。"
-                  />
-                </label>
-              </div>
-              <label>
-                会话存储
-                <select name="storage">
-                  <option value="jsonl">jsonl</option>
-                  <option value="memory">memory</option>
-                </select>
-              </label>
-            </fieldset>
-
-            <fieldset class="fieldset">
-              <legend>行为与安全</legend>
-              <label class="checkbox">
-                <input name="safeToolsOnly" type="checkbox" />
-                <span>仅安全工具（移除危险内置）</span>
-              </label>
-              <label class="checkbox">
-                <input name="memory" type="checkbox" checked />
-                <span>长期记忆（CLAUDE.md）</span>
-              </label>
-              <label class="checkbox">
-                <input name="contextManagement" type="checkbox" checked />
-                <span>上下文压缩</span>
-              </label>
-            </fieldset>
-
-            <fieldset class="fieldset">
-              <legend>路径</legend>
-              <label>
-                工作目录（技能 / CLAUDE.md）
-                <input name="cwd" type="text" placeholder="默认：当前工作目录" autocomplete="off" />
-              </label>
-              <label>
-                用户根路径（会话目录）
-                <input name="userBasePath" type="text" placeholder="默认：用户主目录" autocomplete="off" />
-              </label>
-              <label>
-                MCP 配置路径
-                <input name="mcpConfigPath" type="text" placeholder="可选，相对工作目录" autocomplete="off" />
-              </label>
-            </fieldset>
-
-            <button type="submit" class="btn btn-primary btn-block">应用配置</button>
-            <p id="cfg-warnings" class="warnings" role="alert"></p>
-          </form>
-
-          <div class="sidebar-divider" role="presentation"></div>
-
-          <div class="sidebar-section-head">
-            <span class="sidebar-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-                <path d="M4 7h16M4 12h16M4 17h10" />
+            </button>
+            <button type="button" id="btn-theme" class="btn btn-ghost btn-icon" title="切换主题" aria-label="切换主题">
+              <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.75" />
+                <path
+                  d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
               </svg>
-            </span>
-            <h2>会话</h2>
+              <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M18 14.5A7 7 0 1 1 9.5 6 5.5 5.5 0 0 0 18 14.5z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <button type="button" id="btn-settings" class="btn btn-ghost btn-icon" title="设置" aria-label="设置">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.75" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
           </div>
-          <p class="session-current">当前：<code id="current-session">—</code></p>
-          <div class="row-actions">
-            <button type="button" id="btn-session-new" class="btn btn-secondary">新建</button>
-            <button type="button" id="btn-session-list" class="btn btn-secondary">列出</button>
-            <button type="button" id="btn-session-fork" class="btn btn-secondary">分支</button>
-          </div>
-          <button type="button" id="btn-session-checkpoints" class="btn btn-secondary btn-block session-checkpoints-btn">
-            检查点
-          </button>
-          <ul id="checkpoint-list" class="checkpoint-list" hidden></ul>
-          <ul id="session-list" class="session-list"></ul>
-        </aside>
+        </div>
+      </aside>
 
-        <main class="workspace" aria-label="聊天">
-          <div class="workspace-toolbar">
-            <span class="workspace-title">对话</span>
-            <span class="workspace-hint">在下方输入消息；流式回复与工具调用会同步显示</span>
+      <main class="conversation" aria-label="对话">
+        <header class="session-header">
+          <div class="session-header-id">
+            <span class="session-header-label">会话</span>
+            <code id="current-session">—</code>
           </div>
-          <section class="chat">
-            <div id="chat-log" class="chat-log" tabindex="0"></div>
+          <p id="app-banner" class="app-banner" hidden></p>
+          <div class="session-header-actions">
+            <button type="button" id="btn-session-fork" class="btn btn-secondary btn-sm">分支</button>
+            <div class="checkpoint-wrap">
+              <button
+                type="button"
+                id="btn-session-checkpoints"
+                class="btn btn-secondary btn-sm"
+                aria-expanded="false"
+                aria-controls="checkpoint-popover"
+              >
+                检查点
+              </button>
+              <div id="checkpoint-popover" class="checkpoint-popover" hidden>
+                <ul id="checkpoint-list" class="checkpoint-list"></ul>
+              </div>
+            </div>
+            <button type="button" id="btn-details-toggle" class="btn btn-secondary btn-sm">详情</button>
+          </div>
+        </header>
+        <section class="chat">
+          <div class="chat-column">
+            <div class="chat-scroll">
+              <div id="chat-hero" class="chat-hero">
+                <p class="chat-hero-title">开始新对话</p>
+                <p class="chat-hero-sub">在下方输入消息；流式回复与工具调用会显示在这里</p>
+              </div>
+              <div id="chat-log" class="chat-log" tabindex="0"></div>
+            </div>
             <form id="form-chat" class="chat-form">
               <div class="composer">
                 <textarea
@@ -187,10 +153,8 @@
                   aria-label="消息内容"
                 ></textarea>
                 <div class="composer-actions">
-                  <label class="checkbox composer-opt">
-                    <input id="chat-use-run" type="checkbox" />
-                    <span>使用 <code>chat_run</code>（与 <code>chat</code> 同源流）</span>
-                  </label>
+                  <span id="composer-hint" class="composer-hint"></span>
+                  <p id="composer-error" class="composer-error" hidden></p>
                   <div class="composer-buttons">
                     <button type="submit" id="btn-send" class="btn btn-primary">发送</button>
                     <button type="button" id="btn-stop" class="btn btn-danger-outline" disabled>停止</button>
@@ -198,51 +162,144 @@
                 </div>
               </div>
             </form>
-          </section>
-        </main>
-
-        <aside class="inspector" aria-label="工具与调试">
-          <div class="inspector-tabs" role="tablist" aria-label="右侧面板">
-            <button type="button" class="tab-btn active" role="tab" aria-selected="true" id="tab-tools" data-tab="tools">
-              工具执行
-            </button>
-            <button type="button" class="tab-btn" role="tab" aria-selected="false" id="tab-events" data-tab="events">
-              事件流
-            </button>
           </div>
+        </section>
+      </main>
 
-          <div
-            id="panel-tools"
-            class="tab-panel active"
-            role="tabpanel"
-            aria-labelledby="tab-tools"
-          >
-            <div class="panel-toolbar">
-              <span class="panel-toolbar-label">工具调用与结果</span>
-              <button type="button" id="btn-tool-activity-clear" class="btn btn-ghost btn-sm">清空</button>
+      <aside id="details" class="details" aria-label="工具与调试" hidden>
+        <div class="inspector-tabs" role="tablist" aria-label="右侧面板">
+          <button type="button" class="tab-btn active" role="tab" aria-selected="true" id="tab-tools" data-tab="tools">
+            工具执行
+          </button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" id="tab-events" data-tab="events">
+            事件流
+          </button>
+        </div>
+        <div id="panel-tools" class="tab-panel active" role="tabpanel" aria-labelledby="tab-tools">
+          <div class="panel-toolbar">
+            <span class="panel-toolbar-label">工具调用与结果</span>
+            <button type="button" id="btn-tool-activity-clear" class="btn btn-ghost btn-sm">清空</button>
+          </div>
+          <div id="tool-activity-log" class="tool-activity-log"></div>
+        </div>
+        <div id="panel-events" class="tab-panel" role="tabpanel" aria-labelledby="tab-events" hidden>
+          <div class="panel-toolbar">
+            <div class="event-filters">
+              <button type="button" class="filter-btn active" data-filter="all">全部</button>
+              <button type="button" class="filter-btn" data-filter="text">文本</button>
+              <button type="button" class="filter-btn" data-filter="tool">工具</button>
+              <button type="button" class="filter-btn" data-filter="other">其他</button>
             </div>
-            <div id="tool-activity-log" class="tool-activity-log"></div>
+            <button type="button" id="btn-events-clear" class="btn btn-ghost btn-sm">清空</button>
           </div>
+          <pre id="event-log" class="event-log"></pre>
+        </div>
+      </aside>
+    </div>
 
-          <div
-            id="panel-events"
-            class="tab-panel"
-            role="tabpanel"
-            aria-labelledby="tab-events"
-            hidden
-          >
-            <div class="panel-toolbar">
-              <div class="event-filters">
-                <button type="button" class="filter-btn active" data-filter="all">全部</button>
-                <button type="button" class="filter-btn" data-filter="text">文本</button>
-                <button type="button" class="filter-btn" data-filter="tool">工具</button>
-                <button type="button" class="filter-btn" data-filter="other">其他</button>
-              </div>
-              <button type="button" id="btn-events-clear" class="btn btn-ghost btn-sm">清空</button>
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="settings-panel-head">
+          <h2 id="settings-title">设置</h2>
+          <button type="button" id="btn-settings-close" class="btn btn-ghost btn-icon" aria-label="关闭设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+            </svg>
+          </button>
+        </header>
+        <form id="form-config" class="settings-form">
+          <fieldset class="fieldset">
+            <legend>模型与推理</legend>
+            <label>
+              提供商
+              <select name="provider" id="cfg-provider">
+                <option value="openai" selected>OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="ollama">Ollama</option>
+              </select>
+            </label>
+            <label>
+              模型 ID
+              <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
+            </label>
+            <label id="cfg-thinking-wrap">
+              Thinking（布尔）
+              <select name="thinking" id="cfg-thinking">
+                <option value="">默认（按提供商）</option>
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label id="cfg-thinking-level-wrap">
+              Thinking 档位（可选用；由各提供商按需采纳）
+              <select name="thinkingLevel" id="cfg-thinking-level">
+                <option value="">不使用档位</option>
+                <option value="low">low（GPT-OSS）</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label class="field-half">
+                温度
+                <input name="temperature" type="number" step="0.1" min="0" max="2" value="0.7" />
+              </label>
+              <label class="field-half">
+                上下文长度
+                <input
+                  name="contextLength"
+                  type="number"
+                  min="1"
+                  placeholder="留空=默认"
+                  title="上下文窗口（tokens），用于压缩与预算；留空则用模型/SDK 默认。与单次回复最大输出无关。仅在开启「上下文压缩」时生效。"
+                />
+              </label>
             </div>
-            <pre id="event-log" class="event-log"></pre>
-          </div>
-        </aside>
+            <label>
+              会话存储
+              <select name="storage">
+                <option value="jsonl">jsonl</option>
+                <option value="memory">memory</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>行为与安全</legend>
+            <label class="checkbox">
+              <input name="safeToolsOnly" type="checkbox" />
+              <span>仅安全工具（移除危险内置）</span>
+            </label>
+            <label class="checkbox">
+              <input name="memory" type="checkbox" checked />
+              <span>长期记忆（CLAUDE.md）</span>
+            </label>
+            <label class="checkbox">
+              <input name="contextManagement" type="checkbox" checked />
+              <span>上下文压缩</span>
+            </label>
+            <label class="checkbox">
+              <input id="chat-use-run" type="checkbox" />
+              <span>使用 chat_run（调试，与 chat 同源流）</span>
+            </label>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>路径</legend>
+            <label>
+              工作目录（技能 / CLAUDE.md）
+              <input name="cwd" type="text" placeholder="默认：当前工作目录" autocomplete="off" />
+            </label>
+            <label>
+              用户根路径（会话目录）
+              <input name="userBasePath" type="text" placeholder="默认：用户主目录" autocomplete="off" />
+            </label>
+            <label>
+              MCP 配置路径
+              <input name="mcpConfigPath" type="text" placeholder="可选，相对工作目录" autocomplete="off" />
+            </label>
+          </fieldset>
+          <button type="submit" class="btn btn-primary btn-block">应用配置</button>
+          <p id="cfg-warnings" class="warnings" role="alert"></p>
+        </form>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

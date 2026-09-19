@@ -1,34 +1,39 @@
-import type { AskUserQuestionAnswer, AskUserQuestionItem } from '@ddlqhd/agent-sdk';
+import type { AskUserQuestionAnswer, AskUserQuestionItem, SessionCheckpoint } from '@ddlqhd/agent-sdk';
 import { chatPreview } from '../../shared/log-utils.js';
-import type { ChatHistoryItem } from '../../shared/message-text.js';
-import type {
-  ClientMessage,
-  ModelProvider,
-  ServerMessage,
-  SessionListItem,
-  WebUiDefaults
-} from '../../shared/ws-protocol.js';
-import type { SessionCheckpoint } from '@ddlqhd/agent-sdk';
+import type { ClientMessage, ModelProvider, ServerMessage, WebUiDefaults } from '../../shared/ws-protocol.js';
+import { initChatUi, formatToolArguments, truncateForChatSnippet } from './chat-ui.js';
+import { initLayout } from './layout.js';
+import { initSessionsUi } from './sessions-ui.js';
+import { initTheme, toggleTheme, currentTheme } from './theme.js';
+import { shortId } from './util.js';
 
+const app = document.querySelector<HTMLElement>('#app')!;
+const detailsEl = document.querySelector<HTMLElement>('#details')!;
 const connStatus = document.querySelector<HTMLParagraphElement>('#conn-status')!;
 const btnReconnect = document.querySelector<HTMLButtonElement>('#btn-reconnect')!;
+const btnTheme = document.querySelector<HTMLButtonElement>('#btn-theme')!;
 const formConfig = document.querySelector<HTMLFormElement>('#form-config')!;
 const cfgWarnings = document.querySelector<HTMLParagraphElement>('#cfg-warnings')!;
 const cfgProvider = document.querySelector<HTMLSelectElement>('#cfg-provider')!;
 const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
 const btnSessionNew = document.querySelector<HTMLButtonElement>('#btn-session-new')!;
-const btnSessionList = document.querySelector<HTMLButtonElement>('#btn-session-list')!;
 const btnSessionFork = document.querySelector<HTMLButtonElement>('#btn-session-fork')!;
 const btnSessionCheckpoints = document.querySelector<HTMLButtonElement>('#btn-session-checkpoints')!;
 const sessionListEl = document.querySelector<HTMLUListElement>('#session-list')!;
+const sessionSearchEl = document.querySelector<HTMLInputElement>('#session-search')!;
 const checkpointListEl = document.querySelector<HTMLUListElement>('#checkpoint-list')!;
+const checkpointPopover = document.querySelector<HTMLElement>('#checkpoint-popover')!;
 const chatLog = document.querySelector<HTMLDivElement>('#chat-log')!;
+const chatHero = document.querySelector<HTMLElement>('#chat-hero')!;
 const formChat = document.querySelector<HTMLFormElement>('#form-chat')!;
 const chatInput = document.querySelector<HTMLTextAreaElement>('#chat-input')!;
 const chatUseRun = document.querySelector<HTMLInputElement>('#chat-use-run')!;
 const btnSend = document.querySelector<HTMLButtonElement>('#btn-send')!;
 const btnStop = document.querySelector<HTMLButtonElement>('#btn-stop')!;
+const composerHint = document.querySelector<HTMLElement>('#composer-hint')!;
+const composerError = document.querySelector<HTMLParagraphElement>('#composer-error')!;
+const appBanner = document.querySelector<HTMLParagraphElement>('#app-banner')!;
 const eventLog = document.querySelector<HTMLPreElement>('#event-log')!;
 const btnEventsClear = document.querySelector<HTMLButtonElement>('#btn-events-clear')!;
 const toolActivityLog = document.querySelector<HTMLDivElement>('#tool-activity-log')!;
@@ -37,17 +42,62 @@ const tabButtons = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
 const panelTools = document.querySelector<HTMLDivElement>('#panel-tools')!;
 const panelEvents = document.querySelector<HTMLDivElement>('#panel-events')!;
 
+initTheme();
+
+const layout = initLayout({
+  app,
+  details: detailsEl,
+  sidebarToggle: document.querySelector<HTMLButtonElement>('#btn-sidebar-toggle')!,
+  detailsToggle: document.querySelector<HTMLButtonElement>('#btn-details-toggle')!,
+  settingsOpen: document.querySelector<HTMLButtonElement>('#btn-settings')!,
+  settingsClose: document.querySelector<HTMLButtonElement>('#btn-settings-close')!,
+  settingsOverlay: document.querySelector<HTMLElement>('#settings-overlay')!,
+  checkpointBtn: btnSessionCheckpoints,
+  checkpointPopover
+});
+
+function setActiveInspectorTab(tab: 'tools' | 'events'): void {
+  tabButtons.forEach((btn) => {
+    const isTools = btn.dataset.tab === 'tools';
+    const active = (tab === 'tools' && isTools) || (tab === 'events' && !isTools);
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  const showTools = tab === 'tools';
+  panelTools.classList.toggle('active', showTools);
+  panelTools.toggleAttribute('hidden', !showTools);
+  panelEvents.classList.toggle('active', !showTools);
+  panelEvents.toggleAttribute('hidden', showTools);
+}
+
+const chatUi = initChatUi({
+  logEl: chatLog,
+  heroEl: chatHero,
+  onToolFocus: () => {
+    layout.openDetails();
+    setActiveInspectorTab('tools');
+  }
+});
+
+const sessionsUi = initSessionsUi({
+  listEl: sessionListEl,
+  searchEl: sessionSearchEl,
+  onResume: (id) => {
+    currentSessionId = id;
+    refreshSessionLabel();
+    sessionsUi.setCurrent(id);
+    send({ type: 'sessions:resume', sessionId: id });
+  },
+  onFork: (id) => {
+    send({ type: 'sessions:fork', sessionId: id });
+  }
+});
+
 let ws: WebSocket | null = null;
 let configured = false;
 let currentSessionId: string | undefined;
 let activeRequestId: string | null = null;
 let eventFilter: 'all' | 'text' | 'tool' | 'other' = 'all';
-/** Assistant bubble receiving streamed output; null when idle. */
-let streamingAssistantMsgEl: HTMLDivElement | null = null;
-let streamingAssistantThinkingEl: HTMLPreElement | null = null;
-let streamingAssistantBodyEl: HTMLSpanElement | null = null;
-
-const MAX_TOOL_SNIPPET_CHARS = 14_000;
 
 const MODEL_HINTS: Record<ModelProvider, string> = {
   openai: 'gpt-4o',
@@ -56,7 +106,6 @@ const MODEL_HINTS: Record<ModelProvider, string> = {
 };
 
 const DEFAULT_MODEL_NAMES = new Set(Object.values(MODEL_HINTS));
-
 const LOG_PREFIX = '[agent-sdk web]';
 
 function logOutbound(msg: ClientMessage): void {
@@ -66,7 +115,7 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'configure':
       console.log(
-        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'}`
+        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} persist=${msg.persist === true} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'}`
       );
       break;
     case 'chat':
@@ -84,13 +133,19 @@ function logOutbound(msg: ClientMessage): void {
       console.log(`${LOG_PREFIX} send sessions:list`);
       break;
     case 'sessions:checkpoints':
-      console.log(`${LOG_PREFIX} send sessions:checkpoints sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
+      console.log(
+        `${LOG_PREFIX} send sessions:checkpoints sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`
+      );
       break;
     case 'sessions:rewind':
-      console.log(`${LOG_PREFIX} send sessions:rewind sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
+      console.log(
+        `${LOG_PREFIX} send sessions:rewind sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`
+      );
       break;
     case 'sessions:fork':
-      console.log(`${LOG_PREFIX} send sessions:fork sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`);
+      console.log(
+        `${LOG_PREFIX} send sessions:fork sessionId=${msg.sessionId ? `${msg.sessionId.slice(0, 8)}…` : '(active)'}`
+      );
       break;
     case 'sessions:new':
       console.log(`${LOG_PREFIX} send sessions:new sessionId=${msg.sessionId ?? '(auto)'}`);
@@ -116,27 +171,45 @@ function wsUrl(): string {
 function setConn(text: string, ready = false): void {
   connStatus.textContent = text;
   connStatus.classList.toggle('ready', ready);
+  connStatus.title = text;
 }
 
-function setActiveInspectorTab(tab: 'tools' | 'events'): void {
-  tabButtons.forEach((btn) => {
-    const isTools = btn.dataset.tab === 'tools';
-    const active = (tab === 'tools' && isTools) || (tab === 'events' && !isTools);
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-  const showTools = tab === 'tools';
-  panelTools.classList.toggle('active', showTools);
-  panelTools.toggleAttribute('hidden', !showTools);
-  panelEvents.classList.toggle('active', !showTools);
-  panelEvents.toggleAttribute('hidden', showTools);
+function setBanner(text: string): void {
+  appBanner.textContent = text;
+  appBanner.hidden = !text;
+}
+
+function setComposerError(text: string): void {
+  composerError.textContent = text;
+  composerError.hidden = !text;
+}
+
+function refreshComposerHint(): void {
+  const provider = cfgProvider.value;
+  const model = cfgModel.value.trim();
+  composerHint.textContent = model ? `${provider} · ${model}` : provider;
+}
+
+function refreshSessionLabel(): void {
+  if (!currentSessionId) {
+    currentSessionEl.textContent = '—';
+    currentSessionEl.removeAttribute('title');
+    return;
+  }
+  currentSessionEl.textContent = shortId(currentSessionId);
+  currentSessionEl.title = currentSessionId;
+  sessionsUi.setCurrent(currentSessionId);
+}
+
+function requestSessionList(): void {
+  send({ type: 'sessions:list' });
 }
 
 function resetChatUiAfterDisconnect(): void {
   activeRequestId = null;
   btnStop.disabled = true;
   btnSend.disabled = false;
-  finishStreamingAssistant();
+  chatUi.finishStreaming();
 }
 
 function connect(): void {
@@ -150,7 +223,6 @@ function connect(): void {
 
   ws.addEventListener('open', () => {
     console.log(`${LOG_PREFIX} ws open`);
-    // Socket is open; agent is not ready until the server sends `ready` after `configure`.
     setConn('已连接 — 握手中…', false);
     send({ type: 'hello', clientVersion: '0.1' });
   });
@@ -186,9 +258,6 @@ function send(msg: ClientMessage): void {
   ws.send(JSON.stringify(msg));
 }
 
-/**
- * Modal UI for AskUserQuestion — returns structured answers for the model tool.
- */
 function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<AskUserQuestionAnswer[]> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -348,9 +417,7 @@ function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<As
           if (trimmed !== '') {
             return { questionIndex: qi, selectedLabels: [], otherText: trimmed };
           }
-          const labels = [...st.selected]
-            .sort((a, b) => a - b)
-            .map((i) => q.options[i]!.label);
+          const labels = [...st.selected].sort((a, b) => a - b).map((i) => q.options[i]!.label);
           return { questionIndex: qi, selectedLabels: labels };
         }
         return { questionIndex: qi, selectedLabels: [], otherText: '(skipped)' };
@@ -389,7 +456,6 @@ function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<As
     footer.appendChild(btnSkip);
     footer.appendChild(btnOk);
     modal.appendChild(footer);
-
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
@@ -414,26 +480,32 @@ function handleServerMessage(msg: ServerMessage): void {
   switch (msg.type) {
     case 'hello_ok':
       cfgWarnings.textContent = '';
+      setBanner('');
       applyServerDefaults(msg.defaults);
+      refreshComposerHint();
       setConn('正在构建 Agent…', false);
-      send(readConfigureMessage());
+      send(readConfigureMessage(false));
       return;
     case 'ready':
       configured = true;
       cfgWarnings.textContent = msg.warnings?.length ? msg.warnings.join('\n') : '';
+      setBanner(msg.warnings?.join(' · ') ?? '');
       setConn('就绪', true);
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
-      clearChatLog();
+      chatUi.clear();
       clearInspectorLogs();
-      checkpointListEl.hidden = true;
       checkpointListEl.innerHTML = '';
+      layout.closeCheckpoints();
+      requestSessionList();
       return;
     case 'error':
       appendEventLine('error', { message: msg.message, detail: msg.detail });
       cfgWarnings.textContent = msg.message;
+      setBanner(msg.message);
       if (!configured) {
-        setConn('请修正左侧设置后点击「应用配置」', false);
+        setConn('请修正设置后点击「应用配置」', false);
+        layout.openSettings();
       }
       return;
     case 'ask_user_question': {
@@ -452,20 +524,21 @@ function handleServerMessage(msg: ServerMessage): void {
       logStreamEvent(msg.event);
       handleStreamEventInChatLog(msg.event);
       if (msg.event.type === 'end') {
-        finishStreamingAssistant();
+        chatUi.finishStreaming();
       }
       return;
     case 'chat_done':
       activeRequestId = null;
       btnStop.disabled = true;
       btnSend.disabled = false;
-      finishStreamingAssistant();
+      chatUi.finishStreaming();
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
       appendEventLine('chat_done', { requestId: msg.requestId, usage: msg.usage });
+      requestSessionList();
       return;
     case 'sessions:list':
-      renderSessionList(msg.sessions);
+      sessionsUi.render(msg.sessions, currentSessionId);
       return;
     case 'sessions:new':
       currentSessionId = msg.sessionId;
@@ -473,194 +546,48 @@ function handleServerMessage(msg: ServerMessage): void {
       activeRequestId = null;
       btnStop.disabled = true;
       btnSend.disabled = false;
-      clearChatLog();
+      setBanner('');
+      chatUi.clear();
       clearInspectorLogs();
-      checkpointListEl.hidden = true;
       checkpointListEl.innerHTML = '';
+      layout.closeCheckpoints();
+      requestSessionList();
       return;
     case 'sessions:history':
-      renderChatHistory(msg.messages);
+      setBanner('');
+      chatUi.renderHistory(msg.messages);
+      clearInspectorLogs();
       return;
     case 'sessions:checkpoints':
       renderCheckpointList(msg.checkpoints);
+      layout.openCheckpoints();
       return;
     case 'sessions:rewind':
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
-      renderChatHistory(msg.messages);
+      setBanner('');
+      chatUi.renderHistory(msg.messages);
       appendEventLine('sessions:rewind', msg.result);
+      layout.closeCheckpoints();
       return;
     case 'sessions:fork':
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
-      renderChatHistory(msg.messages);
+      setBanner('');
+      chatUi.renderHistory(msg.messages);
       appendEventLine('sessions:fork', msg.result);
-      checkpointListEl.hidden = true;
       checkpointListEl.innerHTML = '';
+      layout.closeCheckpoints();
+      requestSessionList();
       return;
     default:
       appendEventLine('unknown', msg);
   }
 }
 
-function refreshSessionLabel(): void {
-  currentSessionEl.textContent = currentSessionId || '—';
-}
-
-const CHAT_LOG_NEAR_BOTTOM_PX = 48;
-
-function isChatLogNearBottom(thresholdPx = CHAT_LOG_NEAR_BOTTOM_PX): boolean {
-  const { scrollHeight, scrollTop, clientHeight } = chatLog;
-  return scrollHeight - scrollTop - clientHeight <= thresholdPx;
-}
-
-/** Call after `#chat-log` content grows; pass whether the user was already at the bottom *before* that update. */
-function scrollChatLogToBottomIfPinned(wasNearBottomBeforeUpdate: boolean): void {
-  if (wasNearBottomBeforeUpdate) {
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
-}
-
-function ensureStreamingAssistantMsg(): HTMLDivElement {
-  if (streamingAssistantMsgEl?.isConnected) {
-    return streamingAssistantMsgEl;
-  }
-  const div = document.createElement('div');
-  div.className = 'msg assistant';
-  const role = document.createElement('div');
-  role.className = 'role';
-  role.textContent = '助手';
-  div.appendChild(role);
-  chatLog.appendChild(div);
-  streamingAssistantMsgEl = div;
-  streamingAssistantThinkingEl = null;
-  streamingAssistantBodyEl = null;
-  return div;
-}
-
-function appendThinkingStreamDelta(chunk: string): void {
-  const pinned = isChatLogNearBottom();
-  const msg = ensureStreamingAssistantMsg();
-  if (!streamingAssistantThinkingEl) {
-    const pre = document.createElement('pre');
-    pre.className = 'msg-thinking';
-    msg.appendChild(pre);
-    streamingAssistantThinkingEl = pre;
-  }
-  streamingAssistantThinkingEl.textContent += chunk;
-  scrollChatLogToBottomIfPinned(pinned);
-}
-
-function appendAssistantStreamDelta(chunk: string): void {
-  const pinned = isChatLogNearBottom();
-  const msg = ensureStreamingAssistantMsg();
-  if (!streamingAssistantBodyEl) {
-    const body = document.createElement('span');
-    body.className = 'msg-body';
-    msg.appendChild(body);
-    streamingAssistantBodyEl = body;
-  }
-  streamingAssistantBodyEl.textContent += chunk;
-  scrollChatLogToBottomIfPinned(pinned);
-}
-
-function finishStreamingAssistant(): void {
-  streamingAssistantMsgEl = null;
-  streamingAssistantThinkingEl = null;
-  streamingAssistantBodyEl = null;
-}
-
-function clearChatLog(): void {
-  chatLog.innerHTML = '';
-  finishStreamingAssistant();
-}
-
 function clearInspectorLogs(): void {
   eventLog.textContent = '';
   toolActivityLog.innerHTML = '';
-}
-
-function truncateForChatSnippet(text: string, max = MAX_TOOL_SNIPPET_CHARS): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n\n… (truncated, ${text.length} chars total)`;
-}
-
-function formatToolArguments(args: unknown): string {
-  if (args === undefined) return '';
-  if (typeof args === 'string') return args;
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
-/** End assistant text before tool UI so deltas are not appended to the wrong bubble. */
-function beforeToolUiInChat(): void {
-  finishStreamingAssistant();
-}
-
-function appendToolCallChatRow(event: Record<string, unknown>): void {
-  const name = typeof event.name === 'string' ? event.name : '(unknown tool)';
-  const id = typeof event.id === 'string' ? event.id : '';
-  const argsText = truncateForChatSnippet(formatToolArguments(event.arguments));
-
-  const div = document.createElement('div');
-  div.className = 'msg tool-call';
-
-  const role = document.createElement('div');
-  role.className = 'role';
-  role.textContent = '工具调用';
-
-  const title = document.createElement('div');
-  title.className = 'msg-tool-title';
-  title.textContent = name;
-
-  div.appendChild(role);
-  div.appendChild(title);
-  if (id) {
-    const idEl = document.createElement('div');
-    idEl.className = 'msg-tool-id';
-    idEl.textContent = `id ${id}`;
-    div.appendChild(idEl);
-  }
-
-  const pre = document.createElement('pre');
-  pre.className = 'msg-tool-pre';
-  pre.textContent = argsText || '{}';
-  div.appendChild(pre);
-
-  const pinned = isChatLogNearBottom();
-  chatLog.appendChild(div);
-  scrollChatLogToBottomIfPinned(pinned);
-}
-
-function appendToolResultChatRow(toolCallId: string, body: string, variant: 'result' | 'error'): void {
-  const div = document.createElement('div');
-  div.className = variant === 'error' ? 'msg tool-result tool-result-error' : 'msg tool-result';
-
-  const role = document.createElement('div');
-  role.className = 'role';
-  role.textContent = variant === 'error' ? '工具错误' : '工具结果';
-
-  const idEl = document.createElement('div');
-  idEl.className = 'msg-tool-id';
-  idEl.textContent = `toolCallId ${toolCallId}`;
-
-  const pre = document.createElement('pre');
-  pre.className = 'msg-tool-pre';
-  pre.textContent = truncateForChatSnippet(body);
-
-  div.appendChild(role);
-  div.appendChild(idEl);
-  div.appendChild(pre);
-  const pinned = isChatLogNearBottom();
-  chatLog.appendChild(div);
-  scrollChatLogToBottomIfPinned(pinned);
-}
-
-function focusToolInspector(): void {
-  setActiveInspectorTab('tools');
 }
 
 function appendToolActivityCard(
@@ -709,37 +636,34 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
   if (t === 'end' && event.reason === 'error') {
     const err = event.error as { message?: string } | undefined;
     const msg = err && typeof err.message === 'string' ? err.message : 'Stream error';
-    appendChatMessage('assistant', `[Error] ${msg}`);
+    chatUi.appendAssistant(`[Error] ${msg}`);
     return;
   }
   if (t === 'tool_call_start' || t === 'tool_call_delta' || t === 'tool_call_end') {
     if (t === 'tool_call_start') {
-      beforeToolUiInChat();
+      chatUi.finishStreaming();
     }
     return;
   }
 
   if (t === 'tool_call') {
-    beforeToolUiInChat();
-    appendToolCallChatRow(event);
     const name = typeof event.name === 'string' ? event.name : '(unknown tool)';
     const id = typeof event.id === 'string' ? event.id : '';
-    appendToolActivityCard(
-      'call',
-      name,
-      id ? `id ${id}` : undefined,
-      truncateForChatSnippet(formatToolArguments(event.arguments)) || '{}'
-    );
-    focusToolInspector();
+    const body = truncateForChatSnippet(formatToolArguments(event.arguments)) || '{}';
+    chatUi.upsertTool(id || name, name, 'call', body);
+    appendToolActivityCard('call', name, id ? `id ${id}` : undefined, body);
+    layout.openDetails();
+    setActiveInspectorTab('tools');
     return;
   }
 
   if (t === 'tool_result') {
     const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
     const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result ?? '');
-    appendToolResultChatRow(id, result, 'result');
+    chatUi.upsertTool(id, '工具结果', 'result', result);
     appendToolActivityCard('result', '返回', `toolCallId ${id}`, truncateForChatSnippet(result));
-    focusToolInspector();
+    layout.openDetails();
+    setActiveInspectorTab('tools');
     return;
   }
 
@@ -752,58 +676,31 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
         : typeof event.message === 'string'
           ? event.message
           : JSON.stringify(event);
-    appendToolResultChatRow(id, msg, 'error');
+    chatUi.upsertTool(id, '工具错误', 'error', msg);
     appendToolActivityCard('error', '执行失败', `toolCallId ${id}`, truncateForChatSnippet(msg));
-    focusToolInspector();
+    layout.openDetails();
+    setActiveInspectorTab('tools');
     return;
   }
 
   if (t === 'thinking_start') {
-    appendThinkingStreamDelta('');
+    chatUi.appendThinkingDelta('');
     return;
   }
 
   if (t === 'thinking_end') {
-    streamingAssistantThinkingEl = null;
+    chatUi.endThinking();
     return;
   }
 
   if (t === 'thinking' && typeof event.content === 'string') {
-    appendThinkingStreamDelta(event.content);
+    chatUi.appendThinkingDelta(event.content);
     return;
   }
 
   if (t === 'text_delta' && typeof event.content === 'string') {
-    appendAssistantStreamDelta(event.content);
+    chatUi.appendAssistantDelta(event.content);
   }
-}
-
-function appendChatMessage(role: 'user' | 'assistant', text: string): void {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const roleLabel = role === 'user' ? '用户' : '助手';
-  if (role === 'user') {
-    div.innerHTML = `<div class="role">${roleLabel}</div>${escapeHtml(text)}`;
-  } else {
-    const roleEl = document.createElement('div');
-    roleEl.className = 'role';
-    roleEl.textContent = roleLabel;
-    const body = document.createElement('span');
-    body.className = 'msg-body';
-    body.textContent = text;
-    div.appendChild(roleEl);
-    div.appendChild(body);
-  }
-  chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function eventCategory(type: string): 'text' | 'tool' | 'other' {
@@ -826,18 +723,9 @@ function logStreamEvent(event: Record<string, unknown>): void {
 }
 
 function appendEventLine(kind: string, payload: unknown): void {
-  const line =
-    `[${new Date().toISOString().slice(11, 23)}] ${kind} ${JSON.stringify(payload, null, 0).slice(0, 2000)}\n`;
+  const line = `[${new Date().toISOString().slice(11, 23)}] ${kind} ${JSON.stringify(payload, null, 0).slice(0, 2000)}\n`;
   eventLog.textContent += line;
   eventLog.scrollTop = eventLog.scrollHeight;
-}
-
-function renderChatHistory(messages: ChatHistoryItem[]): void {
-  clearChatLog();
-  clearInspectorLogs();
-  for (const m of messages) {
-    appendChatMessage(m.role, m.text);
-  }
 }
 
 function renderCheckpointList(checkpoints: SessionCheckpoint[]): void {
@@ -846,7 +734,6 @@ function renderCheckpointList(checkpoints: SessionCheckpoint[]): void {
     const li = document.createElement('li');
     li.textContent = '无检查点';
     checkpointListEl.appendChild(li);
-    checkpointListEl.hidden = false;
     return;
   }
   for (const c of checkpoints) {
@@ -897,22 +784,6 @@ function renderCheckpointList(checkpoints: SessionCheckpoint[]): void {
     li.appendChild(actions);
     checkpointListEl.appendChild(li);
   }
-  checkpointListEl.hidden = false;
-}
-
-function renderSessionList(sessions: SessionListItem[]): void {
-  sessionListEl.innerHTML = '';
-  for (const s of sessions) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span>${escapeHtml(s.id.slice(0, 8))}…</span><span>${s.messageCount} msgs</span>`;
-    li.title = s.id;
-    li.addEventListener('click', () => {
-      currentSessionId = s.id;
-      refreshSessionLabel();
-      send({ type: 'sessions:resume', sessionId: s.id });
-    });
-    sessionListEl.appendChild(li);
-  }
 }
 
 function applyServerDefaults(defaults?: WebUiDefaults): void {
@@ -930,12 +801,37 @@ function applyServerDefaults(defaults?: WebUiDefaults): void {
   const cwdInput = formConfig.querySelector<HTMLInputElement>('[name="cwd"]');
   const userInput = formConfig.querySelector<HTMLInputElement>('[name="userBasePath"]');
   const mcpInput = formConfig.querySelector<HTMLInputElement>('[name="mcpConfigPath"]');
+  const tempInput = formConfig.querySelector<HTMLInputElement>('[name="temperature"]');
+  const ctxInput = formConfig.querySelector<HTMLInputElement>('[name="contextLength"]');
+  const storageSelect = formConfig.querySelector<HTMLSelectElement>('[name="storage"]');
+  const safeTools = formConfig.querySelector<HTMLInputElement>('[name="safeToolsOnly"]');
+  const memory = formConfig.querySelector<HTMLInputElement>('[name="memory"]');
+  const contextManagement = formConfig.querySelector<HTMLInputElement>('[name="contextManagement"]');
+  const thinkingSelect = formConfig.querySelector<HTMLSelectElement>('[name="thinking"]');
+  const thinkingLevelSelect = formConfig.querySelector<HTMLSelectElement>('[name="thinkingLevel"]');
   if (cwdInput && defaults.cwd) cwdInput.placeholder = defaults.cwd;
   if (userInput && defaults.userBasePath) userInput.placeholder = defaults.userBasePath;
-  if (mcpInput && defaults.mcpConfigPath) mcpInput.placeholder = defaults.mcpConfigPath;
+  if (mcpInput) {
+    if (defaults.mcpConfigPath) mcpInput.value = defaults.mcpConfigPath;
+    else mcpInput.placeholder = mcpInput.placeholder || '可选，相对工作目录';
+  }
+  if (tempInput && defaults.temperature !== undefined) tempInput.value = String(defaults.temperature);
+  if (ctxInput && defaults.contextLength !== undefined) ctxInput.value = String(defaults.contextLength);
+  if (storageSelect && defaults.storage) storageSelect.value = defaults.storage;
+  if (safeTools && defaults.safeToolsOnly !== undefined) safeTools.checked = defaults.safeToolsOnly;
+  if (memory && defaults.memory !== undefined) memory.checked = defaults.memory;
+  if (contextManagement && defaults.contextManagement !== undefined) {
+    contextManagement.checked = defaults.contextManagement;
+  }
+  if (thinkingSelect && defaults.thinking !== undefined) {
+    thinkingSelect.value = defaults.thinking ? 'true' : 'false';
+  }
+  if (thinkingLevelSelect && defaults.thinkingLevel) {
+    thinkingLevelSelect.value = defaults.thinkingLevel;
+  }
 }
 
-function readConfigureMessage(): ClientMessage {
+function readConfigureMessage(persist = false): ClientMessage {
   const fd = new FormData(formConfig);
   const provider = String(fd.get('provider') || 'ollama') as ModelProvider;
   const model = String(fd.get('model') || MODEL_HINTS[provider]);
@@ -946,9 +842,7 @@ function readConfigureMessage(): ClientMessage {
     contextLengthParsed !== undefined && Number.isFinite(contextLengthParsed) && contextLengthParsed > 0
       ? contextLengthParsed
       : undefined;
-  const storage = (String(fd.get('storage') || 'memory') === 'jsonl' ? 'jsonl' : 'memory') as
-    | 'memory'
-    | 'jsonl';
+  const storage = (String(fd.get('storage') || 'memory') === 'jsonl' ? 'jsonl' : 'memory') as 'memory' | 'jsonl';
   const safeToolsOnly = formConfig.querySelector<HTMLInputElement>('[name="safeToolsOnly"]')!.checked;
   const memory = formConfig.querySelector<HTMLInputElement>('[name="memory"]')!.checked;
   const contextManagement = formConfig.querySelector<HTMLInputElement>('[name="contextManagement"]')!.checked;
@@ -981,8 +875,15 @@ function readConfigureMessage(): ClientMessage {
     userBasePath,
     mcpConfigPath,
     ...(thinking !== undefined ? { thinking } : {}),
-    ...(thinkingLevel !== undefined ? { thinkingLevel } : {})
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    ...(persist ? { persist: true } : {})
   };
+}
+
+function syncThemeButton(): void {
+  const theme = currentTheme();
+  btnTheme.title = theme === 'dark' ? '切换为浅色' : '切换为暗色';
+  btnTheme.setAttribute('aria-label', btnTheme.title);
 }
 
 cfgProvider.addEventListener('change', () => {
@@ -990,33 +891,41 @@ cfgProvider.addEventListener('change', () => {
   const hint = MODEL_HINTS[p];
   if (['gpt-4', 'gpt-4o'].some((x) => cfgModel.value.includes(x)) && p !== 'openai') {
     cfgModel.value = hint;
+    refreshComposerHint();
     return;
   }
   if (cfgModel.value.trim() === '' || cfgModel.value === hint || DEFAULT_MODEL_NAMES.has(cfgModel.value)) {
     cfgModel.value = hint;
   }
+  refreshComposerHint();
 });
+
+cfgModel.addEventListener('input', () => refreshComposerHint());
 
 formConfig.addEventListener('submit', (e) => {
   e.preventDefault();
   cfgWarnings.textContent = '';
-  setConn('Building agent…', false);
+  setBanner('');
+  setConn('正在构建 Agent…', false);
   configured = false;
-  clearChatLog();
+  chatUi.clear();
   clearInspectorLogs();
-  checkpointListEl.hidden = true;
   checkpointListEl.innerHTML = '';
-  send(readConfigureMessage());
+  layout.closeCheckpoints();
+  layout.closeSettings();
+  send(readConfigureMessage(true));
+  refreshComposerHint();
 });
 
 btnReconnect.addEventListener('click', () => connect());
 
-btnSessionNew.addEventListener('click', () => {
-  send({ type: 'sessions:new' });
+btnTheme.addEventListener('click', () => {
+  toggleTheme();
+  syncThemeButton();
 });
 
-btnSessionList.addEventListener('click', () => {
-  send({ type: 'sessions:list' });
+btnSessionNew.addEventListener('click', () => {
+  send({ type: 'sessions:new' });
 });
 
 btnSessionFork.addEventListener('click', () => {
@@ -1024,6 +933,10 @@ btnSessionFork.addEventListener('click', () => {
 });
 
 btnSessionCheckpoints.addEventListener('click', () => {
+  if (!checkpointPopover.hidden) {
+    layout.closeCheckpoints();
+    return;
+  }
   send({ type: 'sessions:checkpoints', sessionId: currentSessionId });
 });
 
@@ -1032,16 +945,18 @@ formChat.addEventListener('submit', (e) => {
   const text = chatInput.value.trim();
   if (!text) return;
   if (ws?.readyState !== WebSocket.OPEN) {
-    cfgWarnings.textContent = '未连接：请点击「重新连接」或启动服务端（端口 3001）。';
+    setComposerError('未连接：请点击重新连接或启动服务端（端口 3001）。');
     return;
   }
   if (!configured) {
-    cfgWarnings.textContent = '请先点击左侧「应用配置」完成 Agent 配置。';
+    setComposerError('请先在设置中应用配置。');
+    layout.openSettings();
     return;
   }
+  setComposerError('');
   chatInput.value = '';
-  appendChatMessage('user', text);
-  finishStreamingAssistant();
+  chatUi.appendUser(text);
+  chatUi.finishStreaming();
 
   const requestId = crypto.randomUUID();
   activeRequestId = requestId;
@@ -1091,4 +1006,6 @@ document.querySelectorAll<HTMLButtonElement>('.filter-btn').forEach((btn) => {
   });
 });
 
+syncThemeButton();
+refreshComposerHint();
 connect();

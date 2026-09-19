@@ -167,7 +167,8 @@ export function parseClientMessage(raw: unknown): ParseClientMessageResult {
             : {}),
           ...(asOptionalString(obj.mcpConfigPath) ? { mcpConfigPath: obj.mcpConfigPath as string } : {}),
           ...(asOptionalString(obj.cwd) ? { cwd: obj.cwd as string } : {}),
-          ...(asOptionalString(obj.userBasePath) ? { userBasePath: obj.userBasePath as string } : {})
+          ...(asOptionalString(obj.userBasePath) ? { userBasePath: obj.userBasePath as string } : {}),
+          ...(obj.persist === true ? { persist: true } : {})
         }
       };
     }

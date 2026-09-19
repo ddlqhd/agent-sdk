@@ -19,6 +19,7 @@ import {
 } from '@ddlqhd/agent-sdk-exec';
 import { assertAgentEnvironmentReady } from '@ddlqhd/agent-sdk';
 import { createCliAgent } from '../../packages/agent-sdk-cli/src/utils/agent-bootstrap.js';
+import { createIsolatedUserBasePath } from '../helpers/agent-test-defaults.js';
 import { handleRequest, type ExecSession } from '../../packages/agent-sdk-exec/src/server/handler.js';
 import { readFileTool, writeFileTool, globTool } from '../../packages/agent-sdk/src/tools/builtin/filesystem.js';
 import { grepTool } from '../../packages/agent-sdk/src/tools/builtin/grep.js';
@@ -411,7 +412,8 @@ describe('createCliAgent environment init', () => {
         model: 'gpt-4o',
         bare: true,
         execServer: 'ws://127.0.0.1:1',
-        logLevel: 'silent'
+        logLevel: 'silent',
+        userBasePath: createIsolatedUserBasePath()
       })
     ).rejects.toThrow(/Failed to initialize execution environment/);
   });
