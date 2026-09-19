@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import { Agent } from '@ddlqhd/agent-sdk';
+import { runTurn } from '@ddlqhd/agent-sdk-control';
 import { formatUsage, formatSessionUsage, createStreamFormatter } from '../utils/output.js';
 import {
   initKeypressListener,
@@ -124,38 +125,46 @@ async function runAssistantTurn(
     }
   });
 
-  let resumeAskStdin: (() => void) | null = null;
+  const askStdin = { resume: null as (() => void) | null };
   const pendingAskToolCallIds = new Set<string>();
 
   try {
     const formatter = createStreamFormatter({ verbose });
-    for await (const event of agent.stream(input, buildStreamOptions(sessionId, abortController.signal))) {
-      if (interrupted) break;
+    await runTurn({
+      agent,
+      text: input,
+      sessionId,
+      signal: abortController.signal,
+      sink: {
+        onEvent: (event) => {
+          if (interrupted) return;
 
-      if (event.type === 'tool_call' && event.name === 'AskUserQuestion') {
-        pendingAskToolCallIds.add(event.id);
-        if (!resumeAskStdin) {
-          resumeAskStdin = pauseKeypressListener();
-        }
-      }
-      if (event.type === 'tool_result' && pendingAskToolCallIds.has(event.toolCallId)) {
-        pendingAskToolCallIds.delete(event.toolCallId);
-        if (pendingAskToolCallIds.size === 0 && resumeAskStdin) {
-          resumeAskStdin();
-          resumeAskStdin = null;
-        }
-      }
-      if (event.type === 'tool_error' && pendingAskToolCallIds.has(event.toolCallId)) {
-        pendingAskToolCallIds.delete(event.toolCallId);
-        if (pendingAskToolCallIds.size === 0 && resumeAskStdin) {
-          resumeAskStdin();
-          resumeAskStdin = null;
-        }
-      }
+          if (event.type === 'tool_call' && event.name === 'AskUserQuestion') {
+            pendingAskToolCallIds.add(event.id);
+            if (!askStdin.resume) {
+              askStdin.resume = pauseKeypressListener();
+            }
+          }
+          if (event.type === 'tool_result' && pendingAskToolCallIds.has(event.toolCallId)) {
+            pendingAskToolCallIds.delete(event.toolCallId);
+            if (pendingAskToolCallIds.size === 0 && askStdin.resume) {
+              askStdin.resume();
+              askStdin.resume = null;
+            }
+          }
+          if (event.type === 'tool_error' && pendingAskToolCallIds.has(event.toolCallId)) {
+            pendingAskToolCallIds.delete(event.toolCallId);
+            if (pendingAskToolCallIds.size === 0 && askStdin.resume) {
+              askStdin.resume();
+              askStdin.resume = null;
+            }
+          }
 
-      const output = formatter.format(event);
-      if (output) process.stdout.write(output);
-    }
+          const output = formatter.format(event);
+          if (output) process.stdout.write(output);
+        }
+      }
+    });
     if (!interrupted) {
       const tail = formatter.finalize();
       if (tail) process.stdout.write(tail);
@@ -166,7 +175,7 @@ async function runAssistantTurn(
       }
     }
   } finally {
-    if (resumeAskStdin) resumeAskStdin();
+    askStdin.resume?.();
     clearKeypressHandler();
     cleanupKeypress();
   }

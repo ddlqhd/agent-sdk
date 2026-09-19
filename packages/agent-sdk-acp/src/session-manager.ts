@@ -1,12 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import {
-  SessionManager,
-  getSessionStoragePath,
-  type Agent,
-  type SessionInfo
-} from '@ddlqhd/agent-sdk';
+import type { Agent } from '@ddlqhd/agent-sdk';
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
 import type * as acp from '@agentclientprotocol/sdk';
+import {
+  SessionRuntime,
+  runTurn,
+  type SessionRecord,
+  type TurnResult
+} from '@ddlqhd/agent-sdk-control';
 import { buildSessionAgent } from './agent-factory.js';
 import { EventBridge } from './event-bridge.js';
 import { replaySessionHistory } from './history-replay.js';
@@ -16,7 +16,16 @@ import { createPermissionContext, type PermissionContext } from './permissions.j
 import { logError } from './logging.js';
 import { resolveAcpUserBase } from './user-base.js';
 
-const LIST_PAGE_SIZE = 50;
+export interface AcpSessionExtra {
+  eventBridge: EventBridge;
+  editMode: EditApprovalMode;
+  permissionCtx: PermissionContext;
+}
+
+export interface AcpSessionContext {
+  editMode?: EditApprovalMode;
+  mcpServers?: acp.McpServer[];
+}
 
 export interface AcpSessionState {
   sessionId: string;
@@ -28,56 +37,71 @@ export interface AcpSessionState {
   abortController: AbortController | null;
 }
 
-interface CreateSessionOptions {
-  editMode?: EditApprovalMode;
-  mcpServers?: acp.McpServer[];
+function toState(record: SessionRecord<AcpSessionExtra>): AcpSessionState {
+  return {
+    sessionId: record.sessionId,
+    cwd: record.cwd,
+    agent: record.agent,
+    eventBridge: record.extra.eventBridge,
+    editMode: record.extra.editMode,
+    permissionCtx: record.extra.permissionCtx,
+    get abortController() {
+      return record.abortController;
+    },
+    set abortController(value) {
+      record.abortController = value;
+    }
+  };
 }
 
 export class AcpSessionManager {
-  private readonly sessions = new Map<string, AcpSessionState>();
-  private readonly connection: AgentSideConnection;
+  private readonly runtime: SessionRuntime<AcpSessionExtra, AcpSessionContext>;
 
   constructor(connection: AgentSideConnection) {
-    this.connection = connection;
+    this.runtime = new SessionRuntime<AcpSessionExtra, AcpSessionContext>({
+      resolveUserBasePath: resolveAcpUserBase,
+      storageType: 'jsonl',
+      createExtra: ({ sessionId, cwd, context }) => {
+        const editMode = context?.editMode ?? 'default';
+        return {
+          eventBridge: new EventBridge(connection, sessionId),
+          editMode,
+          permissionCtx: createPermissionContext(sessionId, cwd, editMode, connection)
+        };
+      },
+      buildAgent: async ({ sessionId, cwd, extra, context }) =>
+        buildSessionAgent({
+          cwd,
+          sessionId,
+          permissionCtx: extra.permissionCtx,
+          eventBridge: extra.eventBridge,
+          userBasePath: resolveAcpUserBase(),
+          mcpServers: mapAcpMcpServers(context?.mcpServers)
+        }),
+      onBound: (record) => {
+        record.extra.eventBridge.setSessionUsageProvider(() => record.agent.getSessionUsage());
+      },
+      onHistory: async ({ sessionId, messages }) => {
+        await replaySessionHistory(connection, sessionId, messages);
+      },
+      onDestroyError: (sessionId, error) => {
+        logError(`destroy session ${sessionId}`, error);
+      }
+    });
   }
 
   get(sessionId: string): AcpSessionState | undefined {
-    return this.sessions.get(sessionId);
+    const record = this.runtime.get(sessionId);
+    return record ? toState(record) : undefined;
   }
 
   async createSession(
     cwd: string,
     sessionId?: string,
-    options?: CreateSessionOptions
+    options?: AcpSessionContext
   ): Promise<AcpSessionState> {
-    const id = sessionId ?? randomUUID();
-    const editMode = options?.editMode ?? 'default';
-    const eventBridge = new EventBridge(this.connection, id);
-    const permissionCtx = createPermissionContext(id, cwd, editMode, this.connection);
-    const userBasePath = resolveAcpUserBase();
-
-    const agent = await buildSessionAgent({
-      cwd,
-      sessionId: id,
-      permissionCtx,
-      eventBridge,
-      userBasePath,
-      mcpServers: mapAcpMcpServers(options?.mcpServers)
-    });
-    eventBridge.setSessionUsageProvider(() => agent.getSessionUsage());
-    agent.getSessionManager().createSession(id);
-
-    const state: AcpSessionState = {
-      sessionId: id,
-      cwd,
-      agent,
-      eventBridge,
-      editMode,
-      permissionCtx,
-      abortController: null
-    };
-    this.sessions.set(id, state);
-    return state;
+    const record = await this.runtime.create(cwd, sessionId, options);
+    return toState(record);
   }
 
   async loadSession(
@@ -85,217 +109,84 @@ export class AcpSessionManager {
     cwd: string,
     mcpServers?: acp.McpServer[]
   ): Promise<AcpSessionState> {
-    const sm = this.sessions.get(sessionId);
-    if (sm) {
-      sm.cwd = cwd;
-      return sm;
-    }
-
-    const exists = await this.probeSessionExists(sessionId);
-    if (!exists) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-
-    const eventBridge = new EventBridge(this.connection, sessionId);
-    const permissionCtx = createPermissionContext(sessionId, cwd, 'default', this.connection);
-    const userBasePath = resolveAcpUserBase();
-
-    const agent = await buildSessionAgent({
-      cwd,
-      sessionId,
-      permissionCtx,
-      eventBridge,
-      userBasePath,
-      mcpServers: mapAcpMcpServers(mcpServers)
-    });
-    eventBridge.setSessionUsageProvider(() => agent.getSessionUsage());
-
-    const manager = agent.getSessionManager();
-    await manager.attachSession(sessionId);
-    const messages = await manager.loadActiveMessages();
-    await replaySessionHistory(this.connection, sessionId, messages);
-
-    const state: AcpSessionState = {
-      sessionId,
-      cwd,
-      agent,
-      eventBridge,
-      editMode: 'default',
-      permissionCtx,
-      abortController: null
-    };
-    this.sessions.set(sessionId, state);
-    return state;
-  }
-
-  private sessionStorageBase(): string {
-    return getSessionStoragePath(resolveAcpUserBase());
-  }
-
-  private async probeSessionExists(sessionId: string): Promise<boolean> {
-    const mgr = new SessionManager({
-      type: 'jsonl',
-      basePath: this.sessionStorageBase()
-    });
-    return mgr.sessionExists(sessionId);
+    const record = await this.runtime.load(sessionId, cwd, { mcpServers });
+    return toState(record);
   }
 
   async forkSession(sourceSessionId: string, mcpServers?: acp.McpServer[]): Promise<AcpSessionState> {
-    this.cancelPrompt(sourceSessionId);
-    const inMemory = this.sessions.get(sourceSessionId);
-    let cwd: string;
-    let editMode: EditApprovalMode = 'default';
-    let sourceAgent: Agent;
-    let tempSourceAgent: Agent | null = null;
-
-    if (inMemory) {
-      cwd = inMemory.cwd;
-      editMode = inMemory.editMode;
-      sourceAgent = inMemory.agent;
-    } else {
-      const exists = await this.probeSessionExists(sourceSessionId);
-      if (!exists) {
-        throw new Error(`Session not found: ${sourceSessionId}`);
+    const source = this.runtime.get(sourceSessionId);
+    const record = await this.runtime.fork(sourceSessionId, {
+      context: {
+        editMode: source?.extra.editMode,
+        mcpServers
       }
-      const stored = await this.listStoredSessions();
-      cwd = stored.find((s) => s.id === sourceSessionId)?.cwd ?? process.cwd();
-      const eventBridge = new EventBridge(this.connection, sourceSessionId);
-      const permissionCtx = createPermissionContext(sourceSessionId, cwd, 'default', this.connection);
-      tempSourceAgent = await buildSessionAgent({
-        cwd,
-        sessionId: sourceSessionId,
-        permissionCtx,
-        eventBridge,
-        userBasePath: resolveAcpUserBase(),
-        mcpServers: mapAcpMcpServers(mcpServers)
-      });
-      eventBridge.setSessionUsageProvider(() => tempSourceAgent!.getSessionUsage());
-      await tempSourceAgent.getSessionManager().attachSession(sourceSessionId);
-      sourceAgent = tempSourceAgent;
-    }
-
-    const newId = randomUUID();
-    try {
-      await sourceAgent.forkSession(sourceSessionId, { newSessionId: newId, switchToForked: false });
-
-      const eventBridge = new EventBridge(this.connection, newId);
-      const permissionCtx = createPermissionContext(newId, cwd, editMode, this.connection);
-      const forkedAgent = await buildSessionAgent({
-        cwd,
-        sessionId: newId,
-        permissionCtx,
-        eventBridge,
-        userBasePath: resolveAcpUserBase(),
-        mcpServers: mapAcpMcpServers(mcpServers)
-      });
-      eventBridge.setSessionUsageProvider(() => forkedAgent.getSessionUsage());
-      await forkedAgent.getSessionManager().attachSession(newId);
-      const messages = await forkedAgent.getSessionManager().loadActiveMessages();
-      await replaySessionHistory(this.connection, newId, messages);
-
-      const state: AcpSessionState = {
-        sessionId: newId,
-        cwd,
-        agent: forkedAgent,
-        eventBridge,
-        editMode,
-        permissionCtx,
-        abortController: null
-      };
-      this.sessions.set(newId, state);
-      return state;
-    } finally {
-      if (tempSourceAgent) {
-        try {
-          await tempSourceAgent.destroy();
-        } catch (e) {
-          logError(`destroy temp source agent ${sourceSessionId}`, e);
-        }
-      }
-    }
+    });
+    return toState(record);
   }
 
   async listSessions(cwd?: string | null, cursor?: string | null): Promise<acp.ListSessionsResponse> {
-    const cwdById = new Map<string, string>();
-    for (const state of this.sessions.values()) {
-      cwdById.set(state.sessionId, state.cwd);
-    }
-
-    const listed = await this.listStoredSessions();
-    const all: acp.SessionInfo[] = [];
-
-    for (const s of listed) {
-      const sessionCwd =
-        cwdById.get(s.id) ??
-        s.cwd ??
-        cwd ??
-        undefined;
-      all.push({
+    const listed = await this.runtime.list({ cwd, cursor });
+    return {
+      sessions: listed.sessions.map((s) => ({
         sessionId: s.id,
-        cwd: sessionCwd ?? '',
+        cwd: s.cwd ?? '',
         title: `Session ${s.id.slice(0, 8)}`,
         updatedAt: new Date(s.updatedAt).toISOString()
-      });
-    }
-
-    let filtered = all;
-    if (cwd) {
-      filtered = all.filter((s) => s.cwd === cwd);
-    }
-
-    const start = cursor ? Number.parseInt(cursor, 10) || 0 : 0;
-    const page = filtered.slice(start, start + LIST_PAGE_SIZE);
-    const next = start + LIST_PAGE_SIZE < filtered.length ? String(start + LIST_PAGE_SIZE) : undefined;
-    return { sessions: page, nextCursor: next ?? null };
-  }
-
-  private async listStoredSessions(): Promise<SessionInfo[]> {
-    const reference = this.sessions.values().next().value;
-    if (reference) {
-      return reference.agent.getSessionManager().listSessions();
-    }
-    const mgr = new SessionManager({
-      type: 'jsonl',
-      basePath: this.sessionStorageBase()
-    });
-    return mgr.listSessions();
+      })),
+      nextCursor: listed.nextCursor
+    };
   }
 
   setEditMode(sessionId: string, modeId: string): void {
-    const state = this.sessions.get(sessionId);
-    if (!state) {
+    const record = this.runtime.get(sessionId);
+    if (!record) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     const mode = mapEditModeId(modeId);
-    state.editMode = mode;
-    state.permissionCtx.editMode = mode;
+    record.extra.editMode = mode;
+    record.extra.permissionCtx.editMode = mode;
   }
 
   cancelPrompt(sessionId: string): void {
-    const state = this.sessions.get(sessionId);
-    state?.abortController?.abort();
+    this.runtime.cancel(sessionId);
+  }
+
+  async prompt(sessionId: string, text: string): Promise<TurnResult> {
+    const record = this.runtime.get(sessionId);
+    if (!record) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    const ac = this.runtime.beginTurn(sessionId);
+    record.extra.permissionCtx.promptSignal = ac.signal;
+    record.extra.eventBridge.resetTurn();
+    try {
+      return await runTurn({
+        agent: record.agent,
+        text,
+        sessionId,
+        signal: ac.signal,
+        sink: {
+          onEvent: async (event) => {
+            if (event.type === 'end') return;
+            await record.extra.eventBridge.handleStreamEvent(event);
+          }
+        }
+      });
+    } finally {
+      record.extra.permissionCtx.promptSignal = undefined;
+      this.runtime.endTurn(sessionId, ac);
+    }
   }
 
   async closeSession(sessionId: string): Promise<void> {
-    this.cancelPrompt(sessionId);
-    await this.destroySession(sessionId);
+    await this.runtime.close(sessionId);
   }
 
   async destroySession(sessionId: string): Promise<void> {
-    const state = this.sessions.get(sessionId);
-    if (!state) return;
-    state.abortController?.abort();
-    try {
-      await state.agent.destroy();
-    } catch (e) {
-      logError(`destroy session ${sessionId}`, e);
-    }
-    this.sessions.delete(sessionId);
+    await this.runtime.destroy(sessionId);
   }
 
   async destroyAll(): Promise<void> {
-    for (const id of [...this.sessions.keys()]) {
-      await this.destroySession(id);
-    }
+    await this.runtime.destroyAll();
   }
 }

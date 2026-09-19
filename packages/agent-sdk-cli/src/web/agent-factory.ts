@@ -1,18 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import {
-  Agent,
-  assertAgentEnvironmentReady,
   createFileJSONLLogger,
-  createModel,
   loadMCPConfig,
   validateMCPConfig,
+  type Agent,
   type AskUserQuestionResolver,
   type FileJSONLLogger,
   type MCPConfigFile,
   type MCPServerConfig,
   type SDKLogLevel
 } from '@ddlqhd/agent-sdk';
+import { buildControlAgent, resolveRemoteEnvironmentConfig } from '@ddlqhd/agent-sdk-control';
 import type { ModelProvider } from './shared/ws-protocol.js';
 import { truncateForLog } from './shared/log-utils.js';
 import { describeMissingKey, getOllamaBaseUrl, requireProviderEnv } from './env.js';
@@ -173,14 +172,14 @@ export async function buildAgent(
   const baseUrlApplies = !defaults.provider || defaults.provider === config.provider;
   const cliBaseUrl = baseUrlApplies ? defaults.baseUrl : undefined;
 
-  const model = createModel({
+  const modelConfig = {
     provider: config.provider,
     apiKey: key,
     baseUrl: config.provider === 'ollama' ? cliBaseUrl || getOllamaBaseUrl() : cliBaseUrl,
     model: config.model,
     ...(config.thinking !== undefined ? { thinking: config.thinking } : {}),
     ...(config.thinkingLevel !== undefined ? { thinkingLevel: config.thinkingLevel } : {})
-  });
+  };
 
   let mcpServers: MCPServerConfig[] | undefined;
   const mcpConfigPath =
@@ -230,8 +229,8 @@ export async function buildAgent(
         ? { contextLength: config.contextLength }
         : {};
 
-  const agent = new Agent({
-    model,
+  const agent = await buildControlAgent({
+    modelConfig,
     cwd,
     userBasePath,
     storage: { type: config.storage },
@@ -245,32 +244,20 @@ export async function buildAgent(
     disallowedTools: config.safeToolsOnly ? ['Bash'] : undefined,
     logLevel: sharedLog.level,
     ...(sharedLog.logger ? { logger: sharedLog.logger } : {}),
-    ...(defaults.execServer
-      ? {
-          environment: {
-            type: 'remote' as const,
-            url: defaults.execServer,
-            token: defaults.execToken
-          }
+    environment: resolveRemoteEnvironmentConfig({
+      url: defaults.execServer,
+      token: defaults.execToken
+    }),
+    afterInit: (ready) => {
+      if (!config.safeToolsOnly) return;
+      const reg = ready.getToolRegistry();
+      for (const tool of [...reg.getAll()]) {
+        if (tool.isDangerous) {
+          reg.unregister(tool.name);
         }
-      : {})
-  });
-
-  const initResult = await agent.waitForInit();
-  try {
-    assertAgentEnvironmentReady(initResult);
-  } catch (err) {
-    await agent.destroy();
-    throw err;
-  }
-  if (config.safeToolsOnly) {
-    const reg = agent.getToolRegistry();
-    for (const tool of [...reg.getAll()]) {
-      if (tool.isDangerous) {
-        reg.unregister(tool.name);
       }
     }
-  }
+  });
 
   return { agent, warnings };
 }

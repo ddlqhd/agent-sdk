@@ -1,7 +1,7 @@
 {
   "name": "agent-sdk-monorepo",
   "private": true,
-  "description": "Monorepo for @ddlqhd/agent-sdk, CLI, and ACP bridge",
+  "description": "Monorepo for @ddlqhd/agent-sdk, CLI, control kernel, and ACP bridge",
   "type": "module",
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" run build",
@@ -9,7 +9,7 @@
     "cli": "node packages/agent-sdk-cli/bin/agent-sdk.mjs",
     "test": "vitest",
     "test:run": "vitest run",
-    "lint": "pnpm --filter @ddlqhd/agent-sdk-exec build && pnpm -r --filter \"./packages/**\" --if-present run lint",
+    "lint": "pnpm --filter @ddlqhd/agent-sdk-exec build && pnpm --filter @ddlqhd/agent-sdk-control build && pnpm -r --filter \"./packages/**\" --if-present run lint",
     "clean": "pnpm -r --filter \"./packages/**\" --if-present run clean",
     "build:acp": "pnpm --filter @ddlqhd/agent-sdk-acp build"
   },

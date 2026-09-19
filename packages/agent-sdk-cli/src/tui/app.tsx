@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { Agent } from '@ddlqhd/agent-sdk';
+import { runTurn } from '@ddlqhd/agent-sdk-control';
 import type { CLIConfig } from '../types.js';
 import type { ChatLine, TuiModal } from './types.js';
 import { messagesToTerminalLines } from '../utils/chat-history.js';
@@ -142,34 +143,42 @@ export function TuiApp({ agent, options, cwd, initialSessionId, onExit }: TuiApp
       try {
         const processed = await agent.processInput(text);
         const prompt = processed.invoked ? processed.prompt : text;
-        for await (const event of agent.stream(prompt, { sessionId, signal: ac.signal })) {
-          if (event.type === 'tool_call') {
-            setLines((prev) => [
-              ...prev,
-              toolLineFromCall(verbose, event.name, event.arguments)
-            ]);
-            continue;
+        await runTurn({
+          agent,
+          text: prompt,
+          sessionId,
+          signal: ac.signal,
+          sink: {
+            onEvent: (event) => {
+              if (event.type === 'tool_call') {
+                setLines((prev) => [
+                  ...prev,
+                  toolLineFromCall(verbose, event.name, event.arguments)
+                ]);
+                return;
+              }
+              if (event.type === 'tool_error') {
+                erroredToolCallIds.add(event.toolCallId);
+                setLines((prev) => [
+                  ...prev,
+                  toolLineFromError(verbose, event.error)
+                ]);
+                return;
+              }
+              if (event.type === 'tool_result') {
+                if (erroredToolCallIds.has(event.toolCallId)) return;
+                setLines((prev) => [
+                  ...prev,
+                  toolLineFromResult(verbose, event.result)
+                ]);
+                return;
+              }
+              buffers = reduceStreamEvent(buffers, event);
+              setThinkingBuf(buffers.thinking);
+              setStreamBuf(buffers.assistant);
+            }
           }
-          if (event.type === 'tool_error') {
-            erroredToolCallIds.add(event.toolCallId);
-            setLines((prev) => [
-              ...prev,
-              toolLineFromError(verbose, event.error)
-            ]);
-            continue;
-          }
-          if (event.type === 'tool_result') {
-            if (erroredToolCallIds.has(event.toolCallId)) continue;
-            setLines((prev) => [
-              ...prev,
-              toolLineFromResult(verbose, event.result)
-            ]);
-            continue;
-          }
-          buffers = reduceStreamEvent(buffers, event);
-          setThinkingBuf(buffers.thinking);
-          setStreamBuf(buffers.assistant);
-        }
+        });
       } catch (err) {
         if (!ac.signal.aborted) {
           setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);

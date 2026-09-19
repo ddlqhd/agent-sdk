@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { CLIConfig } from '../types.js';
 import { createStreamFormatter, formatUsage } from '../utils/output.js';
+import { runTurn } from '@ddlqhd/agent-sdk-control';
 import {
   applyPreStreamFork,
   buildStreamOptions,
@@ -27,11 +28,18 @@ export async function executeSinglePrompt(prompt: string, options: CLIConfig): P
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       } else if (options.stream !== false) {
         const formatter = createStreamFormatter({ verbose: options.verbose, headless });
-        for await (const event of agent.stream(prompt, buildStreamOptions(sessionId))) {
-          const { stdout, stderr } = formatter.formatSplit(event);
-          if (stdout) process.stdout.write(stdout);
-          if (stderr) process.stderr.write(stderr);
-        }
+        await runTurn({
+          agent,
+          text: prompt,
+          sessionId,
+          sink: {
+            onEvent: (event) => {
+              const { stdout, stderr } = formatter.formatSplit(event);
+              if (stdout) process.stdout.write(stdout);
+              if (stderr) process.stderr.write(stderr);
+            }
+          }
+        });
         const { stdout, stderr } = formatter.finalizeSplit();
         if (stdout) process.stdout.write(stdout);
         if (stderr) process.stderr.write(stderr);

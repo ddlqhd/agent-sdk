@@ -15,7 +15,7 @@
 
 包目录：`packages/agent-sdk-acp/`（`agent-sdk-acp` CLI + `agent.json`）。通过 **stdio JSON-RPC** 将 `Agent.stream()` 暴露为 [Agent Client Protocol](https://agentclientprotocol.com/) 服务。
 
-**与生产集成的对照方式**：`packages/agent-sdk-acp/src/agent-factory.ts` 演示如何从环境变量组装 `Agent`（含 MCP、Skill、Memory、`userBasePath`）；`packages/agent-sdk-cli/src/web/agent-factory.ts` 提供 Web UI 对照。未设置 `AGENT_SDK_ACP_USER_BASE` 时，会话默认写入稳定的 `tmpdir()/agent-sdk-acp`（非随机临时目录）。
+**与生产集成的对照方式**：宿主工厂走 `@ddlqhd/agent-sdk-control` 的 `buildControlAgent`（见 [`sdk-control.md`](./sdk-control.md)）。`packages/agent-sdk-acp/src/agent-factory.ts` 与 `packages/agent-sdk-cli/src/web/agent-factory.ts` 只保留协议差异（审批、MCP 映射、safeToolsOnly）。未设置 `AGENT_SDK_ACP_USER_BASE` 时，会话默认写入稳定的 `tmpdir()/agent-sdk-acp`（非随机临时目录）。ACP 与 CLI/Web 读取同一套 `AGENT_SDK_EXEC_SERVER_*`。
 
 文件清单：
 

@@ -32,6 +32,8 @@ node packages/agent-sdk-acp/dist/entry.js --check
 | `AGENT_SDK_ACP_USER_BASE` | Storage root (default: stable `tmpdir()/agent-sdk-acp`) |
 | `AGENT_SDK_ACP_CONTEXT_SIZE` | Context window size for `usage_update.size` (default `200000`); `used` reflects current context occupancy (`contextTokens`) |
 | `AGENT_SDK_LOG_LEVEL` | `debug` for verbose stderr |
+| `AGENT_SDK_EXEC_SERVER_URL` | Optional remote exec-server (same as CLI `--exec-server`) |
+| `AGENT_SDK_EXEC_SERVER_TOKEN` | Shared token for the remote exec-server |
 
 ## Capabilities
 

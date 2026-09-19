@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join, resolve } from 'node:path';
 import type {
   Agent,
   AskUserQuestionAnswer,
   AskUserQuestionItem,
   AskUserQuestionResolver,
   SessionInfo,
-  StreamEvent,
-  TokenUsage
+  StreamEvent
 } from '@ddlqhd/agent-sdk';
+import { SessionRuntime, runTurn } from '@ddlqhd/agent-sdk-control';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { ClientMessage, ServerMessage, SessionListItem, WebUiDefaults } from './shared/ws-protocol.js';
 import {
@@ -90,16 +90,35 @@ function attachSocketHandlers(
   connId: string
 ): void {
   const state: {
-    agentsBySession: Map<string, Agent>;
+    runtime: SessionRuntime;
     activeSessionId: string | null;
     runtimeConfig: BuildAgentOptions | null;
     abortByRequest: Map<string, { sessionId: string; controller: AbortController }>;
   } = {
-    agentsBySession: new Map(),
+    runtime: null as unknown as SessionRuntime,
     activeSessionId: null,
     runtimeConfig: null,
     abortByRequest: new Map()
   };
+
+  function resolvedCwd(): string {
+    const raw = state.runtimeConfig?.cwd?.trim();
+    if (!raw) return defaults.cwd;
+    return isAbsolute(raw) ? raw : resolve(defaults.cwd, raw);
+  }
+
+  function resolvedUserBase(): string {
+    const raw = state.runtimeConfig?.userBasePath?.trim();
+    if (!raw) return defaults.userBasePath;
+    return isAbsolute(raw) ? raw : resolve(defaults.userBasePath, raw);
+  }
+
+  state.runtime = new SessionRuntime({
+    resolveUserBasePath: resolvedUserBase,
+    storageType: () => state.runtimeConfig?.storage ?? 'jsonl',
+    createExtra: () => undefined,
+    buildAgent: async () => createConfiguredAgent()
+  });
 
   const askPending = new Map<
     string,
@@ -153,18 +172,18 @@ function attachSocketHandlers(
     });
 
   async function destroyAllAgents(): Promise<void> {
-    for (const agent of state.agentsBySession.values()) {
-      await agent.destroy();
-    }
-    state.agentsBySession.clear();
+    await state.runtime.destroyAll();
     state.activeSessionId = null;
   }
+
+  let lastBuildWarnings: string[] = [];
 
   async function createConfiguredAgent(): Promise<Agent> {
     if (!state.runtimeConfig) {
       throw new Error('Configure the agent first.');
     }
-    const { agent } = await buildAgent({ ...state.runtimeConfig, askUserQuestion }, defaults);
+    const { agent, warnings } = await buildAgent({ ...state.runtimeConfig, askUserQuestion }, defaults);
+    lastBuildWarnings = warnings;
     return agent;
   }
 
@@ -179,27 +198,22 @@ function attachSocketHandlers(
   }
 
   async function resolveSessionAgent(sessionId: string): Promise<Agent | null> {
-    let agent = state.agentsBySession.get(sessionId);
-    if (agent) return agent;
+    const existing = state.runtime.get(sessionId);
+    if (existing) return existing.agent;
     if (!state.runtimeConfig) return null;
-    agent = await createConfiguredAgent();
     try {
-      await agent.getSessionManager().attachSession(sessionId);
+      const record = await state.runtime.load(sessionId, resolvedCwd());
+      return record.agent;
     } catch {
-      await agent.destroy();
       return null;
     }
-    state.agentsBySession.set(sessionId, agent);
-    return agent;
   }
 
   async function startNewSession(requestedSessionId?: string): Promise<string> {
     abortSessionRequests(state.activeSessionId);
-    const agent = await createConfiguredAgent();
-    const id = agent.getSessionManager().createSession(requestedSessionId);
-    state.agentsBySession.set(id, agent);
-    state.activeSessionId = id;
-    return id;
+    const record = await state.runtime.create(resolvedCwd(), requestedSessionId);
+    state.activeSessionId = record.sessionId;
+    return record.sessionId;
   }
 
   function abortSessionRequests(sessionId: string | null): void {
@@ -300,14 +314,10 @@ function attachSocketHandlers(
             thinking: msg.thinking,
             thinkingLevel: msg.thinkingLevel
           };
-          const { agent, warnings } = await buildAgent(
-            { ...state.runtimeConfig, askUserQuestion },
-            defaults
-          );
-          const allWarnings = [...persistWarnings, ...warnings];
-          const sessionId = agent.getSessionManager().createSession();
-          state.agentsBySession.set(sessionId, agent);
+          const record = await state.runtime.create(resolvedCwd());
+          const sessionId = record.sessionId;
           state.activeSessionId = sessionId;
+          const allWarnings = [...persistWarnings, ...lastBuildWarnings];
           console.log(
             `${LOG_PREFIX} [${connId}] ready sessionId=${sessionId.slice(0, 8)}… warnings=${allWarnings.length}`
           );
@@ -327,13 +337,13 @@ function attachSocketHandlers(
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          const activeAgent = state.agentsBySession.get(activeSessionId);
-          if (!activeAgent) {
+          const activeRecord = state.runtime.get(activeSessionId);
+          if (!activeRecord) {
             console.warn(`${LOG_PREFIX} [${connId}] sessions:list rejected: Active session runtime not found.`);
             sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
             return;
           }
-          const manager = activeAgent.getSessionManager();
+          const manager = activeRecord.agent.getSessionManager();
           const storage = manager.getStorage();
           const sessions = await manager.listSessions();
           const items: SessionListItem[] = await Promise.all(
@@ -380,20 +390,16 @@ function attachSocketHandlers(
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          const target = state.agentsBySession.get(msg.sessionId);
+          const target = state.runtime.get(msg.sessionId);
           const deleter =
-            target ?? (state.activeSessionId ? state.agentsBySession.get(state.activeSessionId) : undefined);
+            target ?? (state.activeSessionId ? state.runtime.get(state.activeSessionId) : undefined);
           if (!deleter) {
             console.warn(`${LOG_PREFIX} [${connId}] sessions:delete rejected: Active session runtime not found.`);
             sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
             return;
           }
           abortSessionRequests(msg.sessionId);
-          await deleter.getSessionManager().deleteSession(msg.sessionId);
-          if (target) {
-            await target.destroy();
-            state.agentsBySession.delete(msg.sessionId);
-          }
+          await state.runtime.deleteStored(msg.sessionId);
           const wasActive = state.activeSessionId === msg.sessionId;
           if (wasActive) {
             state.activeSessionId = null;
@@ -415,31 +421,27 @@ function attachSocketHandlers(
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
             return;
           }
-          if (state.agentsBySession.has(msg.sessionId)) {
+          if (state.runtime.get(msg.sessionId)) {
             state.activeSessionId = msg.sessionId;
-            const existing = state.agentsBySession.get(msg.sessionId)!;
+            const existing = state.runtime.get(msg.sessionId)!;
             console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (existing runtime)`);
             sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
-            await sendSessionHistory(msg.sessionId, existing);
+            await sendSessionHistory(msg.sessionId, existing.agent);
             return;
           }
-          const agent = await createConfiguredAgent();
           try {
-            await agent.getSessionManager().attachSession(msg.sessionId);
+            const loaded = await state.runtime.load(msg.sessionId, resolvedCwd());
+            state.activeSessionId = msg.sessionId;
+            console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (loaded)`);
+            sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
+            await sendSessionHistory(msg.sessionId, loaded.agent);
           } catch {
-            await agent.destroy();
             console.warn(`${LOG_PREFIX} [${connId}] sessions:resume failed: session not found`);
             sendJson(socket, {
               type: 'error',
               message: `Session not found: ${msg.sessionId}`
             });
-            return;
           }
-          state.agentsBySession.set(msg.sessionId, agent);
-          state.activeSessionId = msg.sessionId;
-          console.log(`${LOG_PREFIX} [${connId}] sessions:resume ok (loaded)`);
-          sendJson(socket, { type: 'ready', sessionId: msg.sessionId });
-          await sendSessionHistory(msg.sessionId, agent);
           return;
         }
 
@@ -511,17 +513,17 @@ function attachSocketHandlers(
           if (msg.checkpointId) forkOpts.checkpointId = msg.checkpointId;
           if (msg.userTurnIndex !== undefined) forkOpts.userTurnIndex = msg.userTurnIndex;
 
-          const result = await sourceAgent.forkSession(sourceSessionId, forkOpts);
-          const newAgent = await createConfiguredAgent();
-          await newAgent.getSessionManager().attachSession(result.sessionId);
-          state.agentsBySession.set(result.sessionId, newAgent);
-          state.activeSessionId = result.sessionId;
-          const messages = await loadChatHistory(newAgent);
+          const forked = await state.runtime.fork(sourceSessionId, {
+            cwd: resolvedCwd(),
+            ...forkOpts
+          });
+          state.activeSessionId = forked.sessionId;
+          const messages = await loadChatHistory(forked.agent);
           sendJson(socket, {
             type: 'sessions:fork',
-            sessionId: result.sessionId,
-            sourceSessionId: result.sourceSessionId,
-            result,
+            sessionId: forked.sessionId,
+            sourceSessionId: forked.forkResult.sourceSessionId,
+            result: forked.forkResult,
             messages
           });
           return;
@@ -564,11 +566,9 @@ function attachSocketHandlers(
           console.log(
             `${LOG_PREFIX} [${connId}] ${msg.type} requestId=${msg.requestId} sessionId=${requestedSessionId.slice(0, 8)}… textLen=${len} preview=${JSON.stringify(preview)}`
           );
-          let targetAgent = state.agentsBySession.get(requestedSessionId);
-          if (!targetAgent) {
-            targetAgent = await createConfiguredAgent();
-            targetAgent.getSessionManager().createSession(requestedSessionId);
-            state.agentsBySession.set(requestedSessionId, targetAgent);
+          let target = state.runtime.get(requestedSessionId);
+          if (!target) {
+            target = await state.runtime.create(resolvedCwd(), requestedSessionId);
             console.log(`${LOG_PREFIX} [${connId}] chat: created new agent runtime for session`);
           }
           state.activeSessionId = requestedSessionId;
@@ -578,34 +578,28 @@ function attachSocketHandlers(
           state.abortByRequest.set(requestId, { sessionId: requestedSessionId, controller: ac });
 
           try {
-            let finalText = '';
-            let lastUsage: TokenUsage | undefined;
-            for await (const event of targetAgent.stream(msg.text, {
+            const result = await runTurn({
+              agent: target.agent,
+              text: msg.text,
               sessionId: requestedSessionId,
               signal: ac.signal,
-              forkSession: msg.forkSession === true
-            })) {
-              if (event.type === 'text_delta') {
-                finalText += event.content;
+              forkSession: msg.forkSession === true,
+              sink: {
+                onEvent: (event) => {
+                  sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });
+                }
               }
-              if (event.type === 'session_summary') {
-                lastUsage = event.usage;
-              }
-              if (event.type === 'end' && event.usage !== undefined) {
-                lastUsage = event.usage;
-              }
-              sendJson(socket, { type: 'stream_event', event: serializeStreamEvent(event) });
-            }
-            const sid = targetAgent.getSessionManager().sessionId || requestedSessionId;
+            });
+            const sid = target.agent.getSessionManager().sessionId || requestedSessionId;
             console.log(
-              `${LOG_PREFIX} [${connId}] chat_done ok requestId=${requestId} sessionId=${sid.slice(0, 8)}… finalTextLen=${finalText.length} usage=${lastUsage ? JSON.stringify(lastUsage) : 'none'}`
+              `${LOG_PREFIX} [${connId}] chat_done ok requestId=${requestId} sessionId=${sid.slice(0, 8)}… finalTextLen=${result.finalText.length} usage=${result.usage ? JSON.stringify(result.usage) : 'none'}`
             );
             sendJson(socket, {
               type: 'chat_done',
               requestId,
               sessionId: sid,
-              finalText,
-              usage: lastUsage
+              finalText: result.finalText,
+              usage: result.usage
             });
           } catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
@@ -626,7 +620,7 @@ function attachSocketHandlers(
             sendJson(socket, {
               type: 'chat_done',
               requestId,
-              sessionId: targetAgent.getSessionManager().sessionId || requestedSessionId,
+              sessionId: target.agent.getSessionManager().sessionId || requestedSessionId,
               finalText: ''
             });
           } finally {
@@ -715,11 +709,14 @@ export async function closeHttpAndWebSockets(
   });
 }
 
+export interface WebServerHandle {
+  close: () => Promise<void>;
+}
+
 /**
- * Serve the Agent Studio UI and WebSocket `/ws` on the given host/port.
- * Resolves when the process receives SIGINT/SIGTERM (or the HTTP server closes).
+ * Bind HTTP + `/ws` and return a handle. Used by {@link startWebServer} and integration tests.
  */
-export async function startWebServer(options: StartWebServerOptions): Promise<void> {
+export async function createWebListener(options: StartWebServerOptions): Promise<WebServerHandle> {
   const { port, host, clientDist, defaults } = options;
   const allowRemote = options.allowRemote === true;
   if (!existsSync(join(clientDist, 'index.html'))) {
@@ -792,6 +789,24 @@ export async function startWebServer(options: StartWebServerOptions): Promise<vo
     console.log(`${LOG_PREFIX} SDK logs: disabled (level=${logInfo.level})`);
   }
 
+  return {
+    close: async () => {
+      try {
+        await closeSharedAgentLogger();
+      } catch (err) {
+        console.error(`${LOG_PREFIX} error closing SDK logger:`, err);
+      }
+      await closeHttpAndWebSockets(server, wss);
+    }
+  };
+}
+
+/**
+ * Serve the Agent Studio UI and WebSocket `/ws` on the given host/port.
+ * Resolves when the process receives SIGINT/SIGTERM (or the HTTP server closes).
+ */
+export async function startWebServer(options: StartWebServerOptions): Promise<void> {
+  const handle = await createWebListener(options);
   await new Promise<void>((resolve) => {
     let shuttingDown = false;
     const shutdown = async (signal: string) => {
@@ -799,12 +814,7 @@ export async function startWebServer(options: StartWebServerOptions): Promise<vo
       shuttingDown = true;
       console.log(`${LOG_PREFIX} received ${signal}, shutting down`);
       try {
-        await closeSharedAgentLogger();
-      } catch (err) {
-        console.error(`${LOG_PREFIX} error closing SDK logger:`, err);
-      }
-      try {
-        await closeHttpAndWebSockets(server, wss);
+        await handle.close();
       } catch (err) {
         console.error(`${LOG_PREFIX} error during shutdown:`, err);
       }

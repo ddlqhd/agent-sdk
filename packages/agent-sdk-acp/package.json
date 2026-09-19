@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.25.0",
+    "@ddlqhd/agent-sdk-control": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {
@@ -46,11 +47,15 @@
   },
   "peerDependencies": {
     "@ddlqhd/agent-sdk": ">=2.0.0",
+    "@ddlqhd/agent-sdk-control": ">=0.1.0",
     "@agentclientprotocol/sdk": ">=0.25.0",
     "zod": "^4.0.0"
   },
   "peerDependenciesMeta": {
     "@ddlqhd/agent-sdk": {
+      "optional": false
+    },
+    "@ddlqhd/agent-sdk-control": {
       "optional": false
     },
     "@agentclientprotocol/sdk": {

@@ -1,6 +1,6 @@
 # Agent SDK CLI
 
-命令行用于**快速试用** SDK 能力（模型、工具、会话、MCP、Web UI），与 [`sdk-examples-index.md`](./sdk-examples-index.md) 中的 Web UI 一样，属于演示与调试入口；应用集成仍应以代码中的 [`Agent`](./sdk-api-reference.md) 为准。
+命令行用于**快速试用** SDK 能力（模型、工具、会话、MCP、Web UI），与 [`sdk-examples-index.md`](./sdk-examples-index.md) 中的 Web UI 一样，属于演示与调试入口；应用集成仍应以代码中的 [`Agent`](./sdk-api-reference.md) 为准。`chat` / `tui` / `web` / ACP 共用内部控制面 kernel（[`sdk-control.md`](./sdk-control.md)），**没有**对外 app-server JSON-RPC。
 
 ## 本地开发（本仓库）
 

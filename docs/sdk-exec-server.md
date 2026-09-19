@@ -39,7 +39,7 @@ export AGENT_SDK_EXEC_SERVER_URL=ws://workspace-host:8787
 export AGENT_SDK_EXEC_SERVER_TOKEN=...
 ```
 
-`chat` / `tui` / `web` / `-p` 与 ACP 都会读同一套 URL / token（ACP 通过环境变量）。
+`chat` / `tui` / `web` / `-p` 与 ACP 都通过 `@ddlqhd/agent-sdk-control` 的 `resolveRemoteEnvironmentConfig()` 读同一套 URL / token（`--exec-server` 或 `AGENT_SDK_EXEC_SERVER_*`）。
 
 代码里：
 

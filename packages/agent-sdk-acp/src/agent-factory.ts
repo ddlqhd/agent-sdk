@@ -1,23 +1,22 @@
 import { join } from 'node:path';
 import {
-  Agent,
-  assertAgentEnvironmentReady,
-  createModel,
+  type Agent,
   type AgentLifecycleCallbacks,
   type AskUserQuestionResolver,
   type MCPServerConfig
 } from '@ddlqhd/agent-sdk';
+import { buildControlAgent, resolveRemoteEnvironmentConfig } from '@ddlqhd/agent-sdk-control';
 import type { EventBridge } from './event-bridge.js';
 import { extractTodosFromToolResult } from './event-bridge.js';
 import { AUTO_APPROVED_TOOLS, createCanUseTool, type PermissionContext } from './permissions.js';
 import {
   describeMissingKey,
-  getOllamaBaseUrl,
   requireProviderKey,
   resolveModel,
   resolveProvider,
   type ModelProvider
 } from './env.js';
+import { resolveModelBaseUrl } from '@ddlqhd/agent-sdk-control';
 import { logInfo } from './logging.js';
 import { ensureSdkBuilt } from './paths.js';
 import { resolveAcpUserBase } from './user-base.js';
@@ -62,13 +61,13 @@ export async function buildSessionAgent(options: BuildSessionAgentOptions): Prom
     }
   };
 
-  const agent = new Agent({
-    model: createModel({
+  return buildControlAgent({
+    modelConfig: {
       provider,
       apiKey,
-      baseUrl: provider === 'ollama' ? getOllamaBaseUrl() : undefined,
+      baseUrl: resolveModelBaseUrl(provider),
       model: modelId
-    }),
+    },
     cwd: options.cwd,
     userBasePath,
     storage: { type: 'jsonl' },
@@ -79,6 +78,7 @@ export async function buildSessionAgent(options: BuildSessionAgentOptions): Prom
       workspacePath: join(options.cwd, '.claude', 'skills')
     },
     includeEnvironment: true,
+    environment: resolveRemoteEnvironmentConfig(),
     allowedTools: [...AUTO_APPROVED_TOOLS],
     disallowedTools: ['AskUserQuestion'],
     canUseTool: createCanUseTool(options.permissionCtx),
@@ -88,13 +88,4 @@ export async function buildSessionAgent(options: BuildSessionAgentOptions): Prom
     loadMCPConfigFromFiles: true,
     logLevel: process.env.AGENT_SDK_LOG_LEVEL === 'debug' ? 'debug' : 'warn'
   });
-
-  const initResult = await agent.waitForInit();
-  try {
-    assertAgentEnvironmentReady(initResult);
-  } catch (err) {
-    await agent.destroy();
-    throw err;
-  }
-  return agent;
 }

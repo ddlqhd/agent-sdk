@@ -58,6 +58,7 @@
 - **Skills**：`SKILL.md` 指导能力加载与调用
 - **Memory**：从 `CLAUDE.md` 注入长期上下文
 - **执行面**：内置 fs/shell/http 可走本机或远程 [`sdk-exec-server.md`](./sdk-exec-server.md)
+- **第一方控制面**：CLI / Web / ACP 共用内部 kernel（[`sdk-control.md`](./sdk-control.md)）；第三方仍只通过 `Agent` 集成
 
 ## 6. 文档地图与推荐阅读顺序
 
@@ -71,6 +72,7 @@
 6. [`sdk-types-reference.md`](./sdk-types-reference.md)（查类型定义）
 7. [`sdk-cli.md`](./sdk-cli.md)（命令行）
 8. [`sdk-exec-server.md`](./sdk-exec-server.md)（远程执行面）
+8b. [`sdk-control.md`](./sdk-control.md)（第一方 CLI/Web/ACP 控制面；**不是**第三方集成面）
 9. [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)（工具 Hook 配置）
 10. [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)（排障）
 11. [`sdk-examples-index.md`](./sdk-examples-index.md)（示例与 Web UI 对照）

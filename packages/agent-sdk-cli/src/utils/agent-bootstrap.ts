@@ -2,7 +2,8 @@ import { homedir } from 'node:os';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import type { ModelProvider } from '@ddlqhd/agent-sdk';
-import { Agent, assertAgentEnvironmentReady } from '@ddlqhd/agent-sdk';
+import { Agent } from '@ddlqhd/agent-sdk';
+import { buildControlAgent } from '@ddlqhd/agent-sdk-control';
 import type { AgentForkSessionOptions, StreamOptions } from '@ddlqhd/agent-sdk';
 import type { AgentModelConfig, MCPInitializationSummary } from '@ddlqhd/agent-sdk';
 import type { CLIConfig } from '../types.js';
@@ -377,15 +378,16 @@ export async function createCliAgent(options: CLIConfig): Promise<CliAgentBundle
   const effectiveLogLevel = options.logLevel ?? DEFAULT_CLI_AGENT_LOG_LEVEL;
   const fileLogger = createCliFileLogger(effectiveLogLevel, options.logFile, options.userBasePath);
 
-  const agent = new Agent(buildCliAgentConfig(options, mcpResult.servers, fileLogger, settings));
-
-  const initResult = await agent.waitForInit();
+  let agent: Agent;
   try {
-    assertAgentEnvironmentReady(initResult);
+    agent = await buildControlAgent(buildCliAgentConfig(options, mcpResult.servers, fileLogger, settings));
   } catch (err) {
-    await destroyCliAgent(agent, fileLogger);
+    if (fileLogger) {
+      await fileLogger.close();
+    }
     throw err;
   }
+  const initResult = await agent.waitForInit();
   reportMCPInitResult(initResult.mcp);
 
   return { agent, fileLogger, initResult, cwd };

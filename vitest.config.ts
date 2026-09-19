@@ -11,7 +11,13 @@ export default defineConfig({
       '@ddlqhd/agent-sdk/models': resolve(root, 'packages/agent-sdk/src/models/index.ts'),
       '@ddlqhd/agent-sdk/tools': resolve(root, 'packages/agent-sdk/src/tools/index.ts'),
       '@ddlqhd/agent-sdk': resolve(root, 'packages/agent-sdk/src/index.ts'),
-      '@ddlqhd/agent-sdk-exec': resolve(root, 'packages/agent-sdk-exec/src/index.ts')
+      '@ddlqhd/agent-sdk-control': resolve(root, 'packages/agent-sdk-control/src/index.ts'),
+      '@ddlqhd/agent-sdk-exec': resolve(root, 'packages/agent-sdk-exec/src/index.ts'),
+      ws: resolve(root, 'packages/agent-sdk-cli/node_modules/ws/index.js'),
+      '@agentclientprotocol/sdk': resolve(
+        root,
+        'packages/agent-sdk-acp/node_modules/@agentclientprotocol/sdk/dist/acp.js'
+      )
     },
     dedupe: ['@modelcontextprotocol/sdk', 'commander', 'iconv-lite', 'chalk']
   },
@@ -22,7 +28,8 @@ export default defineConfig({
         'packages/agent-sdk/node_modules',
         'packages/agent-sdk-cli/node_modules',
         'packages/agent-sdk-acp/node_modules',
-        'packages/agent-sdk-exec/node_modules'
+        'packages/agent-sdk-exec/node_modules',
+        'packages/agent-sdk-control/node_modules'
       ]
     },
     globals: true,

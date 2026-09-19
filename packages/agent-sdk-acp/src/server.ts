@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
 import * as acp from '@agentclientprotocol/sdk';
 import type * as acpTypes from '@agentclientprotocol/sdk';
-import type { StreamEvent } from '@ddlqhd/agent-sdk';
+import type { TurnResult } from '@ddlqhd/agent-sdk-control';
 import { AcpSessionManager } from './session-manager.js';
 import type { EditApprovalMode } from './edit-approval.js';
 import { logError, logInfo } from './logging.js';
@@ -29,10 +29,10 @@ function extractPromptText(blocks: acpTypes.ContentBlock[]): string {
   return parts.join('\n').trim();
 }
 
-function mapEndReason(event: StreamEvent & { type: 'end' }): acpTypes.StopReason {
-  if (event.reason === 'aborted') return 'cancelled';
-  if (event.reason === 'max_iterations') return 'max_turn_requests';
-  if (event.reason === 'error') return 'refusal';
+function mapTurnStopReason(result: TurnResult): acpTypes.StopReason {
+  if (result.aborted || result.endReason === 'aborted') return 'cancelled';
+  if (result.endReason === 'max_iterations') return 'max_turn_requests';
+  if (result.endReason === 'error') return 'refusal';
   return 'end_turn';
 }
 
@@ -129,39 +129,13 @@ export class AgentSdkAcpBridge implements acpTypes.Agent {
       return { stopReason: 'end_turn' };
     }
 
-    state.abortController?.abort();
-    const ac = new AbortController();
-    state.abortController = ac;
-    state.permissionCtx.promptSignal = ac.signal;
-    state.eventBridge.resetTurn();
-
-    let stopReason: acpTypes.StopReason = 'end_turn';
-
     try {
-      for await (const event of state.agent.stream(text, {
-        sessionId: params.sessionId,
-        signal: ac.signal
-      })) {
-        if (event.type === 'end') {
-          stopReason = mapEndReason(event);
-          continue;
-        }
-        await state.eventBridge.handleStreamEvent(event);
-      }
+      const result = await this.sessionManager.prompt(params.sessionId, text);
+      return { stopReason: mapTurnStopReason(result) };
     } catch (e) {
-      if (ac.signal.aborted) {
-        return { stopReason: 'cancelled' };
-      }
       logError('prompt stream failed', e);
       throw e;
-    } finally {
-      state.permissionCtx.promptSignal = undefined;
-      if (state.abortController === ac) {
-        state.abortController = null;
-      }
     }
-
-    return { stopReason };
   }
 
   async cancel(params: acpTypes.CancelNotification): Promise<void> {
