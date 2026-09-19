@@ -7,13 +7,14 @@ import { resolveCliPackageRoot } from '../../packages/agent-sdk-cli/src/web/path
 import {
   assertLoopbackBind,
   isAllowedWsOrigin,
+  isImmediateClientMessage,
   isLoopbackListenHost,
   parseClientMessage,
   parseListenPort,
   resolveListenPort,
   resolveStaticFile
 } from '../../packages/agent-sdk-cli/src/web/http-utils.js';
-import { firstUserQuestionTitle } from '../../packages/agent-sdk-cli/src/web/shared/message-text.js';
+import { firstUserQuestionTitle, messagesToChatHistory } from '../../packages/agent-sdk-cli/src/web/shared/message-text.js';
 
 function makeClientDist(): string {
   const root = mkdtempSync(join(tmpdir(), 'cli-web-static-'));
@@ -144,6 +145,16 @@ describe('parseClientMessage', () => {
   });
 });
 
+describe('isImmediateClientMessage', () => {
+  it('bypasses the serial queue for cancel and ask-user replies', () => {
+    expect(isImmediateClientMessage('cancel')).toBe(true);
+    expect(isImmediateClientMessage('ask_user_question_reply')).toBe(true);
+    expect(isImmediateClientMessage('chat')).toBe(false);
+    expect(isImmediateClientMessage('chat_run')).toBe(false);
+    expect(isImmediateClientMessage('configure')).toBe(false);
+  });
+});
+
 describe('assertLoopbackBind', () => {
   it('refuses a non-loopback host without --allow-remote', () => {
     expect(() => assertLoopbackBind('0.0.0.0', 3001, false)).toThrow(/allow-remote/);
@@ -177,5 +188,57 @@ describe('firstUserQuestionTitle', () => {
   it('truncates long questions', () => {
     const title = firstUserQuestionTitle([{ role: 'user', content: '问'.repeat(100) }], 8);
     expect(title).toBe(`${'问'.repeat(8)}…`);
+  });
+});
+
+describe('messagesToChatHistory', () => {
+  it('includes assistant tool calls and later tool results', () => {
+    expect(
+      messagesToChatHistory([
+        { role: 'user', content: '查一下 package.json' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'Read', arguments: { file_path: '/tmp/package.json' } }]
+        },
+        { role: 'tool', toolCallId: 'c1', name: 'Read', content: '{ "name": "app" }' },
+        { role: 'assistant', content: '这是一个 app 包。' }
+      ])
+    ).toEqual([
+      { role: 'user', text: '查一下 package.json' },
+      {
+        role: 'tool',
+        id: 'c1',
+        name: 'Read',
+        status: 'result',
+        arguments: { file_path: '/tmp/package.json' },
+        result: '{ "name": "app" }'
+      },
+      { role: 'assistant', text: '这是一个 app 包。' }
+    ]);
+  });
+
+  it('marks tool errors and skips system messages', () => {
+    expect(
+      messagesToChatHistory([
+        { role: 'system', content: 'you are a helper' },
+        {
+          role: 'assistant',
+          content: '先读文件',
+          toolCalls: [{ id: 'c2', name: 'Read', arguments: { file_path: '/nope' } }]
+        },
+        { role: 'tool', toolCallId: 'c2', content: 'ENOENT', isError: true }
+      ])
+    ).toEqual([
+      { role: 'assistant', text: '先读文件' },
+      {
+        role: 'tool',
+        id: 'c2',
+        name: 'Read',
+        status: 'error',
+        arguments: { file_path: '/nope' },
+        result: 'ENOENT'
+      }
+    ]);
   });
 });

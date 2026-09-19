@@ -1,9 +1,15 @@
 import type { ContentPart, Message } from '@ddlqhd/agent-sdk';
 
-export interface ChatHistoryItem {
-  role: 'user' | 'assistant';
-  text: string;
-}
+export type ChatHistoryItem =
+  | { role: 'user' | 'assistant'; text: string }
+  | {
+      role: 'tool';
+      id: string;
+      name: string;
+      status: 'result' | 'error';
+      arguments?: unknown;
+      result?: string;
+    };
 
 function messageText(content: string | ContentPart[]): string {
   if (typeof content === 'string') return content;
@@ -42,14 +48,45 @@ export function firstUserQuestionTitle(
   return undefined;
 }
 
-/** Serialize active messages for chat UI (skips system/tool roles). */
+/** Serialize active messages for chat UI (skips system; includes tool calls). */
 export function messagesToChatHistory(messages: Message[]): ChatHistoryItem[] {
   const out: ChatHistoryItem[] = [];
+  const tools = new Map<string, Extract<ChatHistoryItem, { role: 'tool' }>>();
+
+  function ensureTool(id: string, name?: string): Extract<ChatHistoryItem, { role: 'tool' }> {
+    let item = tools.get(id);
+    if (!item) {
+      item = { role: 'tool', id, name: name?.trim() || id, status: 'result' };
+      tools.set(id, item);
+      out.push(item);
+      return item;
+    }
+    if (name?.trim() && (item.name === item.id || !item.name)) {
+      item.name = name.trim();
+    }
+    return item;
+  }
+
   for (const msg of messages) {
-    if (msg.role !== 'user' && msg.role !== 'assistant') continue;
-    const text = messageText(msg.content).trim();
-    if (!text) continue;
-    out.push({ role: msg.role, text });
+    if (msg.role === 'user') {
+      const text = messageText(msg.content).trim();
+      if (text) out.push({ role: 'user', text });
+      continue;
+    }
+    if (msg.role === 'assistant') {
+      const text = messageText(msg.content).trim();
+      if (text) out.push({ role: 'assistant', text });
+      for (const tc of msg.toolCalls ?? []) {
+        const item = ensureTool(tc.id, tc.name);
+        item.arguments = tc.arguments;
+      }
+      continue;
+    }
+    if (msg.role === 'tool' && msg.toolCallId) {
+      const item = ensureTool(msg.toolCallId, msg.name);
+      item.result = typeof msg.content === 'string' ? msg.content : messageText(msg.content);
+      item.status = msg.isError === true ? 'error' : 'result';
+    }
   }
   return out;
 }

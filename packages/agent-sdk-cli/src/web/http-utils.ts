@@ -3,6 +3,11 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import type { AskUserQuestionAnswer } from '@ddlqhd/agent-sdk';
 import type { ClientMessage, ModelProvider } from './shared/ws-protocol.js';
 
+/** Messages that must run even while a chat stream is occupying the serial queue. */
+export function isImmediateClientMessage(type: ClientMessage['type']): boolean {
+  return type === 'cancel' || type === 'ask_user_question_reply';
+}
+
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
 const MODEL_PROVIDERS = new Set<ModelProvider>(['openai', 'anthropic', 'ollama']);
 

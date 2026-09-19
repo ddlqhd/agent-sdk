@@ -12,7 +12,7 @@ import type {
   TokenUsage
 } from '@ddlqhd/agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
-import type { ServerMessage, SessionListItem, WebUiDefaults } from './shared/ws-protocol.js';
+import type { ClientMessage, ServerMessage, SessionListItem, WebUiDefaults } from './shared/ws-protocol.js';
 import {
   firstUserQuestionTitle,
   messagesToChatHistory,
@@ -31,6 +31,7 @@ import { serializeStreamEvent } from './serialize-event.js';
 import {
   assertLoopbackBind,
   isAllowedWsOrigin,
+  isImmediateClientMessage,
   parseClientMessage,
   resolveStaticFile
 } from './http-utils.js';
@@ -207,18 +208,14 @@ function attachSocketHandlers(
     }
   }
 
+  function reportHandlerError(e: unknown): void {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`${LOG_PREFIX} [${connId}] handler error:`, message);
+    sendJson(socket, { type: 'error', message });
+  }
+
   let messageQueue = Promise.resolve();
   socket.on('message', (raw: RawData) => {
-    messageQueue = messageQueue
-      .then(() => handleSocketMessage(raw))
-      .catch((e) => {
-        const message = e instanceof Error ? e.message : String(e);
-        console.error(`${LOG_PREFIX} [${connId}] handler error:`, message);
-        sendJson(socket, { type: 'error', message });
-      });
-  });
-
-  async function handleSocketMessage(raw: RawData): Promise<void> {
     const rawStr = String(raw);
     let parsedJson: unknown;
     try {
@@ -235,7 +232,15 @@ function attachSocketHandlers(
       return;
     }
     const msg = parsed.msg;
+    // cancel / ask reply must not wait behind an in-flight chat stream
+    if (isImmediateClientMessage(msg.type)) {
+      void handleSocketMessage(msg).catch(reportHandlerError);
+      return;
+    }
+    messageQueue = messageQueue.then(() => handleSocketMessage(msg)).catch(reportHandlerError);
+  });
 
+  async function handleSocketMessage(msg: ClientMessage): Promise<void> {
     try {
       switch (msg.type) {
         case 'hello':

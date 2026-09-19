@@ -80,11 +80,7 @@ function setActiveInspectorTab(tab: 'tools' | 'events'): void {
 
 const chatUi = initChatUi({
   logEl: chatLog,
-  heroEl: chatHero,
-  onToolFocus: () => {
-    layout.openDetails();
-    setActiveInspectorTab('tools');
-  }
+  heroEl: chatHero
 });
 
 const sessionsUi = initSessionsUi({
@@ -539,6 +535,7 @@ function handleServerMessage(msg: ServerMessage): void {
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
       chatUi.clear();
+      resetToolStreamState();
       clearInspectorLogs();
       checkpointListEl.innerHTML = '';
       layout.closeCheckpoints();
@@ -594,6 +591,7 @@ function handleServerMessage(msg: ServerMessage): void {
       btnSend.disabled = false;
       setBanner('');
       chatUi.clear();
+      resetToolStreamState();
       clearInspectorLogs();
       checkpointListEl.innerHTML = '';
       layout.closeCheckpoints();
@@ -601,6 +599,7 @@ function handleServerMessage(msg: ServerMessage): void {
       return;
     case 'sessions:history':
       setBanner('');
+      resetToolStreamState();
       chatUi.renderHistory(msg.messages);
       clearInspectorLogs();
       return;
@@ -612,6 +611,7 @@ function handleServerMessage(msg: ServerMessage): void {
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
       setBanner('');
+      resetToolStreamState();
       chatUi.renderHistory(msg.messages);
       appendEventLine('sessions:rewind', msg.result);
       layout.closeCheckpoints();
@@ -620,6 +620,7 @@ function handleServerMessage(msg: ServerMessage): void {
       currentSessionId = msg.sessionId;
       refreshSessionLabel();
       setBanner('');
+      resetToolStreamState();
       chatUi.renderHistory(msg.messages);
       appendEventLine('sessions:fork', msg.result);
       checkpointListEl.innerHTML = '';
@@ -629,6 +630,30 @@ function handleServerMessage(msg: ServerMessage): void {
     default:
       appendEventLine('unknown', msg);
   }
+}
+
+const toolArgBuf = new Map<string, string>();
+const toolNameById = new Map<string, string>();
+
+function resetToolStreamState(): void {
+  toolArgBuf.clear();
+  toolNameById.clear();
+}
+
+function resolveToolId(event: Record<string, unknown>): string {
+  if (typeof event.id === 'string' && event.id) return event.id;
+  if (typeof event.toolCallId === 'string' && event.toolCallId) return event.toolCallId;
+  if (typeof event.name === 'string' && event.name) return event.name;
+  return '?';
+}
+
+function rememberToolName(id: string, name: string): void {
+  const trimmed = name.trim();
+  if (id && trimmed) toolNameById.set(id, trimmed);
+}
+
+function resolvedToolName(id: string, fallback = ''): string {
+  return fallback.trim() || toolNameById.get(id) || '';
 }
 
 function clearInspectorLogs(): void {
@@ -685,36 +710,50 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
     chatUi.appendAssistant(`[Error] ${msg}`);
     return;
   }
-  if (t === 'tool_call_start' || t === 'tool_call_delta' || t === 'tool_call_end') {
-    if (t === 'tool_call_start') {
-      chatUi.finishStreaming();
+  if (t === 'tool_call_start') {
+    const id = resolveToolId(event);
+    const name = typeof event.name === 'string' ? event.name : '';
+    rememberToolName(id, name);
+    chatUi.upsertTool(id, resolvedToolName(id, name), 'call', toolArgBuf.get(id) || '');
+    return;
+  }
+
+  if (t === 'tool_call_delta') {
+    const id = resolveToolId(event);
+    const chunk =
+      typeof event.arguments === 'string' ? event.arguments : formatToolArguments(event.arguments);
+    if (chunk) {
+      toolArgBuf.set(id, `${toolArgBuf.get(id) ?? ''}${chunk}`);
     }
+    chatUi.upsertTool(id, resolvedToolName(id), 'call', toolArgBuf.get(id) || '');
+    return;
+  }
+
+  if (t === 'tool_call_end') {
     return;
   }
 
   if (t === 'tool_call') {
     const name = typeof event.name === 'string' ? event.name : '(unknown tool)';
-    const id = typeof event.id === 'string' ? event.id : '';
-    const body = truncateForChatSnippet(formatToolArguments(event.arguments)) || '{}';
-    chatUi.upsertTool(id || name, name, 'call', body);
-    appendToolActivityCard('call', name, id ? `id ${id}` : undefined, body);
-    layout.openDetails();
-    setActiveInspectorTab('tools');
+    const id = resolveToolId(event);
+    rememberToolName(id, name);
+    const body = truncateForChatSnippet(formatToolArguments(event.arguments)) || toolArgBuf.get(id) || '{}';
+    toolArgBuf.set(id, body);
+    chatUi.upsertTool(id, resolvedToolName(id, name), 'call', body);
+    appendToolActivityCard('call', resolvedToolName(id, name) || name, id !== '?' ? `id ${id}` : undefined, body);
     return;
   }
 
   if (t === 'tool_result') {
-    const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
+    const id = resolveToolId(event);
     const result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result ?? '');
-    chatUi.upsertTool(id, '工具结果', 'result', result);
-    appendToolActivityCard('result', '返回', `toolCallId ${id}`, truncateForChatSnippet(result));
-    layout.openDetails();
-    setActiveInspectorTab('tools');
+    chatUi.upsertTool(id, resolvedToolName(id), 'result', result);
+    appendToolActivityCard('result', resolvedToolName(id) || '返回', `toolCallId ${id}`, truncateForChatSnippet(result));
     return;
   }
 
   if (t === 'tool_error') {
-    const id = typeof event.toolCallId === 'string' ? event.toolCallId : '?';
+    const id = resolveToolId(event);
     const err = event.error as Record<string, unknown> | undefined;
     const msg =
       err && typeof err.message === 'string'
@@ -722,10 +761,8 @@ function handleStreamEventInChatLog(event: Record<string, unknown>): void {
         : typeof event.message === 'string'
           ? event.message
           : JSON.stringify(event);
-    chatUi.upsertTool(id, '工具错误', 'error', msg);
-    appendToolActivityCard('error', '执行失败', `toolCallId ${id}`, truncateForChatSnippet(msg));
-    layout.openDetails();
-    setActiveInspectorTab('tools');
+    chatUi.upsertTool(id, resolvedToolName(id), 'error', msg);
+    appendToolActivityCard('error', resolvedToolName(id) || '执行失败', `toolCallId ${id}`, truncateForChatSnippet(msg));
     return;
   }
 
@@ -955,6 +992,7 @@ formConfig.addEventListener('submit', (e) => {
   setConn('正在构建 Agent…', false);
   configured = false;
   chatUi.clear();
+  resetToolStreamState();
   clearInspectorLogs();
   checkpointListEl.innerHTML = '';
   layout.closeCheckpoints();
@@ -1043,9 +1081,9 @@ formChat.addEventListener('submit', (e) => {
 });
 
 btnStop.addEventListener('click', () => {
-  if (activeRequestId) {
-    send({ type: 'cancel', requestId: activeRequestId });
-  }
+  if (!activeRequestId) return;
+  send({ type: 'cancel', requestId: activeRequestId });
+  btnStop.disabled = true;
 });
 
 btnEventsClear.addEventListener('click', () => {
