@@ -119,4 +119,6 @@ export interface SessionListItem {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  /** First user question, already truncated for the sidebar. */
+  title?: string;
 }

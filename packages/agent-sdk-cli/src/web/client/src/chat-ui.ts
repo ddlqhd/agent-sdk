@@ -48,15 +48,19 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement; o
     heroEl.hidden = has;
   }
 
+  function scroller(): HTMLElement {
+    return logEl.closest('.chat-scroll') ?? logEl.parentElement ?? logEl;
+  }
+
   function isNearBottom(thresholdPx = CHAT_LOG_NEAR_BOTTOM_PX): boolean {
-    const { scrollHeight, scrollTop, clientHeight } = logEl.parentElement ?? logEl;
+    const { scrollHeight, scrollTop, clientHeight } = scroller();
     return scrollHeight - scrollTop - clientHeight <= thresholdPx;
   }
 
   function scrollIfPinned(wasNearBottom: boolean): void {
-    const scroller = logEl.parentElement ?? logEl;
+    const el = scroller();
     if (wasNearBottom) {
-      scroller.scrollTop = scroller.scrollHeight;
+      el.scrollTop = el.scrollHeight;
     }
   }
 
@@ -99,8 +103,8 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement; o
     div.appendChild(body);
     logEl.appendChild(div);
     syncHero();
-    const scroller = logEl.parentElement ?? logEl;
-    scroller.scrollTop = scroller.scrollHeight;
+    const el = scroller();
+    el.scrollTop = el.scrollHeight;
   }
 
   function appendAssistant(text: string): void {
@@ -116,8 +120,8 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement; o
     div.appendChild(body);
     logEl.appendChild(div);
     syncHero();
-    const scroller = logEl.parentElement ?? logEl;
-    scroller.scrollTop = scroller.scrollHeight;
+    const el = scroller();
+    el.scrollTop = el.scrollHeight;
   }
 
   return {

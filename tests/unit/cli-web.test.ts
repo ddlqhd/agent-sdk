@@ -13,6 +13,7 @@ import {
   resolveListenPort,
   resolveStaticFile
 } from '../../packages/agent-sdk-cli/src/web/http-utils.js';
+import { firstUserQuestionTitle } from '../../packages/agent-sdk-cli/src/web/shared/message-text.js';
 
 function makeClientDist(): string {
   const root = mkdtempSync(join(tmpdir(), 'cli-web-static-'));
@@ -148,5 +149,33 @@ describe('assertLoopbackBind', () => {
     expect(() => assertLoopbackBind('0.0.0.0', 3001, false)).toThrow(/allow-remote/);
     expect(() => assertLoopbackBind('0.0.0.0', 3001, true)).not.toThrow();
     expect(() => assertLoopbackBind('127.0.0.1', 3001, false)).not.toThrow();
+  });
+});
+
+describe('firstUserQuestionTitle', () => {
+  it('uses the first user question and skips later turns', () => {
+    expect(
+      firstUserQuestionTitle([
+        { role: 'assistant', content: 'hello' },
+        { role: 'user', content: '  帮我看看这段代码  ' },
+        { role: 'assistant', content: '好的' },
+        { role: 'user', content: '再改一下' }
+      ])
+    ).toBe('帮我看看这段代码');
+  });
+
+  it('skips summary/rewind rows and empty user content', () => {
+    expect(
+      firstUserQuestionTitle([
+        { $type: 'summary', content: 'old summary' },
+        { role: 'user', content: '   ' },
+        { role: 'user', content: [{ type: 'text', text: '第一问\n换行' }] }
+      ])
+    ).toBe('第一问 换行');
+  });
+
+  it('truncates long questions', () => {
+    const title = firstUserQuestionTitle([{ role: 'user', content: '问'.repeat(100) }], 8);
+    expect(title).toBe(`${'问'.repeat(8)}…`);
   });
 });

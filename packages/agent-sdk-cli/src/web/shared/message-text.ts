@@ -22,6 +22,26 @@ function messageText(content: string | ContentPart[]): string {
     .join('\n');
 }
 
+export const SESSION_TITLE_MAX = 80;
+
+/**
+ * First real user question, collapsed to one line and truncated for session lists.
+ * Skips summary / rewind rows so compacted sessions still show the original ask.
+ */
+export function firstUserQuestionTitle(
+  entries: Array<{ role?: string; $type?: string; content?: string | ContentPart[] }>,
+  max = SESSION_TITLE_MAX
+): string | undefined {
+  for (const entry of entries) {
+    if (entry.$type === 'summary' || entry.$type === 'rewind') continue;
+    if (entry.role !== 'user' || entry.content === undefined) continue;
+    const text = messageText(entry.content).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    return text.length <= max ? text : `${text.slice(0, max)}…`;
+  }
+  return undefined;
+}
+
 /** Serialize active messages for chat UI (skips system/tool roles). */
 export function messagesToChatHistory(messages: Message[]): ChatHistoryItem[] {
   const out: ChatHistoryItem[] = [];

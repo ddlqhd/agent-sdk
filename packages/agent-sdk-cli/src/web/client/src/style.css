@@ -37,6 +37,10 @@
   --rail-w: 56px;
   --details-w: 320px;
   --chat-max: 48rem;
+  --scrollbar-size: 6px;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.36);
+  --scrollbar-track: transparent;
   color-scheme: dark;
 }
 
@@ -56,13 +60,15 @@
   --color-danger-bg: #fef2f2;
   --color-success: #15803d;
   --color-success-bg: #f0fdf4;
-  --color-chat-user: #f4f4f5;
+  --color-chat-user: #e4e4e7;
   --color-chat-assistant: transparent;
   --color-tool: #fafafa;
   --color-hover: rgba(24, 24, 27, 0.05);
   --color-active: rgba(24, 24, 27, 0.08);
   --color-overlay: rgba(24, 24, 27, 0.4);
   --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px #71717a;
+  --scrollbar-thumb: rgba(24, 24, 27, 0.22);
+  --scrollbar-thumb-hover: rgba(24, 24, 27, 0.38);
   color-scheme: light;
 }
 
@@ -89,6 +95,35 @@ body {
   line-height: 1.5;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .visually-hidden {
@@ -268,9 +303,7 @@ body {
   min-width: 0;
 }
 
-.session-row-id {
-  font-family: var(--font-mono);
-  font-variant-ligatures: none;
+.session-row-title {
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -461,13 +494,9 @@ body {
 }
 
 .chat-column {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   width: min(100%, var(--chat-max));
   margin: 0 auto;
-  padding: 0 1.25rem 1rem;
+  padding: 0 1.25rem;
 }
 
 .chat-scroll {
@@ -475,6 +504,12 @@ body {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+.chat-scroll .chat-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
 }
 
 .chat-hero {
@@ -633,7 +668,7 @@ body {
 
 .chat-form {
   flex-shrink: 0;
-  padding-top: 0.5rem;
+  padding: 0.5rem 0 1rem;
 }
 
 .composer {

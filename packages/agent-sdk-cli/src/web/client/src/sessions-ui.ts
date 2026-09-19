@@ -1,5 +1,5 @@
 import type { SessionListItem } from '../../shared/ws-protocol.js';
-import { formatRelativeTime, shortId } from './util.js';
+import { formatRelativeTime } from './util.js';
 
 export interface SessionsUi {
   render(sessions: SessionListItem[], currentId?: string): void;
@@ -18,7 +18,12 @@ export function initSessionsUi(opts: {
 
   function paint(): void {
     const q = filter.trim().toLowerCase();
-    const items = q ? cached.filter((s) => s.id.toLowerCase().includes(q)) : cached;
+    const items = q
+      ? cached.filter((s) => {
+          const title = (s.title ?? '').toLowerCase();
+          return title.includes(q) || s.id.toLowerCase().includes(q);
+        })
+      : cached;
     opts.listEl.innerHTML = '';
     if (items.length === 0) {
       const empty = document.createElement('li');
@@ -32,7 +37,8 @@ export function initSessionsUi(opts: {
       li.className = 'session-row';
       if (s.id === currentId) li.classList.add('active');
       li.tabIndex = 0;
-      li.title = s.id;
+      const label = s.title?.trim() || '新会话';
+      li.title = label;
 
       const dot = document.createElement('span');
       dot.className = 'session-dot';
@@ -40,13 +46,13 @@ export function initSessionsUi(opts: {
 
       const main = document.createElement('div');
       main.className = 'session-row-main';
-      const idEl = document.createElement('div');
-      idEl.className = 'session-row-id';
-      idEl.textContent = shortId(s.id);
+      const titleEl = document.createElement('div');
+      titleEl.className = 'session-row-title';
+      titleEl.textContent = label;
       const meta = document.createElement('div');
       meta.className = 'session-row-meta';
       meta.textContent = `${formatRelativeTime(s.updatedAt)} · ${s.messageCount} 条`;
-      main.appendChild(idEl);
+      main.appendChild(titleEl);
       main.appendChild(meta);
 
       const fork = document.createElement('button');

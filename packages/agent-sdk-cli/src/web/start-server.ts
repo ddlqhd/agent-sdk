@@ -12,8 +12,12 @@ import type {
   TokenUsage
 } from '@ddlqhd/agent-sdk';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
-import type { ServerMessage, WebUiDefaults } from './shared/ws-protocol.js';
-import { messagesToChatHistory, type ChatHistoryItem } from './shared/message-text.js';
+import type { ServerMessage, SessionListItem, WebUiDefaults } from './shared/ws-protocol.js';
+import {
+  firstUserQuestionTitle,
+  messagesToChatHistory,
+  type ChatHistoryItem
+} from './shared/message-text.js';
 import { chatPreview, truncateForLog } from './shared/log-utils.js';
 import {
   buildAgent,
@@ -315,15 +319,29 @@ function attachSocketHandlers(
             sendJson(socket, { type: 'error', message: 'Active session runtime not found.' });
             return;
           }
-          const sessions = await activeAgent.getSessionManager().listSessions();
+          const manager = activeAgent.getSessionManager();
+          const storage = manager.getStorage();
+          const sessions = await manager.listSessions();
+          const items: SessionListItem[] = await Promise.all(
+            sessions.map(async (s: SessionInfo) => {
+              let title: string | undefined;
+              try {
+                title = firstUserQuestionTitle(await storage.load(s.id));
+              } catch {
+                title = undefined;
+              }
+              return {
+                id: s.id,
+                createdAt: s.createdAt,
+                updatedAt: s.updatedAt,
+                messageCount: s.messageCount,
+                ...(title ? { title } : {})
+              };
+            })
+          );
           sendJson(socket, {
             type: 'sessions:list',
-            sessions: sessions.map((s: SessionInfo) => ({
-              id: s.id,
-              createdAt: s.createdAt,
-              updatedAt: s.updatedAt,
-              messageCount: s.messageCount
-            }))
+            sessions: items
           });
           return;
         }
