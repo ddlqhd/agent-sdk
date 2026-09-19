@@ -5,6 +5,9 @@ import type {
   AgentRunEndReason
 } from './callbacks.js';
 import type { SubagentProfile } from '../subagents/types.js';
+import type { AgentEnvironmentConfig, Environment } from '@ddlqhd/agent-sdk-exec';
+
+export type { AgentEnvironmentConfig, Environment };
 
 export type {
   AgentErrorContext,
@@ -440,6 +443,11 @@ export interface ToolExecutionContext {
    * 工具需要 spawn 子进程时建议用 {@link import('./process-env-merge.js').mergeProcessEnv} 合并 `context.env` 与当前进程环境。
    */
   env?: Record<string, string>;
+  /**
+   * Workspace execution backend (local process or remote exec-server).
+   * Builtin fs/shell/http tools use this; omitted callers fall back to an in-process local environment.
+   */
+  environment?: Environment;
 }
 
 /**
@@ -825,6 +833,8 @@ export interface AgentInitResult {
   skills: AgentResourceInitStepResult;
   mcp: MCPInitializationSummary;
   subagent: AgentResourceInitStepResult;
+  /** Execution environment (local or remote exec-server). */
+  environment: AgentResourceInitStepResult;
 }
 
 /**
@@ -1142,6 +1152,14 @@ export interface AgentConfig {
 
   /** 工作目录，默认 process.cwd() */
   cwd?: string;
+
+  /**
+   * Execution plane for builtin filesystem / shell / HTTP tools.
+   * `'local'` (default) runs in-process. `{ type: 'remote', url }` talks to `agent-sdk exec-server`.
+   * An existing {@link Environment} instance is used as-is (shared with subagents).
+   * Also reads `AGENT_SDK_EXEC_SERVER_URL` / `AGENT_SDK_EXEC_SERVER_TOKEN` when this field is omitted.
+   */
+  environment?: AgentEnvironmentConfig;
 
   /** 是否注入环境信息到 system prompt，默认 true */
   includeEnvironment?: boolean;

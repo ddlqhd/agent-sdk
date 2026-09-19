@@ -16,6 +16,7 @@
 | 交互 | `askUserQuestion` |
 | Skills / MCP / Memory | `skills`、`skillConfig`、`mcpServers`、`memory`、`memoryConfig` |
 | 会话与路径 | `storage`、`userBasePath`、`cwd` |
+| 执行面 | `environment`（`'local'` / `{ type: 'remote', url }` / `Environment` 实例；见 [`sdk-exec-server.md`](./sdk-exec-server.md)） |
 | 上下文与环境 | `contextManagement`、`includeEnvironment` |
 | 可观测 | `callbacks`、`logger`、`logLevel`、`redaction` |
 | Hook | `hookManager`、`hookConfigDir`、`loadHookSettingsFromFiles` |

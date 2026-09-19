@@ -1,0 +1,324 @@
+import { spawn } from 'node:child_process';
+import { assertWithinRoot } from '../path-guard.js';
+import type {
+  ProcessHandle,
+  ProcessListItem,
+  ProcessReadOptions,
+  ProcessReadResult,
+  ProcessRuntime,
+  ProcessStartRequest,
+  ProcessTerminateResult,
+  ProcessWaitResult
+} from '../environment.js';
+import { buildShellInvocation } from './invocation.js';
+import {
+  getBackgroundJob,
+  installProcessExitCleanup,
+  listBackgroundJobs,
+  readJobOutput,
+  spawnBackgroundJob,
+  terminateJob,
+  type BashJobRecord
+} from './process-manager.js';
+import { getExecutorShellPath } from './shell-path.js';
+
+const DEFAULT_MAX_OUTPUT = 10 * 1024 * 1024;
+const KILL_DELAY = 5000;
+
+function mergeExecutorEnv(overrides?: Record<string, string>): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = { ...process.env };
+  if (overrides) {
+    Object.assign(base, overrides);
+  }
+  return base;
+}
+
+function jobToHandle(job: BashJobRecord): ProcessHandle {
+  return {
+    id: job.id,
+    pid: job.pid,
+    command: job.command,
+    cwd: job.cwd,
+    title: job.title,
+    status: job.status,
+    logFilePath: job.logFilePath,
+    async wait(opts): Promise<ProcessWaitResult> {
+      return waitForJob(job.id, opts);
+    },
+    async read(opts?: ProcessReadOptions): Promise<ProcessReadResult> {
+      return readJobOutput(job.id, opts);
+    },
+    async signal(sig?: NodeJS.Signals): Promise<void> {
+      try {
+        job.child?.kill(sig ?? 'SIGTERM');
+      } catch {
+        // ignore
+      }
+    },
+    async terminate(opts?: { killDelayMs?: number }): Promise<ProcessTerminateResult> {
+      return terminateJob(job.id, 'SIGTERM', opts?.killDelayMs ?? KILL_DELAY);
+    }
+  };
+}
+
+async function waitForJob(
+    id: string,
+    opts?: { timeoutMs?: number; signal?: AbortSignal; maxOutputBytes?: number }
+  ): Promise<ProcessWaitResult> {
+    const timeoutMs = opts?.timeoutMs ?? 120_000;
+    const maxOutput = opts?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      if (opts?.signal?.aborted) {
+        await terminateJob(id, 'SIGTERM', KILL_DELAY);
+        return { stdout: '', stderr: '', exitCode: null, timedOut: false, aborted: true };
+      }
+      const current = getBackgroundJob(id);
+      if (!current || current.status !== 'running') {
+        const out = await readJobOutput(id, { stream: 'all', limitChars: maxOutput });
+        return {
+          stdout: out.content,
+          stderr: '',
+          exitCode: current?.exitCode ?? null,
+          timedOut: false,
+          aborted: false,
+          spawnError: current?.spawnError
+        };
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await terminateJob(id, 'SIGTERM', KILL_DELAY);
+    return { stdout: '', stderr: '', exitCode: null, timedOut: true, aborted: false };
+}
+
+export class LocalProcessRuntime implements ProcessRuntime {
+  constructor(private readonly workspaceRoot?: string) {
+    installProcessExitCleanup();
+  }
+
+  private resolveCwd(cwd?: string): string | undefined {
+    if (!cwd) {
+      return this.workspaceRoot;
+    }
+    return assertWithinRoot(this.workspaceRoot, cwd);
+  }
+
+  async start(req: ProcessStartRequest): Promise<ProcessHandle> {
+    const cwd = this.resolveCwd(req.cwd);
+    const shellPath = req.shellPath ?? getExecutorShellPath();
+    const env = mergeExecutorEnv(req.env);
+
+    if (req.background) {
+      const job = await spawnBackgroundJob({
+        command: req.command,
+        shellPath,
+        cwd,
+        env,
+        title: req.title,
+        maxRingChars: req.maxRingChars,
+        removeJobOnExit: req.removeJobOnExit === true
+      });
+      return jobToHandle(job);
+    }
+
+    return startForeground(req.command, shellPath, cwd, env);
+  }
+
+  async listJobs(): Promise<ProcessListItem[]> {
+    return listBackgroundJobs();
+  }
+
+  async getJob(id: string): Promise<ProcessHandle | undefined> {
+    const job = getBackgroundJob(id);
+    return job ? jobToHandle(job) : undefined;
+  }
+}
+
+function startForeground(
+  command: string,
+  shellPath: string,
+  cwd: string | undefined,
+  env: NodeJS.ProcessEnv
+): ProcessHandle {
+  const invocation = buildShellInvocation(command, shellPath);
+  const child = spawn(invocation.file, invocation.args, {
+    cwd,
+    env,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments
+  });
+
+  let stdout = '';
+  let stderr = '';
+  let outputTruncated = false;
+  let exitCode: number | null = null;
+  let spawnError: string | undefined;
+  let closed = false;
+  const waiters: Array<() => void> = [];
+
+  const notify = (): void => {
+    for (const w of waiters) w();
+    waiters.length = 0;
+  };
+
+  child.stdout?.on('data', (data: Buffer) => {
+    if (!outputTruncated && stdout.length < DEFAULT_MAX_OUTPUT) {
+      stdout += data.toString();
+      if (stdout.length >= DEFAULT_MAX_OUTPUT) {
+        stdout += '\n[Output truncated due to size limit]';
+        outputTruncated = true;
+      }
+    }
+  });
+  child.stderr?.on('data', (data: Buffer) => {
+    if (!outputTruncated && stderr.length < DEFAULT_MAX_OUTPUT) {
+      stderr += data.toString();
+      if (stderr.length >= DEFAULT_MAX_OUTPUT) {
+        stderr += '\n[Output truncated due to size limit]';
+        outputTruncated = true;
+      }
+    }
+  });
+  child.on('error', (error) => {
+    spawnError = error.message;
+    closed = true;
+    notify();
+  });
+  child.on('close', (code) => {
+    exitCode = code;
+    closed = true;
+    notify();
+  });
+
+  const handle: ProcessHandle = {
+    id: `fg_${child.pid ?? Date.now()}`,
+    pid: child.pid,
+    command,
+    cwd,
+    status: 'running',
+    async wait(opts): Promise<ProcessWaitResult> {
+      const timeoutMs = opts?.timeoutMs ?? 120_000;
+      if (opts?.signal?.aborted) {
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // ignore
+          }
+        }, KILL_DELAY);
+        return { stdout, stderr, exitCode: null, timedOut: false, aborted: true };
+      }
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (result: ProcessWaitResult): void => {
+          if (settled) return;
+          settled = true;
+          if (opts?.signal) {
+            opts.signal.removeEventListener('abort', onAbort);
+          }
+          clearTimeout(timer);
+          resolve(result);
+        };
+
+        const onAbort = (): void => {
+          try {
+            child.kill('SIGTERM');
+            setTimeout(() => {
+              try {
+                child.kill('SIGKILL');
+              } catch {
+                // ignore
+              }
+            }, KILL_DELAY);
+          } catch {
+            // ignore
+          }
+          finish({ stdout, stderr, exitCode: null, timedOut: false, aborted: true });
+        };
+
+        if (opts?.signal) {
+          opts.signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        const timer = setTimeout(() => {
+          child.kill('SIGTERM');
+          const killTimer = setTimeout(() => {
+            try {
+              child.kill('SIGKILL');
+            } catch {
+              // ignore
+            }
+          }, KILL_DELAY);
+          child.once('exit', () => clearTimeout(killTimer));
+          finish({ stdout, stderr, exitCode: null, timedOut: true, aborted: false });
+        }, timeoutMs);
+
+        if (closed) {
+          finish({
+            stdout,
+            stderr,
+            exitCode,
+            timedOut: false,
+            aborted: false,
+            spawnError
+          });
+          return;
+        }
+        waiters.push(() => {
+          finish({
+            stdout,
+            stderr,
+            exitCode,
+            timedOut: false,
+            aborted: false,
+            spawnError
+          });
+        });
+      });
+    },
+    async read(): Promise<ProcessReadResult> {
+      return {
+        content: stdout + (stderr ? `\nSTDERR:\n${stderr}` : ''),
+        nextCursorStdout: stdout.length,
+        nextCursorStderr: stderr.length,
+        nextCursorCombinedApprox: stdout.length + stderr.length,
+        status: closed ? (spawnError ? 'spawn_error' : 'exited') : 'running',
+        newOutput: Boolean(stdout || stderr),
+        exited: closed,
+        exitCode: closed ? exitCode : undefined,
+        ringGenerationStdout: 0,
+        ringGenerationStderr: 0
+      };
+    },
+    async signal(sig?: NodeJS.Signals): Promise<void> {
+      try {
+        child.kill(sig ?? 'SIGTERM');
+      } catch {
+        // ignore
+      }
+    },
+    async terminate(opts?: { killDelayMs?: number }): Promise<ProcessTerminateResult> {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        return { ok: false, message: 'Process already exited' };
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, opts?.killDelayMs ?? KILL_DELAY);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // ignore
+      }
+      return { ok: true, message: 'Process terminated' };
+    }
+  };
+
+  return handle;
+}

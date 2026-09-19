@@ -74,6 +74,12 @@ export interface CLIConfig {
   /** 工作目录 */
   cwd?: string;
 
+  /** Remote exec-server WebSocket URL (`ws://host:port`). */
+  execServer?: string;
+
+  /** Shared token for the remote exec-server. */
+  execToken?: string;
+
   /** 与 `AgentModelConfig.thinking` 对齐的统一开关。 */
   thinking?: boolean;
 

@@ -8,6 +8,7 @@ import { createMCPCommand } from './commands/mcp.js';
 import { createTuiCommand } from './commands/tui.js';
 import { createWebCommand } from './commands/web.js';
 import { createWorkflowCommand } from './commands/workflow.js';
+import { createExecServerCommand } from './commands/exec-server.js';
 import { addHeadlessOptions, addModelOptions } from './utils/agent-bootstrap.js';
 import { applyEnvHttpProxy } from './utils/apply-env-proxy.js';
 import { normalizeOutputFormat, resolvePrintPrompt } from './utils/print-prompt.js';
@@ -63,6 +64,7 @@ if (isMainModule) {
   program.addCommand(createTuiCommand());
   program.addCommand(createWebCommand());
   program.addCommand(createWorkflowCommand());
+  program.addCommand(createExecServerCommand());
 
   // 解析命令行参数
   program.parse();
@@ -78,5 +80,6 @@ export {
   createMCPCommand,
   createTuiCommand,
   createWebCommand,
-  createWorkflowCommand
+  createWorkflowCommand,
+  createExecServerCommand
 };

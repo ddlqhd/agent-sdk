@@ -14,6 +14,7 @@
 | 专题：自定义工具、MCP、Skill、Memory、日志、审批、Subagent 等 | [`sdk-integration-recipes.md`](./sdk-integration-recipes.md) |
 | 工具 Hook 配置 | [`tool-hook-mechanism.md`](./tool-hook-mechanism.md) |
 | 命令行 `agent-sdk` | [`sdk-cli.md`](./sdk-cli.md) |
+| 远程执行面 exec-server | [`sdk-exec-server.md`](./sdk-exec-server.md) |
 | 排错 | [`sdk-troubleshooting.md`](./sdk-troubleshooting.md) |
 | 示例与 Web UI 索引 | [`sdk-examples-index.md`](./sdk-examples-index.md) |
 | 对照源码目录（贡献者） | [`repository-layout.md`](./repository-layout.md) |

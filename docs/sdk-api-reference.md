@@ -28,7 +28,7 @@
 
 - `stream(input, options?)`：流式执行，返回 `AsyncIterable<StreamEvent>`（各 `type` 的字段与产生时机见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 5 节）
 - `run(input, options?)`：非流式执行，返回 `Promise<AgentResult>`
-- `waitForInit()`：等待异步初始化（hooks、skills、MCP、subagent 磁盘 profile），返回 `Promise<AgentInitResult>`（含各阶段成功/失败及 MCP 每台 server 状态）
+- `waitForInit()`：等待异步初始化（hooks、skills、MCP、subagent 磁盘 profile、execution environment），返回 `Promise<AgentInitResult>`（含各阶段成功/失败及 MCP 每台 server 状态）
 - `destroy()`：销毁资源（含 MCP 断连）
 - `registerTool(tool)` / `registerTools(tools)`：注册工具
 - `getToolRegistry()`：获取工具注册中心
@@ -53,6 +53,7 @@
 - `allowedTools`：按注册名**自动批准**的执行列表。未列出者仍可对模型可见；若配置了 `allowedTools` 且某次调用不在列表内，则需 `canUseTool` 返回 true，否则拒绝。**未设置** `allowedTools` 时保持兼容：非 `disallowedTools` 的工具均自动批准。**空数组** `[]` 表示无任何自动批准：每次调用都需 `canUseTool`，未配置则全部拒绝。
 - `canUseTool`：`(toolName, input) => boolean | Promise<boolean>`，在已配置 `allowedTools` 且调用未命中自动批准时使用。
 - `exclusiveTools`：仅注册此处列出的工具（用于子 Agent 等排他场景），不合并默认内置；仍受 `disallowedTools` 过滤。
+- `environment`：执行面配置（默认本机；`{ type: 'remote', url }` 连接 exec-server）。见 [`sdk-exec-server.md`](./sdk-exec-server.md)。
 
 类型别名：`CanUseToolCallback`。
 

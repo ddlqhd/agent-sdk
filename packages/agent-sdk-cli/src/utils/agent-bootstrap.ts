@@ -118,6 +118,8 @@ export function addModelOptions(cmd: Command): Command {
     .option('--mcp-config <path>', 'Path to MCP config file (mcp_config.json)')
     .option('--user-base-path <path>', 'User base path (default: ~)')
     .option('--cwd <path>', 'Working directory (default: current directory)')
+    .option('--exec-server <url>', 'Remote exec-server WebSocket URL (ws://host:port)')
+    .option('--exec-token <token>', 'Shared token for the remote exec-server')
     .option(
       '--resume, --continue',
       'Resume the most recently updated session (uses same storage as --user-base-path; ignored if --session is set)'
@@ -323,7 +325,16 @@ export function buildCliAgentConfig(
     ...(options.allowedTools ? { allowedTools: options.allowedTools } : {}),
     ...(fileLogger ? { logger: fileLogger } : {}),
     ...bareAgentOptions,
-    askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined
+    askUserQuestion: process.stdin.isTTY ? createTtyAskUserQuestionResolver() : undefined,
+    ...(options.execServer
+      ? {
+          environment: {
+            type: 'remote' as const,
+            url: options.execServer,
+            token: options.execToken
+          }
+        }
+      : {})
   };
 }
 

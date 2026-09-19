@@ -1,8 +1,18 @@
-import * as dns from 'node:dns';
-import ipaddr from 'ipaddr.js';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
+import {
+  assertHttpUrl,
+  assertUrlSafeForFetch,
+  createLocalEnvironment,
+  isBlockedHostname,
+  isDangerousIp,
+  type DnsLookupFn,
+  type HttpRuntime
+} from '@ddlqhd/agent-sdk-exec';
+
+export { assertHttpUrl, assertUrlSafeForFetch, isBlockedHostname, isDangerousIp };
+export type { DnsLookupFn };
 
 /** Default request timeout (ms). */
 export const WEB_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
@@ -16,109 +26,7 @@ export const WEB_FETCH_MAX_OUTPUT_CHARS = 512_000;
 /** Max HTTP redirects when using manual redirect handling. */
 export const WEB_FETCH_MAX_REDIRECTS = 5;
 
-const USER_AGENT = 'Agent-SDK-WebFetch/0.1 (+https://github.com/)';
-
-export type DnsLookupFn = (
-  hostname: string,
-  options: { all: true; verbatim?: boolean }
-) => Promise<import('node:dns').LookupAddress[]>;
-
-function isBlockedAddress(addr: ipaddr.IPv4 | ipaddr.IPv6): boolean {
-  if (addr.kind() === 'ipv4') {
-    return addr.range() !== 'unicast';
-  }
-  const v6 = addr as ipaddr.IPv6;
-  if (v6.isIPv4MappedAddress()) {
-    const v4 = v6.toIPv4Address();
-    return v4.range() !== 'unicast';
-  }
-  return v6.range() !== 'unicast';
-}
-
-/** Returns true if the IP must not be reached (SSRF). Exported for tests. */
-export function isDangerousIp(ip: string): boolean {
-  try {
-    if (!ipaddr.isValid(ip)) {
-      return true;
-    }
-    const addr = ipaddr.parse(ip);
-    return isBlockedAddress(addr);
-  } catch {
-    return true;
-  }
-}
-
-/** Hostname patterns blocked without DNS (metadata, local, etc.). Exported for tests. */
-export function isBlockedHostname(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === 'localhost' || h === 'metadata') {
-    return true;
-  }
-  if (h.endsWith('.localhost')) {
-    return true;
-  }
-  if (h === 'metadata.google.internal') {
-    return true;
-  }
-  if (h.endsWith('.internal')) {
-    return true;
-  }
-  if (h.endsWith('.local')) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Ensures URL scheme is http(s) only.
- */
-export function assertHttpUrl(url: URL): void {
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`Only http and https URLs are allowed, got: ${url.protocol}`);
-  }
-}
-
-/**
- * Resolve hostname and ensure no resolved address is in a forbidden range.
- */
-export async function assertResolvableHostSafe(
-  hostname: string,
-  lookup: DnsLookupFn = dns.promises.lookup as DnsLookupFn
-): Promise<void> {
-  const results = await lookup(hostname, { all: true, verbatim: true });
-  if (!results.length) {
-    throw new Error('DNS lookup returned no addresses');
-  }
-  for (const { address } of results) {
-    if (isDangerousIp(address)) {
-      throw new Error(`Refused to connect: address "${address}" is not a public endpoint`);
-    }
-  }
-}
-
-/**
- * Full URL check: scheme, hostname blocklist, literal IP or DNS+IP rules.
- */
-export async function assertUrlSafeForFetch(
-  url: URL,
-  lookup: DnsLookupFn = dns.promises.lookup as DnsLookupFn
-): Promise<void> {
-  assertHttpUrl(url);
-  const host = url.hostname;
-  if (!host) {
-    throw new Error('URL has no hostname');
-  }
-  if (isBlockedHostname(host)) {
-    throw new Error(`Refused to connect: hostname "${host}" is blocked`);
-  }
-  if (ipaddr.isValid(host)) {
-    if (isDangerousIp(host)) {
-      throw new Error(`Refused to connect: address "${host}" is not a public endpoint`);
-    }
-    return;
-  }
-  await assertResolvableHostSafe(host, lookup);
-}
+export { assertResolvableHostSafe } from '@ddlqhd/agent-sdk-exec';
 
 export interface ReadBodyResult {
   text: string;
@@ -250,6 +158,8 @@ export interface WebFetchContentOptions {
   maxRedirects?: number;
   /** Test-only DNS override */
   dnsLookup?: DnsLookupFn;
+  /** Execution-plane HTTP (remote exec-server or injected local). */
+  http?: HttpRuntime;
 }
 
 /**
@@ -264,75 +174,48 @@ export async function fetchUrlToReadableContent(
   const maxResponseBytes = options.maxResponseBytes ?? WEB_FETCH_MAX_RESPONSE_BYTES;
   const maxOutputChars = options.maxOutputChars ?? WEB_FETCH_MAX_OUTPUT_CHARS;
   const maxRedirects = options.maxRedirects ?? WEB_FETCH_MAX_REDIRECTS;
-  const lookup = options.dnsLookup ?? (dns.promises.lookup as DnsLookupFn);
 
-  let currentUrl: URL;
   try {
-    currentUrl = new URL(urlString);
+    new URL(urlString);
   } catch {
     return { content: 'Invalid URL', isError: true };
   }
 
+  const http =
+    options.http ??
+    createLocalEnvironment({ dnsLookup: options.dnsLookup }).http;
+
   try {
-    let redirectCount = 0;
-    for (;;) {
-      await assertUrlSafeForFetch(currentUrl, lookup);
+    const response = await http.request({
+      url: urlString,
+      timeoutMs,
+      maxBytes: maxResponseBytes,
+      maxRedirects
+    });
 
-      const response = await fetch(currentUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: {
-          Accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.8',
-          'User-Agent': USER_AGENT
-        }
-      });
-
-      const status = response.status;
-      if (status >= 300 && status < 400) {
-        const loc = response.headers.get('location');
-        if (!loc || redirectCount >= maxRedirects) {
-          return {
-            content: loc
-              ? `Too many redirects or missing Location (HTTP ${status})`
-              : `Redirect without Location (HTTP ${status})`,
-            isError: true
-          };
-        }
-        redirectCount++;
-        currentUrl = new URL(loc, currentUrl);
-        continue;
-      }
-
-      if (!response.ok) {
-        return {
-          content: `Failed to fetch: ${status} ${response.statusText}`,
-          isError: true
-        };
-      }
-
-      const mime = primaryMimeType(response.headers.get('content-type'));
-      const { text: rawText, truncated: bodyTruncated } = await readResponseBodyWithCap(
-        response,
-        maxResponseBytes
-      );
-
-      let content: string;
-      if (mime.includes('html') || mime === '' || mime === 'application/xhtml+xml') {
-        content = htmlToMarkdown(rawText);
-      } else if (mime.includes('json') || mime.endsWith('+json')) {
-        content = formatJsonText(rawText);
-      } else {
-        content = rawText;
-      }
-
-      if (bodyTruncated) {
-        content = `${content}\n\n[Response body truncated at ${maxResponseBytes} bytes]`;
-      }
-
-      content = truncateOutput(content, maxOutputChars);
-      return { content, isError: false };
+    if (response.status < 200 || response.status >= 300) {
+      return {
+        content: `Failed to fetch: ${response.status} ${response.statusText}`,
+        isError: true
+      };
     }
+
+    const mime = response.mimeType || primaryMimeType(response.headers['content-type'] ?? null);
+    let content: string;
+    if (mime.includes('html') || mime === '' || mime === 'application/xhtml+xml') {
+      content = htmlToMarkdown(response.body);
+    } else if (mime.includes('json') || mime.endsWith('+json')) {
+      content = formatJsonText(response.body);
+    } else {
+      content = response.body;
+    }
+
+    if (response.truncated) {
+      content = `${content}\n\n[Response body truncated at ${maxResponseBytes} bytes]`;
+    }
+
+    content = truncateOutput(content, maxOutputChars);
+    return { content, isError: false };
   } catch (error) {
     return {
       content: `Error fetching webpage: ${formatNetworkError(error)}`,

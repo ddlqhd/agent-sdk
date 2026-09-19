@@ -132,6 +132,8 @@ agent-sdk chat [options]
   --mcp-config <path>      MCP 配置文件路径
   --user-base-path <path>  用户基础路径 (默认: ~)
   --cwd <path>             工作目录 (默认: 当前目录)
+  --exec-server <url>      远程 exec-server WebSocket（如 ws://host:8787）
+  --exec-token <token>     exec-server 共享 token
   --resume, --continue     恢复最近更新的会话（与 chat/-p 使用相同存储；若已设 -s 则忽略）
   --thinking [value]       模型统一 thinking/reasoning 开关（true|false；省略 value 等价 true）。
                            写入 `AgentConfig.modelConfig.thinking`。
@@ -238,8 +240,20 @@ agent-sdk web [options]
   --mcp-config <path>      MCP 配置文件（UI 未填路径时使用）
   --user-base-path <path>  用户基础路径（默认: ~；jsonl 会话与 CLI 相同）
   --cwd <path>             工作目录（默认: 当前目录）
+  --exec-server <url>      远程 exec-server（见 [`sdk-exec-server.md`](./sdk-exec-server.md)）
+  --exec-token <token>     exec-server token
   --log-level / --log-file 同 chat
 ```
+
+### exec-server
+
+在工作区机器上启动执行面（文件系统 / 进程 / HTTP）。控制面用 `--exec-server` 或 `AGENT_SDK_EXEC_SERVER_URL` 连接。详见 [`sdk-exec-server.md`](./sdk-exec-server.md)。
+
+```bash
+agent-sdk exec-server --listen 127.0.0.1:8787 --cwd /repo --token "$TOKEN"
+```
+
+stdout 会打印连接、RPC method 和断开，用来确认控制面请求是否打到执行面。
 
 连接后 UI 会按表单自动 `configure`。路径栏留空则使用上述 CLI 默认值。会话默认 **jsonl**，可与 `agent-sdk sessions` / `chat --resume` 共用存储。UI 若改选 **memory** 存储，每个会话是独立的内存实例，列出/恢复只对当前连接里仍活着的 runtime 有效。
 

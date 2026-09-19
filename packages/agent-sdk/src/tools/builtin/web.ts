@@ -22,8 +22,10 @@ Limits and behavior:
   parameters: z.object({
     url: z.string().describe('The URL to fetch content from')
   }),
-  handler: async ({ url }) => {
-    const result = await fetchUrlToReadableContent(url);
+  handler: async ({ url }, context) => {
+    const result = await fetchUrlToReadableContent(url, {
+      http: context?.environment?.http
+    });
     return result.isError
       ? { content: result.content, isError: true }
       : { content: result.content };

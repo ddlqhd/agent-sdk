@@ -36,6 +36,8 @@ export interface WebRuntimeDefaults {
   includeDemoTools?: boolean;
   logLevel?: SDKLogLevel;
   logFile?: string;
+  execServer?: string;
+  execToken?: string;
 }
 
 export interface BuildAgentOptions {
@@ -233,7 +235,16 @@ export async function buildAgent(
     ...(defaults.includeDemoTools ? { tools: [demoCalculatorTool] } : {}),
     disallowedTools: config.safeToolsOnly ? ['Bash'] : undefined,
     logLevel: sharedLog.level,
-    ...(sharedLog.logger ? { logger: sharedLog.logger } : {})
+    ...(sharedLog.logger ? { logger: sharedLog.logger } : {}),
+    ...(defaults.execServer
+      ? {
+          environment: {
+            type: 'remote' as const,
+            url: defaults.execServer,
+            token: defaults.execToken
+          }
+        }
+      : {})
   });
 
   await agent.waitForInit();

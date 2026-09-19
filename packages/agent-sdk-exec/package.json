@@ -1,0 +1,66 @@
+{
+  "name": "@ddlqhd/agent-sdk-exec",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.1.0",
+  "description": "Execution plane for Agent SDK: local Environment, exec-server, and remote client",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agent-sdk-exec": "bin/agent-sdk-exec.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "agent",
+    "exec-server",
+    "environment"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddlqhd/agent-sdk.git",
+    "directory": "packages/agent-sdk-exec"
+  },
+  "homepage": "https://github.com/ddlqhd/agent-sdk/tree/main/packages/agent-sdk-exec",
+  "bugs": {
+    "url": "https://github.com/ddlqhd/agent-sdk/issues"
+  },
+  "dependencies": {
+    "chardet": "^2.1.1",
+    "fast-glob": "^3.3.3",
+    "iconv-lite": "^0.7.2",
+    "ignore": "^7.0.5",
+    "ipaddr.js": "^2.3.0",
+    "micromatch": "^4.0.8",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/micromatch": "^4.0.10",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.13",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -66,6 +66,12 @@ import { SummarizationCompressor } from './compressor.js';
 import { TOOL_USER_ABORTED_MESSAGE } from './abort-constants.js';
 import { loadMCPConfig } from '../config/mcp-config.js';
 import type { MCPConfigLoadError } from '../config/mcp-config.js';
+import {
+  createEnvironmentFromConfig,
+  createFailedEnvironment,
+  isEnvironment,
+  type Environment
+} from '@ddlqhd/agent-sdk-exec';
 
 /** Aggregates model stream output for one agent iteration (text, thinking, tool calls, fatal error). */
 interface ModelStreamState {
@@ -123,6 +129,8 @@ export class Agent {
   private currentRunId?: string;
   /** Shared structured-log context (mutable scope fields updated per run/session). */
   private readonly logCtx: SDKLogContext;
+  private executionEnvironment: Environment | undefined;
+  private ownsExecutionEnvironment = false;
 
   /**
    * 已持久化到会话存储的非 system 消息条数（与 {@link this.messages} 中顺序一致的前缀长度）
@@ -356,7 +364,51 @@ export class Agent {
       }
     }
 
-    return { hooks, skills, mcp, subagent };
+    const environment: AgentResourceInitStepResult = { ok: true };
+    try {
+      if (this.config.environment !== undefined && isEnvironment(this.config.environment)) {
+        this.executionEnvironment = this.config.environment;
+        this.ownsExecutionEnvironment = false;
+      } else {
+        this.executionEnvironment = await createEnvironmentFromConfig(this.config.environment, {
+          env: this.config.env ? { ...process.env, ...this.config.env } : process.env
+        });
+        this.ownsExecutionEnvironment = true;
+        this.config.environment = this.executionEnvironment;
+      }
+      const env = this.executionEnvironment;
+      const kind = env.kind ?? (env.id.startsWith('remote-') ? 'remote' : env.id === 'failed' ? 'failed' : 'local');
+      this.log('info', {
+        component: 'agent',
+        event: 'agent.initialize.environment',
+        message:
+          kind === 'remote'
+            ? 'Connected to remote exec-server'
+            : 'Using in-process execution environment',
+        metadata: {
+          kind,
+          environmentId: env.id,
+          cwd: env.info.cwd,
+          workspaceRoot: env.info.workspaceRoot,
+          ...(env.info.remoteUrl ? { url: env.info.remoteUrl } : {})
+        }
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      environment.ok = false;
+      environment.error = { name: error.name, message: error.message };
+      this.executionEnvironment = createFailedEnvironment(error);
+      this.ownsExecutionEnvironment = false;
+      this.log('error', {
+        component: 'agent',
+        event: 'agent.initialize.environment.error',
+        message: 'Failed to initialize execution environment',
+        errorName: error.name,
+        errorMessage: error.message
+      });
+    }
+
+    return { hooks, skills, mcp, subagent, environment };
   }
 
   /**
@@ -1984,6 +2036,9 @@ export class Agent {
    */
   async destroy(): Promise<void> {
     await this.disconnectAllMCP();
+    if (this.ownsExecutionEnvironment) {
+      await this.executionEnvironment?.close?.();
+    }
     this.messages = [];
   }
 
@@ -2499,7 +2554,8 @@ export class Agent {
             sessionId: this.sessionManager.sessionId ?? undefined,
             runId: this.currentRunId,
             agentName: this.config.agentName ?? 'Agent',
-            env: this.config.env
+            env: this.config.env,
+            environment: this.executionEnvironment
           });
           const durationMs = Date.now() - startedAt;
           const isError = Boolean(result.isError);

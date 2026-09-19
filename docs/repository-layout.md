@@ -22,6 +22,7 @@ agent-sdk/                          # private workspace root
 │   │       ├── memory/             # CLAUDE.md 长期记忆
 │   │       ├── config/             # MCP 等配置加载
 │   │       └── index.ts            # 包入口
+│   ├── agent-sdk-exec/             # @ddlqhd/agent-sdk-exec（Environment + exec-server）
 │   ├── agent-sdk-cli/              # @ddlqhd/agent-sdk-cli（bin: agent-sdk）
 │   │   ├── src/                    # CLI 入口与子命令、TUI、web UI
 │   │   │   └── web/                # agent-sdk web（HTTP + WS + Vite 客户端）

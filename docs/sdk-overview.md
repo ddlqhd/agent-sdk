@@ -57,6 +57,7 @@
 - **MCP**：stdio/http server 接入并映射为 **`mcp__…` 形式**的注册工具名（规则见 [`sdk-api-reference.md`](./sdk-api-reference.md)「MCP」）
 - **Skills**：`SKILL.md` 指导能力加载与调用
 - **Memory**：从 `CLAUDE.md` 注入长期上下文
+- **执行面**：内置 fs/shell/http 可走本机或远程 [`sdk-exec-server.md`](./sdk-exec-server.md)
 
 ## 6. 文档地图与推荐阅读顺序
 
@@ -69,9 +70,10 @@
 5. [`sdk-api-reference.md`](./sdk-api-reference.md)（查函数和类）
 6. [`sdk-types-reference.md`](./sdk-types-reference.md)（查类型定义）
 7. [`sdk-cli.md`](./sdk-cli.md)（命令行）
-8. [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)（工具 Hook 配置）
-9. [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)（排障）
-10. [`sdk-examples-index.md`](./sdk-examples-index.md)（示例与 Web UI 对照）
+8. [`sdk-exec-server.md`](./sdk-exec-server.md)（远程执行面）
+9. [`tool-hook-mechanism.md`](./tool-hook-mechanism.md)（工具 Hook 配置）
+10. [`sdk-troubleshooting.md`](./sdk-troubleshooting.md)（排障）
+11. [`sdk-examples-index.md`](./sdk-examples-index.md)（示例与 Web UI 对照）
 
 仓库目录树（贡献者）见 [`repository-layout.md`](./repository-layout.md)。
 

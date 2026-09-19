@@ -4,7 +4,7 @@ This file provides instructions for AI coding agents working in this repository.
 
 ## Project Overview
 
-This repo is a pnpm monorepo. The publishable library is `@ddlqhd/agent-sdk` (`packages/agent-sdk`). The optional CLI is `@ddlqhd/agent-sdk-cli` (`packages/agent-sdk-cli`, binary `agent-sdk`). The ACP bridge is `@ddlqhd/agent-sdk-acp`.
+This repo is a pnpm monorepo. The publishable library is `@ddlqhd/agent-sdk` (`packages/agent-sdk`). The optional CLI is `@ddlqhd/agent-sdk-cli` (`packages/agent-sdk-cli`, binary `agent-sdk`). The execution-plane package is `@ddlqhd/agent-sdk-exec` (`packages/agent-sdk-exec`, binary `agent-sdk-exec`). The ACP bridge is `@ddlqhd/agent-sdk-acp`.
 
 Agent SDK is a TypeScript library for building AI agents with multi-model support (`createModel` / per-provider factories), MCP integration (`MCPClient`, `MCPAdapter`, optional `mcp_config.json`), skill system, long-term memory via `MemoryManager`, streaming helpers under `packages/agent-sdk/src/streaming/`, and JSONL or in-memory session storage.
 
@@ -46,6 +46,7 @@ pnpm clean
 pnpm cli --help
 pnpm cli chat --provider openai
 pnpm cli web
+pnpm cli exec-server --help
 ```
 
 Requires Node.js >= 18.

@@ -1,22 +1,12 @@
-import type { Readable } from 'node:stream';
-import iconv from 'iconv-lite';
-import fg from 'fast-glob';
+import path from 'node:path';
 import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
-import {
-  detectEncodingFromSample,
-  isNativeReadEncoding,
-  isFilesystemEncodingSupported,
-  normalizeFilesystemEncoding,
-  readEncodingSample,
-  readFileAsUnicodeString,
-  writeFileFromUnicodeString
-} from './filesystem-encoding.js';
+import { isFilesystemEncodingSupported, normalizeFilesystemEncoding } from './filesystem-encoding.js';
+import { resolveToolEnvironment } from '../../exec/tool-environment.js';
 
 const DEFAULT_READ_LIMIT = 2000;
 const MAX_LINE_LENGTH = 2000;
-const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
 
@@ -158,126 +148,56 @@ Usage:
       .optional()
       .describe('The number of lines to read. Only provide if the file is too large to read at once')
   }),
-  handler: async ({ file_path, encoding, offset, limit }) => {
+  handler: async ({ file_path, encoding, offset, limit }, context) => {
     try {
-      const fs = await import('fs/promises');
-      const { createReadStream } = await import('fs');
-      const { createInterface } = await import('readline');
+      const env = resolveToolEnvironment(context);
+      const result = await env.fs.readText(file_path, {
+        encoding,
+        lineOffset: offset,
+        lineLimit: limit ?? DEFAULT_READ_LIMIT,
+        maxBytes: MAX_BYTES,
+        maxLineLength: MAX_LINE_LENGTH
+      });
 
-      const stat = await fs.stat(file_path);
-      if (!stat.isFile()) {
+      if (!result.isFile) {
         return {
           content: `Error: ${file_path} is not a file`,
           isError: true
         };
       }
-
-      const encTrim = encoding?.trim() ?? '';
-      const useAuto = encTrim === '' || encTrim.toLowerCase() === 'auto';
-
-      let normalized: string;
-      let autoDetected = false;
-
-      if (useAuto) {
-        const sample = await readEncodingSample(file_path, stat.size);
-        normalized = detectEncodingFromSample(sample);
-        autoDetected = true;
-      } else {
-        normalized = normalizeFilesystemEncoding(encTrim);
-        if (!isFilesystemEncodingSupported(normalized)) {
-          return {
-            content: `Error: unsupported encoding: ${encTrim}`,
-            isError: true
-          };
-        }
-      }
-
-      const startLine = offset ? offset - 1 : 0;
-      const maxLines = limit ?? DEFAULT_READ_LIMIT;
-
-      const toDestroy: Readable[] = [];
-      let lineInput: Readable;
-      if (isNativeReadEncoding(normalized)) {
-        const stream = createReadStream(file_path, {
-          encoding: normalized as 'utf8' | 'utf16le' | 'latin1'
-        });
-        toDestroy.push(stream);
-        lineInput = stream;
-      } else {
-        const raw = createReadStream(file_path);
-        const decoded = raw.pipe(iconv.decodeStream(normalized)) as unknown as Readable;
-        toDestroy.push(raw, decoded);
-        lineInput = decoded;
-      }
-
-      const rl = createInterface({
-        input: lineInput,
-        crlfDelay: Infinity
-      });
-
-      const selectedLines: string[] = [];
-      let totalLines = 0;
-      let totalBytes = 0;
-      let truncatedByBytes = false;
-      let hasMoreLines = false;
-
-      try {
-        for await (const line of rl) {
-          totalLines++;
-          if (totalLines <= startLine) continue;
-
-          if (selectedLines.length >= maxLines) {
-            hasMoreLines = true;
-            continue;
-          }
-
-          const processedLine =
-            line.length > MAX_LINE_LENGTH
-              ? line.substring(0, MAX_LINE_LENGTH) + MAX_LINE_SUFFIX
-              : line;
-
-          const lineBytes = Buffer.byteLength(processedLine, 'utf-8') + 1;
-          if (totalBytes + lineBytes > MAX_BYTES) {
-            truncatedByBytes = true;
-            hasMoreLines = true;
-            break;
-          }
-
-          selectedLines.push(processedLine);
-          totalBytes += lineBytes;
-        }
-      } finally {
-        rl.close();
-        for (const s of toDestroy) {
-          s.destroy();
-        }
-      }
-
-      if (totalLines < startLine && !(totalLines === 0 && startLine === 0)) {
+      if (result.unsupportedEncoding) {
         return {
-          content: `Error: Offset ${offset} is out of range for this file (${totalLines} lines)`,
+          content: `Error: unsupported encoding: ${result.unsupportedEncoding}`,
           isError: true
         };
       }
 
-      const numbered = selectedLines
-        .map((line, i) => `${String(startLine + i + 1).padStart(5)}\t${line}`)
+      const startLine = offset ? offset - 1 : 0;
+      if (result.totalLines < startLine && !(result.totalLines === 0 && startLine === 0)) {
+        return {
+          content: `Error: Offset ${offset} is out of range for this file (${result.totalLines} lines)`,
+          isError: true
+        };
+      }
+
+      const numbered = result.lines
+        .map((line: string, i: number) => `${String(result.startLine + i).padStart(5)}\t${line}`)
         .join('\n');
 
-      const lastReadLine = startLine + selectedLines.length;
+      const lastReadLine = result.startLine + result.lines.length - 1;
       const nextOffset = lastReadLine + 1;
       let suffix: string;
 
-      if (truncatedByBytes) {
+      if (result.truncatedByBytes) {
         suffix = `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset ?? 1}-${lastReadLine}. Use offset=${nextOffset} to continue.)`;
-      } else if (hasMoreLines) {
-        suffix = `\n\n(Showing lines ${offset ?? 1}-${lastReadLine} of ${totalLines}. Use offset=${nextOffset} to continue.)`;
+      } else if (result.hasMoreLines) {
+        suffix = `\n\n(Showing lines ${offset ?? 1}-${lastReadLine} of ${result.totalLines}. Use offset=${nextOffset} to continue.)`;
       } else {
-        suffix = `\n\n(End of file - total ${totalLines} lines)`;
+        suffix = `\n\n(End of file - total ${result.totalLines} lines)`;
       }
 
-      if (autoDetected) {
-        suffix += `\n\n(Auto-detected encoding: ${normalized}.)`;
+      if (result.detectedEncoding) {
+        suffix += `\n\n(Auto-detected encoding: ${result.detectedEncoding}.)`;
       }
 
       return { content: numbered + suffix };
@@ -315,11 +235,8 @@ Usage:
         'File character encoding. Default utf8. Use gbk or gb18030 for legacy Chinese ANSI text; cp936 is treated as gbk.'
       )
   }),
-  handler: async ({ file_path, content, encoding }) => {
+  handler: async ({ file_path, content, encoding }, context) => {
     try {
-      const fs = await import('fs/promises');
-      const pathModule = await import('path');
-
       const normalized = normalizeFilesystemEncoding(encoding);
       if (!isFilesystemEncodingSupported(normalized)) {
         return {
@@ -328,10 +245,8 @@ Usage:
         };
       }
 
-      const dir = pathModule.dirname(file_path);
-      await fs.mkdir(dir, { recursive: true });
-
-      await writeFileFromUnicodeString(file_path, content, normalized);
+      const env = resolveToolEnvironment(context);
+      await env.fs.writeText(file_path, content, { encoding: normalized, mkdir: true });
       return { content: `Successfully wrote to ${file_path}` };
     } catch (error) {
       return {
@@ -375,7 +290,7 @@ Usage:
         'File character encoding. Default utf8. Use gbk or gb18030 for legacy Chinese ANSI text; cp936 is treated as gbk.'
       )
   }),
-  handler: async ({ file_path, old_string, new_string, replace_all, encoding }) => {
+  handler: async ({ file_path, old_string, new_string, replace_all, encoding }, context) => {
     try {
       if (old_string === new_string) {
         return {
@@ -392,9 +307,9 @@ Usage:
         };
       }
 
-      const fs = await import('fs/promises');
-      const stat = await fs.stat(file_path);
-      if (!stat.isFile()) {
+      const env = resolveToolEnvironment(context);
+      const stat = await env.fs.stat(file_path);
+      if (!stat.isFile) {
         return {
           content: `Error: ${file_path} is not a file`,
           isError: true
@@ -407,7 +322,14 @@ Usage:
         };
       }
 
-      const content = await readFileAsUnicodeString(file_path, normalized);
+      const loaded = await env.fs.readText(file_path, { encoding: normalized });
+      if (loaded.unsupportedEncoding) {
+        return {
+          content: `Error: unsupported encoding: ${encoding?.trim() || 'utf8'}`,
+          isError: true
+        };
+      }
+      const content = loaded.text ?? loaded.lines.join('\n');
 
       const dominantEol = detectDominantEol(content);
       const candidates = buildNeedleCandidates(old_string, dominantEol);
@@ -438,7 +360,7 @@ Usage:
       const normalizedNew = normalizeNewStringEols(new_string, dominantEol);
       const newContent = replaceNonOverlapping(content, needle, normalizedNew, replace_all);
 
-      await writeFileFromUnicodeString(file_path, newContent, normalized);
+      await env.fs.writeText(file_path, newContent, { encoding: normalized });
 
       return {
         content: `Successfully edited ${file_path} (${occurrences} replacement${occurrences > 1 ? 's' : ''})`
@@ -473,39 +395,19 @@ export const globTool = createTool({
   }),
   handler: async ({ pattern, path: searchPath }, context) => {
     try {
-      const fs = await import('fs/promises');
-      const pathModule = await import('path');
-
-      const rootDir = pathModule.resolve(searchPath || context?.projectDir || '.');
+      const env = resolveToolEnvironment(context);
+      const rootDir = path.resolve(searchPath || context?.projectDir || env.info.cwd || '.');
       const normalizedPattern = pattern.replace(/\\/g, '/');
       const includeDotfiles =
         normalizedPattern.startsWith('.') || normalizedPattern.includes('/.');
 
-      const entries = await fg(normalizedPattern, {
+      const matches = await env.fs.glob(normalizedPattern, {
         cwd: rootDir,
-        onlyFiles: true,
-        absolute: true,
-        dot: includeDotfiles,
-        suppressErrors: true
+        includeDotfiles
       });
 
-      const matches: Array<{ path: string; mtime: number }> = [];
-      for (const filePath of entries) {
-        const nativePath = pathModule.normalize(filePath);
-        try {
-          const stat = await fs.stat(nativePath);
-          if (stat.isFile()) {
-            matches.push({ path: nativePath, mtime: stat.mtimeMs });
-          }
-        } catch {
-          // Race: removed between glob and stat
-        }
-      }
-
-      matches.sort((a, b) => b.mtime - a.mtime);
-
       return {
-        content: matches.length > 0 ? matches.map((m) => m.path).join('\n') : 'No files found'
+        content: matches.length > 0 ? matches.map((m: { path: string }) => m.path).join('\n') : 'No files found'
       };
     } catch (error) {
       return {

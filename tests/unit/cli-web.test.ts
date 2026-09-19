@@ -33,6 +33,8 @@ describe('createWebCommand', () => {
     expect(longs).toContain('--allow-remote');
     expect(longs).toContain('--provider');
     expect(longs).toContain('--cwd');
+    expect(longs).toContain('--exec-server');
+    expect(longs).toContain('--exec-token');
     expect(longs).toContain('--user-base-path');
     expect(longs).not.toContain('--session');
     expect(longs).not.toContain('--resume');

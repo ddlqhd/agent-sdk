@@ -212,6 +212,24 @@ export type {
   LoadedWorkflow
 } from './workflow/index.js';
 
+// Execution plane (local Environment / remote exec-server)
+export {
+  EXEC_ENV_TOKEN,
+  EXEC_ENV_URL,
+  createEnvironmentFromConfig,
+  createLocalEnvironment,
+  getDefaultLocalEnvironment,
+  isEnvironment,
+  startExecServer
+} from '@ddlqhd/agent-sdk-exec';
+export type {
+  AgentEnvironmentConfig,
+  Environment,
+  EnvironmentKind,
+  RemoteEnvironmentConfig,
+  RunningExecServer
+} from '@ddlqhd/agent-sdk-exec';
+
 // Config
 export {
   loadMCPConfig,

@@ -10,7 +10,8 @@ export default defineConfig({
       '@ddlqhd/agent-sdk/workflow': resolve(root, 'packages/agent-sdk/src/workflow/index.ts'),
       '@ddlqhd/agent-sdk/models': resolve(root, 'packages/agent-sdk/src/models/index.ts'),
       '@ddlqhd/agent-sdk/tools': resolve(root, 'packages/agent-sdk/src/tools/index.ts'),
-      '@ddlqhd/agent-sdk': resolve(root, 'packages/agent-sdk/src/index.ts')
+      '@ddlqhd/agent-sdk': resolve(root, 'packages/agent-sdk/src/index.ts'),
+      '@ddlqhd/agent-sdk-exec': resolve(root, 'packages/agent-sdk-exec/src/index.ts')
     },
     dedupe: ['@modelcontextprotocol/sdk', 'commander', 'iconv-lite', 'chalk']
   },
@@ -20,7 +21,8 @@ export default defineConfig({
         'node_modules',
         'packages/agent-sdk/node_modules',
         'packages/agent-sdk-cli/node_modules',
-        'packages/agent-sdk-acp/node_modules'
+        'packages/agent-sdk-acp/node_modules',
+        'packages/agent-sdk-exec/node_modules'
       ]
     },
     globals: true,

@@ -21,6 +21,8 @@ export interface WebCommandOptions {
   mcpConfig?: string;
   userBasePath?: string;
   cwd?: string;
+  execServer?: string;
+  execToken?: string;
   logLevel?: SDKLogLevel;
   logFile?: string;
 }
@@ -38,6 +40,8 @@ export function createWebCommand(): Command {
     .option('--mcp-config <path>', 'MCP config file (used when the UI path is empty)')
     .option('--user-base-path <path>', 'User base path (default: ~)')
     .option('--cwd <path>', 'Working directory (default: current directory)')
+    .option('--exec-server <url>', 'Remote exec-server WebSocket URL')
+    .option('--exec-token <token>', 'Shared token for the remote exec-server')
     .option('--log-level <level>', describeCliLogLevelOption(), parseCliLogLevel)
     .option('--log-file <path>', 'JSONL log file path')
     .option('--port <port>', 'Listen port (default: 3001, or PORT env)', parseListenPort)
@@ -71,7 +75,9 @@ export function createWebCommand(): Command {
             baseUrl: options.baseUrl,
             includeDemoTools: options.demoTools === true,
             logLevel: options.logLevel,
-            logFile: options.logFile
+            logFile: options.logFile,
+            execServer: options.execServer,
+            execToken: options.execToken
           }
         });
       } catch (err) {

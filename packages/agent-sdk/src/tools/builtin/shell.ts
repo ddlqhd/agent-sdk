@@ -1,25 +1,27 @@
-import { spawn } from 'child_process';
 import { z } from 'zod';
 import { createTool } from '../registry.js';
-import { mergeProcessEnv } from '../../core/process-env-merge.js';
 import { getShellPath } from '../../core/environment.js';
 import type { ToolDefinition } from '../../core/types.js';
-import {
-  installProcessExitCleanup,
-  listBackgroundJobs,
-  readJobOutput,
-  spawnBackgroundJob,
-  terminateJob
-} from '../shell/process-manager.js';
-import type { BashJobRecord } from '../shell/process-manager.js';
-import { buildShellInvocation } from '../shell/invocation.js';
+import { resolveToolEnvironment } from '../../exec/tool-environment.js';
+import type { ProcessHandle, ProcessListItem } from '@ddlqhd/agent-sdk-exec';
 
-installProcessExitCleanup();
+const DEFAULT_FOREGROUND_TIMEOUT = 120000;
 
-// Maximum output size (10MB) to prevent memory issues
-const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
-// Grace period before SIGKILL after SIGTERM (ms)
-const KILL_DELAY = 5000;
+function formatBackgroundStart(
+  job: ProcessHandle,
+  desc: string | undefined,
+  initialRead: string
+): { content: string } {
+  const prefix = desc ? `[${desc}]\n` : '';
+  return {
+    content:
+      `${prefix}Background bash job started.\n` +
+      `jobId: ${job.id}\npid: ${job.pid ?? 'n/a'}\ncwd: ${job.cwd ?? '(default)'}\n` +
+      `logFile: ${job.logFilePath ?? 'none'}\nstatus: ${job.status}\n` +
+      `--- initial output preview (same format as BashOutput.content text, not the BashOutput tool JSON envelope) ---\n` +
+      initialRead
+  };
+}
 
 /**
  * Bash 工具 - 执行 shell 命令（支持同步与后台运行）
@@ -47,7 +49,7 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
 
 # Instructions
 - If your command will create new directories or files, first use this tool to run ls to verify the parent directory exists and it is the correct location
-- Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
+- Always quote file paths that contain spaces with double quotes in your command (e.g. cd "path with spaces/file.txt")
 - If cwd is omitted, the command runs in the agent working directory when available
 - Foreground: optional \`timeout\` in milliseconds (up to 600000ms / 10 minutes). Default 120000ms (2 minutes).
 - Background: optional \`blockUntilMs\` waits briefly for startup output before returning.
@@ -118,213 +120,59 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
     },
     context
   ) => {
-    if (background) {
-      const job = await spawnBackgroundJob({
-        command,
-        shellPath: getShellPath(),
-        cwd: cwd ?? context?.projectDir,
-        env: mergeProcessEnv(context?.env),
-        title,
-        maxRingChars: maxOutputBytes,
-        removeJobOnExit: remove_job_on_exit === true
-      });
+    const env = resolveToolEnvironment(context);
+    const handle = await env.process.start({
+      command,
+      cwd: cwd ?? context?.projectDir,
+      env: context?.env,
+      shellPath: getShellPath(),
+      background: background === true,
+      title,
+      maxRingChars: maxOutputBytes,
+      removeJobOnExit: remove_job_on_exit === true
+    });
 
-      let initial;
-      if (blockUntilMs !== undefined && blockUntilMs > 0) {
-        initial = await readJobOutput(job.id, { stream: 'all', waitMs: blockUntilMs });
-      } else {
-        initial = await readJobOutput(job.id, { stream: 'all' });
-      }
-      return formatBackgroundStart(job, desc, initial.content);
+    if (background) {
+      const initial =
+        blockUntilMs !== undefined && blockUntilMs > 0
+          ? await handle.read({ stream: 'all', waitMs: blockUntilMs })
+          : await handle.read({ stream: 'all' });
+      return formatBackgroundStart(handle, desc, initial.content);
     }
 
-    return await runForegroundBash({
-      command,
-      desc,
-      cwd,
-      timeout: timeout ?? 120000,
-      signal: context?.signal,
-      projectDir: context?.projectDir,
-      env: context?.env
+    const wait = await handle.wait({
+      timeoutMs: timeout ?? DEFAULT_FOREGROUND_TIMEOUT,
+      signal: context?.signal
     });
+    const prefix = desc ? `[${desc}]\n` : '';
+    if (wait.aborted) {
+      return { content: `${prefix}Aborted before command finished`, isError: true };
+    }
+    if (wait.timedOut) {
+      return {
+        content: `${prefix}Command timed out after ${timeout ?? DEFAULT_FOREGROUND_TIMEOUT}ms`,
+        isError: true
+      };
+    }
+    if (wait.spawnError) {
+      return { content: `${prefix}Command failed: ${wait.spawnError}`, isError: true };
+    }
+
+    const output: string[] = [];
+    if (wait.stdout) output.push(wait.stdout);
+    if (wait.stderr) output.push(`STDERR:\n${wait.stderr}`);
+
+    if (wait.exitCode === 0) {
+      return {
+        content: prefix + (output.join('\n') || 'Command executed successfully (no output)')
+      };
+    }
+    return {
+      content: `${prefix}Command failed (exit code ${wait.exitCode})\n${output.join('\n')}`,
+      isError: true
+    };
   }
 });
-
-function formatBackgroundStart(
-  job: BashJobRecord,
-  desc: string | undefined,
-  initialRead: string
-): { content: string } {
-  const prefix = desc ? `[${desc}]\n` : '';
-  return {
-    content:
-      `${prefix}Background bash job started.\n` +
-      `jobId: ${job.id}\npid: ${job.pid ?? 'n/a'}\ncwd: ${job.cwd ?? '(default)'}\n` +
-      `logFile: ${job.logFilePath ?? 'none'}\nstatus: ${job.status}\n` +
-      `--- initial output preview (same format as BashOutput.content text, not the BashOutput tool JSON envelope) ---\n` +
-      initialRead
-  };
-}
-
-interface ForegroundOpts {
-  command: string;
-  desc?: string;
-  cwd?: string;
-  timeout: number;
-  signal?: AbortSignal;
-  projectDir?: string;
-  env?: Record<string, string>;
-}
-
-async function runForegroundBash(opts: ForegroundOpts): Promise<{ content: string; isError?: boolean }> {
-  const { command, desc, cwd, timeout: effectiveTimeout, signal, projectDir, env } = opts;
-  return new Promise((resolve) => {
-    const shellPath = getShellPath();
-    let stdout = '';
-    let stderr = '';
-    let outputTruncated = false;
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const invocation = buildShellInvocation(command, shellPath);
-    const child = spawn(invocation.file, invocation.args, {
-      cwd: cwd ?? projectDir,
-      env: mergeProcessEnv(env),
-      windowsVerbatimArguments: invocation.windowsVerbatimArguments
-    });
-
-    const onAbort = (): void => {
-      if (settled) {
-        return;
-      }
-      try {
-        if (timer !== undefined) {
-          clearTimeout(timer);
-        }
-        if (signal) {
-          signal.removeEventListener('abort', onAbort);
-        }
-        child.kill('SIGTERM');
-        setTimeout(() => {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            // ignore
-          }
-        }, KILL_DELAY);
-      } catch {
-        // ignore
-      }
-      settled = true;
-      resolve({
-        content: `${desc ? `[${desc}]\n` : ''}Aborted before command finished`,
-        isError: true
-      });
-    };
-
-    const cleanupListener = (): void => {
-      if (signal) {
-        signal.removeEventListener('abort', onAbort);
-      }
-    };
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-
-    timer = setTimeout(() => {
-      child.kill('SIGTERM');
-
-      const killTimer = setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // Process already exited
-        }
-      }, KILL_DELAY);
-
-      child.once('exit', () => clearTimeout(killTimer));
-
-      if (!settled) {
-        settled = true;
-        cleanupListener();
-        resolve({
-          content: `${desc ? `[${desc}]\n` : ''}Command timed out after ${effectiveTimeout}ms`,
-          isError: true
-        });
-      }
-    }, effectiveTimeout);
-
-    child.stdout?.on('data', (data: Buffer) => {
-      if (!outputTruncated && stdout.length < MAX_OUTPUT_SIZE) {
-        stdout += data.toString();
-        if (stdout.length >= MAX_OUTPUT_SIZE) {
-          stdout += '\n[Output truncated due to size limit]';
-          outputTruncated = true;
-        }
-      }
-    });
-
-    child.stderr?.on('data', (data: Buffer) => {
-      if (!outputTruncated && stderr.length < MAX_OUTPUT_SIZE) {
-        stderr += data.toString();
-        if (stderr.length >= MAX_OUTPUT_SIZE) {
-          stderr += '\n[Output truncated due to size limit]';
-          outputTruncated = true;
-        }
-      }
-    });
-
-    child.on('error', (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      cleanupListener();
-      resolve({
-        content: `${desc ? `[${desc}]\n` : ''}Command failed: ${error.message}`,
-        isError: true
-      });
-    });
-
-    child.on('close', (code) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      cleanupListener();
-      const output: string[] = [];
-      if (stdout) {
-        output.push(stdout);
-      }
-      if (stderr) {
-        output.push(`STDERR:\n${stderr}`);
-      }
-
-      const prefix = desc ? `[${desc}]\n` : '';
-      if (code === 0) {
-        resolve({
-          content: prefix + (output.join('\n') || 'Command executed successfully (no output)')
-        });
-      } else {
-        resolve({
-          content: `${prefix}Command failed (exit code ${code})\n${output.join('\n')}`,
-          isError: true
-        });
-      }
-    });
-  });
-}
 
 export const bashListTool = createTool({
   name: 'BashList',
@@ -336,8 +184,9 @@ The result is a JSON array of job summaries including \`id\`, \`command\`, \`cwd
 Use this before starting duplicate long-running commands and to discover jobs that need BashOutput or BashKill. The registry is in-memory and process-local; it only contains jobs known to this SDK process/tool instance, not arbitrary OS processes.`,
   parameters: z.object({}),
   isDangerous: false,
-  handler: async () => {
-    const rows = listBackgroundJobs();
+  handler: async (_args, context) => {
+    const env = resolveToolEnvironment(context);
+    const rows: ProcessListItem[] = await env.process.listJobs();
     if (rows.length === 0) {
       return { content: 'No background bash jobs.' };
     }
@@ -408,8 +257,29 @@ Use \`waitMs\` to block locally until new output arrives, the process exits, or 
       .describe('Optional JavaScript regular expression; only matching output lines are kept')
   }),
   isDangerous: false,
-  handler: async (args) =>
-    readJobOutput(args.job_id, {
+  handler: async (args, context) => {
+    const env = resolveToolEnvironment(context);
+    const handle = await env.process.getJob(args.job_id);
+    if (!handle) {
+      return {
+        content: JSON.stringify(
+          {
+            content: `No background bash job "${args.job_id}"`,
+            nextCursorStdout: 0,
+            nextCursorStderr: 0,
+            nextCursorCombinedApprox: 0,
+            status: 'not_found',
+            newOutput: false,
+            exited: true,
+            ringGenerationStdout: 0,
+            ringGenerationStderr: 0
+          },
+          null,
+          2
+        )
+      };
+    }
+    const result = await handle.read({
       stream: args.stream,
       sinceCursor: args.sinceCursor,
       sinceCursorStdout: args.sinceCursorStdout,
@@ -418,7 +288,9 @@ Use \`waitMs\` to block locally until new output arrives, the process exits, or 
       limitChars: args.limitChars,
       waitMs: args.waitMs,
       pattern: args.pattern
-    }).then((r) => ({ content: JSON.stringify(r, null, 2) }))
+    });
+    return { content: JSON.stringify(result, null, 2) };
+  }
 });
 
 export const bashKillTool = createTool({
@@ -440,8 +312,13 @@ Use this for dev servers, watchers, hung commands, or any background job that sh
       .describe('Grace period in ms between SIGTERM and SIGKILL. Default 5000.')
   }),
   isDangerous: true,
-  handler: async ({ job_id, kill_delay_ms }) => {
-    const result = await terminateJob(job_id, 'SIGTERM', kill_delay_ms ?? 5000);
+  handler: async ({ job_id, kill_delay_ms }, context) => {
+    const env = resolveToolEnvironment(context);
+    const handle = await env.process.getJob(job_id);
+    if (!handle) {
+      return { content: JSON.stringify({ ok: false, message: `No job "${job_id}"` }), isError: true };
+    }
+    const result = await handle.terminate({ killDelayMs: kill_delay_ms ?? 5000 });
     return { content: JSON.stringify(result), isError: !result.ok };
   }
 });

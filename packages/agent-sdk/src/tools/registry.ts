@@ -54,6 +54,8 @@ export interface ToolExecuteOptions {
    * Agent 级环境变量覆盖；由 `Agent` 从 `AgentConfig.env` 传入，映射到 {@link ToolExecutionContext.env}。
    */
   env?: Record<string, string>;
+  /** Execution plane injected by {@link Agent}; builtin I/O tools read this. */
+  environment?: import('../core/types.js').Environment;
 }
 
 /**
@@ -353,7 +355,8 @@ export class ToolRegistry {
         projectDir: options?.projectDir,
         agentDepth: options?.agentDepth,
         signal: options?.signal,
-        env: options?.env
+        env: options?.env,
+        environment: options?.environment
       };
       const result = await tool.handler(handlerArgs, executionContext);
       const toolResultRaw = result;

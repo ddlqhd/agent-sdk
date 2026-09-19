@@ -9,7 +9,7 @@
     "cli": "node packages/agent-sdk-cli/bin/agent-sdk.mjs",
     "test": "vitest",
     "test:run": "vitest run",
-    "lint": "pnpm -r --filter \"./packages/**\" --if-present run lint",
+    "lint": "pnpm --filter @ddlqhd/agent-sdk-exec build && pnpm -r --filter \"./packages/**\" --if-present run lint",
     "clean": "pnpm -r --filter \"./packages/**\" --if-present run clean",
     "build:acp": "pnpm --filter @ddlqhd/agent-sdk-acp build"
   },

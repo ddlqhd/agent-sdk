@@ -61,6 +61,7 @@
     "url": "https://github.com/ddlqhd/agent-sdk/issues"
   },
   "dependencies": {
+    "@ddlqhd/agent-sdk-exec": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.0",
     "@mozilla/readability": "^0.6.0",
     "chardet": "^2.1.1",

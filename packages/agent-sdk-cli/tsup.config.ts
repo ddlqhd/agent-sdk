@@ -15,7 +15,7 @@ export default defineConfig({
   outDir: 'dist',
   target: 'es2022',
   platform: 'node',
-  external: ['ink', 'react', 'react/jsx-runtime', '@ddlqhd/agent-sdk', 'undici', 'ws'],
+  external: ['ink', 'react', 'react/jsx-runtime', '@ddlqhd/agent-sdk', '@ddlqhd/agent-sdk-exec', 'undici', 'ws'],
   banner: {
     js: '#!/usr/bin/env node'
   },

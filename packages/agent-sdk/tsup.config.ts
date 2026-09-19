@@ -16,7 +16,7 @@ export default defineConfig({
   outDir: 'dist',
   target: 'es2022',
   platform: 'node',
-  external: ['undici'],
+  external: ['undici', '@ddlqhd/agent-sdk-exec'],
   esbuildOptions(options) {
     options.conditions = ['import', 'module', 'require'];
   }
