@@ -2,8 +2,15 @@
 
 ## Unreleased
 
+## 2.0.0
+
+First npm release of the monorepo split. `@ddlqhd/agent-sdk` **2.0.0** (from **1.0.0**); new packages `@ddlqhd/agent-sdk-cli`, `@ddlqhd/agent-sdk-exec`, `@ddlqhd/agent-sdk-control`, and `@ddlqhd/agent-sdk-acp` at **0.1.0**.
+
 ### Added
 
+- **Packages**: `@ddlqhd/agent-sdk-cli` (binary `agent-sdk`), `@ddlqhd/agent-sdk-exec` (Environment + `agent-sdk-exec`), `@ddlqhd/agent-sdk-control` (CLI / Web / ACP kernel), `@ddlqhd/agent-sdk-acp` (ACP stdio bridge).
+- **Execution plane**: `Environment` / `exec-server` for local or remote fs / process / http; protocol **1.2.0** (server must be ≥ client). Edit, HTML-to-markdown, and oversized Bash / WebFetch / MCP output spill stay on the exec host. See [`docs/sdk-exec-server.md`](./docs/sdk-exec-server.md).
+- **Control kernel**: `@ddlqhd/agent-sdk-control` shared by CLI, Web, and ACP. Not a public app-server protocol. See [`docs/sdk-control.md`](./docs/sdk-control.md).
 - **Logging**: `SDKLogContext`, `createSDKLogContext`, `withLogScope`, and `sdkLog()` to propagate logger config and correlation fields (`sessionId`, `runId`, `agentName`, `cwd`) without repeating `emitSDKLog` arguments across modules.
 - **Logging**: `adaptMessageLogger` / `adaptConsoleLogger` for pino/winston-style loggers; public exports for `emitSDKLog` (deprecated), `sdkLog`, and helpers.
 - **Logging**: `ModelParams.logContext` preferred over separate `logger` / `logLevel` / `redaction` on model requests.

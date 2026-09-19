@@ -1,4 +1,5 @@
-# Publishes @ddlqhd/agent-sdk and @ddlqhd/agent-sdk-cli using npm Trusted Publishing (OIDC). No NPM_TOKEN secret.
+# Publishes workspace packages using npm Trusted Publishing (OIDC). No NPM_TOKEN secret.
+# Order: exec → sdk → control → cli → acp (workspace dependencies).
 #
 # One-time setup on https://www.npmjs.com/ → each package → Settings → Trusted publishing:
 #   • Provider: GitHub Actions
@@ -71,8 +72,17 @@ jobs:
       - name: Test
         run: pnpm test:run
 
+      - name: Publish exec to npm
+        run: pnpm --filter @ddlqhd/agent-sdk-exec publish --access public --no-git-checks
+
       - name: Publish SDK to npm
         run: pnpm --filter @ddlqhd/agent-sdk publish --access public --no-git-checks
 
+      - name: Publish control to npm
+        run: pnpm --filter @ddlqhd/agent-sdk-control publish --access public --no-git-checks
+
       - name: Publish CLI to npm
         run: pnpm --filter @ddlqhd/agent-sdk-cli publish --access public --no-git-checks
+
+      - name: Publish ACP to npm
+        run: pnpm --filter @ddlqhd/agent-sdk-acp publish --access public --no-git-checks

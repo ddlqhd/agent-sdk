@@ -1,5 +1,8 @@
 {
   "name": "@ddlqhd/agent-sdk-acp",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "0.1.0",
   "description": "ACP stdio bridge for @ddlqhd/agent-sdk (Zed / VS Code / JetBrains)",
   "type": "module",
