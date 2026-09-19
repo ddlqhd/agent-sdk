@@ -10,6 +10,9 @@ import { connectRemoteEnvironment, createFailedEnvironment } from './client/remo
 
 export interface ResolveEnvironmentOptions {
   env?: NodeJS.ProcessEnv;
+  /** Used when creating a default / `type: 'local'` environment. */
+  workspaceRoot?: string;
+  userHome?: string;
 }
 
 /**
@@ -36,20 +39,26 @@ export async function createEnvironmentFromConfig(
 
   if (config && typeof config === 'object' && config.type === 'local') {
     return createLocalEnvironment({
-      workspaceRoot: config.workspaceRoot,
-      userHome: config.userHome
+      workspaceRoot: config.workspaceRoot ?? options?.workspaceRoot,
+      userHome: config.userHome ?? options?.userHome
     });
   }
 
   if (config === 'local') {
-    return createLocalEnvironment();
+    return createLocalEnvironment({
+      workspaceRoot: options?.workspaceRoot,
+      userHome: options?.userHome
+    });
   }
 
   if (url && url !== 'none') {
     return connectRemoteEnvironment({ type: 'remote', url, token });
   }
 
-  return createLocalEnvironment();
+  return createLocalEnvironment({
+    workspaceRoot: options?.workspaceRoot,
+    userHome: options?.userHome
+  });
 }
 
 export { createFailedEnvironment };

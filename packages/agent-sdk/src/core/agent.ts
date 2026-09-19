@@ -341,7 +341,9 @@ export class Agent {
         this.ownsExecutionEnvironment = false;
       } else {
         this.executionEnvironment = await createEnvironmentFromConfig(this.config.environment, {
-          env: this.config.env ? { ...process.env, ...this.config.env } : process.env
+          env: this.config.env ? { ...process.env, ...this.config.env } : process.env,
+          workspaceRoot: this.config.cwd,
+          userHome: this.config.userBasePath
         });
         this.ownsExecutionEnvironment = true;
         this.config.environment = this.executionEnvironment;
