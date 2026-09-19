@@ -6,9 +6,11 @@ import {
   PROTOCOL_VERSION,
   isJsonRpcFailure,
   isJsonRpcSuccess,
+  isProtocolCompatible,
   parseJsonRpcMessage,
   serializeJsonRpcMessage,
   type EnvironmentInfo,
+  type InitializeResult,
   type JsonRpcMessage
 } from '../protocol.js';
 import { ExecError } from '../errors.js';
@@ -37,7 +39,11 @@ import type {
   RemoteEnvironmentConfig,
   SearchOptions,
   SearchResult,
-  WriteTextOptions
+  WriteTextOptions,
+  EditOptions,
+  EditResult,
+  SpillTextOptions,
+  SpillTextResult
 } from '../environment.js';
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
@@ -116,7 +122,14 @@ export class ExecRpcClient {
       clientName: this.config.clientName ?? 'agent-sdk',
       protocolVersion: PROTOCOL_VERSION,
       token: this.config.token
-    })) as { environmentInfo: EnvironmentInfo };
+    })) as InitializeResult;
+    const serverVersion = result.protocolVersion;
+    if (!serverVersion || !isProtocolCompatible(PROTOCOL_VERSION, serverVersion)) {
+      this.ws.close();
+      throw new ExecError(
+        `Incompatible protocol version: client ${PROTOCOL_VERSION}, server ${serverVersion ?? 'unknown'}`
+      );
+    }
     this.environmentInfo = result.environmentInfo;
     await this.notify(METHODS.initialized, {});
     return result.environmentInfo;
@@ -215,6 +228,14 @@ class RemoteFileSystem implements FileSystem {
 
   async search(opts: SearchOptions): Promise<SearchResult> {
     return (await this.rpc.request(METHODS.fsSearch, opts)) as SearchResult;
+  }
+
+  async edit(path: string, opts: EditOptions): Promise<EditResult> {
+    return (await this.rpc.request(METHODS.fsEdit, { path, ...opts })) as EditResult;
+  }
+
+  async spillText(text: string, opts: SpillTextOptions): Promise<SpillTextResult> {
+    return (await this.rpc.request(METHODS.fsSpillText, { text, ...opts })) as SpillTextResult;
   }
 }
 
@@ -355,7 +376,9 @@ export function createFailedEnvironment(error: Error): Environment {
     readText: fail,
     writeText: fail,
     glob: fail,
-    search: fail
+    search: fail,
+    edit: fail,
+    spillText: fail
   } as unknown as FileSystem;
   return {
     id: 'failed',

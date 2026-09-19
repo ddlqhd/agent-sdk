@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createLocalEnvironment } from '@ddlqhd/agent-sdk-exec';
 import {
   assertHttpUrl,
   assertUrlSafeForFetch,
@@ -107,6 +108,50 @@ describe('fetchUrlToReadableContent', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('"a"');
     expect(result.content).toContain('1');
+  });
+
+  it('caps the response stream without buffering the whole body', async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(8 * 1024);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.length;
+        controller.enqueue(chunk);
+        if (pulled >= 1024 * 1024) {
+          controller.close();
+        }
+      }
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => new Response(stream, { status: 200 }))
+    );
+    const http = createLocalEnvironment({ dnsLookup: publicLookup }).http;
+    const result = await http.request({ url: 'http://example.com/big', maxBytes: 16_384 });
+    expect(result.truncated).toBe(true);
+    expect(Buffer.byteLength(result.body, 'utf8')).toBe(16_384);
+    expect(pulled).toBeLessThan(64 * 1024);
+  });
+
+  it('converts HTML only when asReadable is set', async () => {
+    const html =
+      '<html><body><article><h1>Title</h1><p>Body text.</p></article></body></html>';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(html, {
+            status: 200,
+            headers: { 'content-type': 'text/html; charset=utf-8' }
+          })
+      )
+    );
+    const http = createLocalEnvironment({ dnsLookup: publicLookup }).http;
+    const raw = await http.request({ url: 'http://example.com/page' });
+    const readable = await http.request({ url: 'http://example.com/page', asReadable: true });
+    expect(raw.body).toContain('<html>');
+    expect(readable.body).not.toContain('<html>');
+    expect(readable.body).toMatch(/Body text/);
   });
 
   it('returns error when DNS resolves to private IP', async () => {

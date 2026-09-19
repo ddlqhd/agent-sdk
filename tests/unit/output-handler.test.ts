@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync } from 'fs';
 import { rm, readFile } from 'fs/promises';
 import { join } from 'path';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
+import { createLocalEnvironment } from '@ddlqhd/agent-sdk-exec';
 import {
   OutputHandler,
   createOutputHandler,
@@ -12,6 +14,20 @@ import {
 } from '../../packages/agent-sdk/src/tools/output-handler.js';
 import { ToolRegistry, createTool } from '../../packages/agent-sdk/src/tools/registry.js';
 import { z } from 'zod';
+
+const isolatedHomes: string[] = [];
+
+function isolatedSpillEnv() {
+  const userHome = mkdtempSync(join(tmpdir(), 'out-handler-'));
+  isolatedHomes.push(userHome);
+  return createLocalEnvironment({ userHome });
+}
+
+afterEach(async () => {
+  await Promise.all(
+    isolatedHomes.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))
+  );
+});
 
 describe('OutputHandler', () => {
   describe('needsHandling', () => {
@@ -41,7 +57,9 @@ describe('OutputHandler', () => {
     it('should use FileStorageStrategy for shell category', async () => {
       const handler = createOutputHandler();
       const longContent = 'a'.repeat(OUTPUT_CONFIG.maxDirectOutput + 1000);
-      const result = await handler.handle(longContent, 'bash', 'shell');
+      const result = await handler.handle(longContent, 'bash', 'shell', {
+        environment: isolatedSpillEnv()
+      });
 
       expect(result.metadata?.truncated).toBe(true);
       expect(result.metadata?.originalLength).toBe(longContent.length);
@@ -54,7 +72,9 @@ describe('OutputHandler', () => {
     it('should use FileStorageStrategy for web category', async () => {
       const handler = createOutputHandler();
       const longContent = 'a'.repeat(OUTPUT_CONFIG.maxDirectOutput + 1000);
-      const result = await handler.handle(longContent, 'WebFetch', 'web');
+      const result = await handler.handle(longContent, 'WebFetch', 'web', {
+        environment: isolatedSpillEnv()
+      });
 
       expect(result.metadata?.truncated).toBe(true);
       expect(result.metadata?.originalLength).toBe(longContent.length);
@@ -103,23 +123,15 @@ describe('OutputHandler', () => {
 });
 
 describe('FileStorageStrategy', () => {
-  afterEach(async () => {
-    // 清理测试生成的文件
-    const storageDir = join(homedir(), OUTPUT_CONFIG.storageDir);
-    try {
-      await rm(storageDir, { recursive: true, force: true });
-    } catch {
-      // 忽略清理错误
-    }
-  });
-
   it('should save content to file and return summary', async () => {
     const strategy = new FileStorageStrategy();
     const lines = Array.from({ length: 100 }, (_, i) => `Line ${i}`);
     const content = lines.join('\n');
     const longContent = content.repeat(100);
 
-    const result = await strategy.handle(longContent, 'test_bash');
+    const result = await strategy.handle(longContent, 'test_bash', {
+      environment: isolatedSpillEnv()
+    });
 
     expect(result.metadata?.storagePath).toBeDefined();
     expect(result.metadata?.lineCount).toBeGreaterThan(0);
@@ -200,9 +212,11 @@ describe('ToolRegistry OutputHandler Integration', () => {
       category: 'shell'
     }));
 
-    const result = await registry.execute('long_output_tool', {
-      length: OUTPUT_CONFIG.maxDirectOutput + 1000
-    });
+    const result = await registry.execute(
+      'long_output_tool',
+      { length: OUTPUT_CONFIG.maxDirectOutput + 1000 },
+      { environment: isolatedSpillEnv() }
+    );
 
     expect(result.metadata?.truncated).toBe(true);
     // shell 类别使用 FileStorageStrategy，输出会被截断并保存到文件
@@ -241,7 +255,7 @@ describe('ToolRegistry OutputHandler Integration', () => {
       category: 'shell'
     }));
 
-    const result = await registry.execute('shell_tool', {});
+    const result = await registry.execute('shell_tool', {}, { environment: isolatedSpillEnv() });
     expect(result.metadata?.storagePath).toBeDefined();
   });
 
@@ -257,7 +271,7 @@ describe('ToolRegistry OutputHandler Integration', () => {
       category: 'web'
     }));
 
-    const result = await registry.execute('web_long_tool', {});
+    const result = await registry.execute('web_long_tool', {}, { environment: isolatedSpillEnv() });
     expect(result.metadata?.truncated).toBe(true);
     expect(result.metadata?.storagePath).toBeDefined();
     expect(result.content).toContain('saved to:');

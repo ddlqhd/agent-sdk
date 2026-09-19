@@ -1,18 +1,18 @@
-import { Readability } from '@mozilla/readability';
-import { parseHTML } from 'linkedom';
-import TurndownService from 'turndown';
 import {
   assertHttpUrl,
   assertUrlSafeForFetch,
   createLocalEnvironment,
+  htmlToMarkdown,
   isBlockedHostname,
   isDangerousIp,
+  WEB_FETCH_MAX_OUTPUT_CHARS,
   type DnsLookupFn,
   type HttpRuntime
 } from '@ddlqhd/agent-sdk-exec';
 
-export { assertHttpUrl, assertUrlSafeForFetch, isBlockedHostname, isDangerousIp };
+export { assertHttpUrl, assertUrlSafeForFetch, isBlockedHostname, isDangerousIp, htmlToMarkdown };
 export type { DnsLookupFn };
+export { assertResolvableHostSafe } from '@ddlqhd/agent-sdk-exec';
 
 /** Default request timeout (ms). */
 export const WEB_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
@@ -21,135 +21,10 @@ export const WEB_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
 export const WEB_FETCH_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 /** Max characters in returned markdown/text after conversion (second line of defense). */
-export const WEB_FETCH_MAX_OUTPUT_CHARS = 512_000;
+export { WEB_FETCH_MAX_OUTPUT_CHARS };
 
 /** Max HTTP redirects when using manual redirect handling. */
 export const WEB_FETCH_MAX_REDIRECTS = 5;
-
-export { assertResolvableHostSafe } from '@ddlqhd/agent-sdk-exec';
-
-export interface ReadBodyResult {
-  text: string;
-  truncated: boolean;
-}
-
-/**
- * Read response body up to maxBytes UTF-8; tracks truncation.
- */
-export async function readResponseBodyWithCap(
-  response: Response,
-  maxBytes: number
-): Promise<ReadBodyResult> {
-  const cl = response.headers.get('content-length');
-  if (cl !== null && cl !== '') {
-    const n = Number.parseInt(cl, 10);
-    if (Number.isFinite(n) && n > maxBytes) {
-      throw new Error(`Response too large (Content-Length: ${n} bytes, max ${maxBytes})`);
-    }
-  }
-
-  if (!response.body) {
-    const buf = new Uint8Array(await response.arrayBuffer());
-    return decodeWithCap(buf, maxBytes);
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let truncated = false;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (!value || value.length === 0) {
-        continue;
-      }
-      if (total + value.length <= maxBytes) {
-        chunks.push(value);
-        total += value.length;
-      } else {
-        const rest = maxBytes - total;
-        if (rest > 0) {
-          chunks.push(value.slice(0, rest));
-          total += rest;
-        }
-        truncated = true;
-        await reader.cancel();
-        break;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const merged = mergeChunks(chunks, total);
-  const dec = decodeWithCap(merged, maxBytes);
-  return { text: dec.text, truncated: dec.truncated || truncated };
-}
-
-function mergeChunks(chunks: Uint8Array[], total: number): Uint8Array {
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.length;
-  }
-  return out;
-}
-
-function decodeWithCap(buf: Uint8Array, maxBytes: number): ReadBodyResult {
-  const truncated = buf.length >= maxBytes;
-  const decoder = new TextDecoder('utf-8', { fatal: false });
-  return { text: decoder.decode(buf), truncated };
-}
-
-function primaryMimeType(contentType: string | null): string {
-  if (!contentType) {
-    return '';
-  }
-  return contentType.split(';')[0]?.trim().toLowerCase() ?? '';
-}
-
-/**
- * Convert HTML to markdown via Readability + Turndown. If Readability yields nothing, falls back to body HTML.
- * Stronger compatibility can use jsdom instead of linkedom (heavier).
- */
-export function htmlToMarkdown(html: string): string {
-  const { document } = parseHTML(html);
-  const reader = new Readability(document);
-  const article = reader.parse();
-  let htmlContent = article?.content?.trim() ?? '';
-  if (!htmlContent && document.body) {
-    htmlContent = document.body.innerHTML ?? '';
-  }
-  if (!htmlContent) {
-    return '';
-  }
-  const turndown = new TurndownService({
-    headingStyle: 'atx',
-    codeBlockStyle: 'fenced'
-  });
-  return turndown.turndown(htmlContent).trim();
-}
-
-function truncateOutput(text: string, maxChars: number): string {
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return `${text.slice(0, maxChars)}\n\n[Output truncated to ${maxChars} characters]`;
-}
-
-function formatJsonText(raw: string): string {
-  try {
-    const v = JSON.parse(raw) as unknown;
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return raw;
-  }
-}
 
 export interface WebFetchContentOptions {
   timeoutMs?: number;
@@ -164,12 +39,12 @@ export interface WebFetchContentOptions {
 
 /**
  * Fetches a URL with SSRF checks, redirect re-validation, timeout, and size limits.
- * Returns markdown or plain text suitable for model context.
+ * HTML/JSON conversion and large-output spill happen on the execution plane.
  */
 export async function fetchUrlToReadableContent(
   urlString: string,
   options: WebFetchContentOptions = {}
-): Promise<{ content: string; isError: boolean }> {
+): Promise<{ content: string; isError: boolean; storagePath?: string }> {
   const timeoutMs = options.timeoutMs ?? WEB_FETCH_DEFAULT_TIMEOUT_MS;
   const maxResponseBytes = options.maxResponseBytes ?? WEB_FETCH_MAX_RESPONSE_BYTES;
   const maxOutputChars = options.maxOutputChars ?? WEB_FETCH_MAX_OUTPUT_CHARS;
@@ -190,7 +65,9 @@ export async function fetchUrlToReadableContent(
       url: urlString,
       timeoutMs,
       maxBytes: maxResponseBytes,
-      maxRedirects
+      maxRedirects,
+      asReadable: true,
+      maxOutputChars
     });
 
     if (response.status < 200 || response.status >= 300) {
@@ -200,22 +77,11 @@ export async function fetchUrlToReadableContent(
       };
     }
 
-    const mime = response.mimeType || primaryMimeType(response.headers['content-type'] ?? null);
-    let content: string;
-    if (mime.includes('html') || mime === '' || mime === 'application/xhtml+xml') {
-      content = htmlToMarkdown(response.body);
-    } else if (mime.includes('json') || mime.endsWith('+json')) {
-      content = formatJsonText(response.body);
-    } else {
-      content = response.body;
-    }
-
-    if (response.truncated) {
-      content = `${content}\n\n[Response body truncated at ${maxResponseBytes} bytes]`;
-    }
-
-    content = truncateOutput(content, maxOutputChars);
-    return { content, isError: false };
+    return {
+      content: response.body,
+      isError: false,
+      storagePath: response.storagePath
+    };
   } catch (error) {
     return {
       content: `Error fetching webpage: ${formatNetworkError(error)}`,

@@ -3,11 +3,19 @@ import {
   encodeBytes,
   METHODS,
   PROTOCOL_VERSION,
+  isProtocolCompatible,
   type EnvironmentInfo,
   type InitializeParams,
   type JsonRpcRequest
 } from '../protocol.js';
-import { ExecAuthError, ExecError, EXEC_NOT_FOUND, EXEC_NOT_INITIALIZED, JSON_RPC_INVALID_PARAMS } from '../errors.js';
+import {
+  ExecAuthError,
+  ExecError,
+  EXEC_NOT_FOUND,
+  EXEC_NOT_INITIALIZED,
+  EXEC_PROTOCOL_MISMATCH,
+  JSON_RPC_INVALID_PARAMS
+} from '../errors.js';
 import type { Environment, ProcessHandle } from '../environment.js';
 import { PACKAGE_VERSION } from '../version.js';
 import { getExecutorShellPath } from '../local/shell-path.js';
@@ -106,6 +114,13 @@ export async function handleRequest(
     if (!init.clientName) {
       throw new ExecError('clientName is required', JSON_RPC_INVALID_PARAMS);
     }
+    const clientVersion = str(params, 'protocolVersion', true)!;
+    if (!isProtocolCompatible(clientVersion, PROTOCOL_VERSION)) {
+      throw new ExecError(
+        `Incompatible protocol version: client ${clientVersion}, server ${PROTOCOL_VERSION}`,
+        EXEC_PROTOCOL_MISMATCH
+      );
+    }
     ctx.session.initializeAccepted = true;
     return {
       sessionId: ctx.session.id,
@@ -185,6 +200,20 @@ export async function handleRequest(
       });
       return {};
     }
+    case METHODS.fsEdit: {
+      return env.fs.edit(str(params, 'path', true)!, {
+        oldString: str(params, 'oldString', true)!,
+        newString: str(params, 'newString', true)!,
+        replaceAll: bool(params, 'replaceAll'),
+        encoding: str(params, 'encoding')
+      });
+    }
+    case METHODS.fsSpillText: {
+      return env.fs.spillText(str(params, 'text', true)!, {
+        toolName: str(params, 'toolName', true)!,
+        maxDirectChars: num(params, 'maxDirectChars')
+      });
+    }
     case METHODS.fsGlob: {
       const pattern = str(params, 'pattern', true)!;
       const cwd = str(params, 'cwd', true)!;
@@ -208,7 +237,9 @@ export async function handleRequest(
         timeoutMs: num(params, 'timeoutMs'),
         maxBytes: num(params, 'maxBytes'),
         maxRedirects: num(params, 'maxRedirects'),
-        headers: (params.headers as Record<string, string> | undefined) ?? undefined
+        headers: (params.headers as Record<string, string> | undefined) ?? undefined,
+        asReadable: bool(params, 'asReadable'),
+        maxOutputChars: num(params, 'maxOutputChars')
       });
     }
     case METHODS.processStart: {

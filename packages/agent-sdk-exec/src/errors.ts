@@ -5,6 +5,7 @@ export const EXEC_UNAUTHORIZED = -32001;
 export const EXEC_NOT_INITIALIZED = -32002;
 export const EXEC_PATH_DENIED = -32003;
 export const EXEC_NOT_FOUND = -32004;
+export const EXEC_PROTOCOL_MISMATCH = -32005;
 
 export class ExecError extends Error {
   readonly code: number;

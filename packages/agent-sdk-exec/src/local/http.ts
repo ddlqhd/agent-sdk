@@ -1,20 +1,32 @@
 import * as dns from 'node:dns';
-import type { DnsLookupFn, HttpRequest, HttpResponse, HttpRuntime } from '../environment.js';
+import type { DnsLookupFn, FileSystem, HttpRequest, HttpResponse, HttpRuntime } from '../environment.js';
+import { shouldReplaceWithSpill, SPILL_MAX_DIRECT_CHARS } from './spill.js';
 import { assertUrlSafeForFetch } from './ssrf.js';
+import { primaryMimeType, toReadableContent, WEB_FETCH_MAX_OUTPUT_CHARS } from './web-readable.js';
 
 export const HTTP_DEFAULT_TIMEOUT_MS = 30_000;
 export const HTTP_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const HTTP_MAX_REDIRECTS = 5;
 const USER_AGENT = 'Agent-SDK-WebFetch/0.1 (+https://github.com/)';
 
-function primaryMimeType(contentType: string | null): string {
-  if (!contentType) {
-    return '';
+function mergeChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
   }
-  return contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return out;
 }
 
-async function readResponseBodyWithCap(
+function decodeUtf8(buf: Uint8Array): string {
+  return new TextDecoder('utf-8', { fatal: false }).decode(buf);
+}
+
+/**
+ * Read a response body up to `maxBytes`, cancelling the stream as soon as the cap is hit.
+ */
+export async function readResponseBodyWithCap(
   response: Response,
   maxBytes: number
 ): Promise<{ text: string; truncated: boolean }> {
@@ -26,10 +38,55 @@ async function readResponseBodyWithCap(
     }
   }
 
-  const buf = new Uint8Array(await response.arrayBuffer());
-  const truncated = buf.length >= maxBytes;
-  const slice = truncated ? buf.subarray(0, maxBytes) : buf;
-  return { text: new TextDecoder('utf-8', { fatal: false }).decode(slice), truncated };
+  if (!response.body) {
+    const buf = new Uint8Array(await response.arrayBuffer());
+    if (buf.length <= maxBytes) {
+      return { text: decodeUtf8(buf), truncated: false };
+    }
+    return { text: decodeUtf8(buf.subarray(0, maxBytes)), truncated: true };
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value || value.length === 0) {
+        continue;
+      }
+      if (total + value.length <= maxBytes) {
+        chunks.push(value);
+        total += value.length;
+        continue;
+      }
+      const rest = maxBytes - total;
+      if (rest > 0) {
+        chunks.push(value.subarray(0, rest));
+        total += rest;
+      }
+      truncated = true;
+      await reader.cancel();
+      break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { text: decodeUtf8(mergeChunks(chunks, total)), truncated };
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // ignore
+  }
 }
 
 function headerRecord(headers: Headers): Record<string, string> {
@@ -41,7 +98,10 @@ function headerRecord(headers: Headers): Record<string, string> {
 }
 
 export class LocalHttpRuntime implements HttpRuntime {
-  constructor(private readonly dnsLookup?: DnsLookupFn) {}
+  constructor(
+    private readonly dnsLookup?: DnsLookupFn,
+    private readonly fs?: FileSystem
+  ) {}
 
   async request(req: HttpRequest): Promise<HttpResponse> {
     const timeoutMs = req.timeoutMs ?? HTTP_DEFAULT_TIMEOUT_MS;
@@ -67,6 +127,7 @@ export class LocalHttpRuntime implements HttpRuntime {
 
       const status = response.status;
       if (status >= 300 && status < 400) {
+        await cancelResponseBody(response);
         const loc = response.headers.get('location');
         if (!loc || redirectCount >= maxRedirects) {
           throw new Error(
@@ -81,14 +142,31 @@ export class LocalHttpRuntime implements HttpRuntime {
       }
 
       const { text, truncated } = await readResponseBodyWithCap(response, maxBytes);
+      const mimeType = primaryMimeType(response.headers.get('content-type'));
+      let body = text;
+      let storagePath: string | undefined;
+      if (req.asReadable === true) {
+        body = toReadableContent(text, mimeType, req.maxOutputChars ?? WEB_FETCH_MAX_OUTPUT_CHARS);
+        if (truncated) {
+          body = `${body}\n\n[Response body truncated at ${maxBytes} bytes]`;
+        }
+        if (this.fs && body.length > SPILL_MAX_DIRECT_CHARS) {
+          const spilled = await this.fs.spillText(body, { toolName: 'WebFetch' });
+          if (shouldReplaceWithSpill(spilled, body)) {
+            body = spilled.content;
+            storagePath = spilled.storagePath;
+          }
+        }
+      }
       return {
         status,
         statusText: response.statusText,
         headers: headerRecord(response.headers),
-        body: text,
-        mimeType: primaryMimeType(response.headers.get('content-type')),
+        body,
+        mimeType,
         truncated,
-        finalUrl: currentUrl.toString()
+        finalUrl: currentUrl.toString(),
+        storagePath
       };
     }
   }

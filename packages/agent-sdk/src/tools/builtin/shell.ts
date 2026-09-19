@@ -146,12 +146,21 @@ IMPORTANT: Avoid using this tool to run find, grep, cat, head, tail, sed, awk, o
     });
     const prefix = desc ? `[${desc}]\n` : '';
     if (wait.aborted) {
-      return { content: `${prefix}Aborted before command finished`, isError: true };
+      const tail = wait.stdout ? `\n${wait.stdout}` : '';
+      return {
+        content: `${prefix}Aborted before command finished${tail}`,
+        isError: true,
+        metadata: wait.storagePath ? { storagePath: wait.storagePath } : undefined
+      };
     }
     if (wait.timedOut) {
+      const extra = [wait.stdout, wait.stderr ? `STDERR:\n${wait.stderr}` : '']
+        .filter(Boolean)
+        .join('\n');
       return {
-        content: `${prefix}Command timed out after ${timeout ?? DEFAULT_FOREGROUND_TIMEOUT}ms`,
-        isError: true
+        content: `${prefix}Command timed out after ${timeout ?? DEFAULT_FOREGROUND_TIMEOUT}ms${extra ? `\n${extra}` : ''}`,
+        isError: true,
+        metadata: wait.storagePath ? { storagePath: wait.storagePath } : undefined
       };
     }
     if (wait.spawnError) {

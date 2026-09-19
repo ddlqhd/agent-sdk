@@ -4,16 +4,22 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   PROTOCOL_VERSION,
+  SPILL_MAX_DIRECT_CHARS,
+  SPILL_MAX_STORAGE_CHARS,
   createEnvironmentFromConfig,
   createLocalEnvironment,
   decodeBytes,
   encodeBytes,
+  isProtocolCompatible,
   parseJsonRpcMessage,
   serializeJsonRpcMessage,
+  spillFileName,
   startExecServer,
   connectRemoteEnvironment,
   formatExecServerLogLine,
   summarizeRpcParams,
+  htmlToMarkdown,
+  toReadableContent,
   type ExecServerLogEvent,
   type RunningExecServer
 } from '@ddlqhd/agent-sdk-exec';
@@ -33,6 +39,18 @@ describe('exec protocol helpers', () => {
     const buf = new Uint8Array([1, 2, 3, 250]);
     expect(Array.from(decodeBytes(encodeBytes(buf)))).toEqual([1, 2, 3, 250]);
     expect(PROTOCOL_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('requires the server protocol to be the same major and >= client', () => {
+    expect(isProtocolCompatible('1.1.0', '1.2.0')).toBe(true);
+    expect(isProtocolCompatible('1.2.0', '1.2.0')).toBe(true);
+    expect(isProtocolCompatible('1.2.0', '1.1.0')).toBe(false);
+    expect(isProtocolCompatible('2.0.0', '1.2.0')).toBe(false);
+    expect(isProtocolCompatible('not-a-version', '1.2.0')).toBe(false);
+  });
+
+  it('gives spill files unique names at the same timestamp', () => {
+    expect(spillFileName('Bash', 1)).not.toBe(spillFileName('Bash', 1));
   });
 });
 
@@ -83,6 +101,68 @@ describe('LocalEnvironment', () => {
     await expect(env.fs.stat(join(userHome, 'secret.txt'))).rejects.toThrow(/outside workspace root/);
     await expect(env.fs.writeText(join(skillDir, 'evil.md'), 'nope')).rejects.toThrow(/outside workspace root/);
     await expect(env.process.start({ command: 'true', cwd: skillDir })).rejects.toThrow(/outside workspace root/);
+  });
+
+  it('edits a file in place and spills oversized text to user tool-outputs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-local-edit-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-local-home-'));
+    writeFileSync(join(root, 'a.txt'), 'alpha beta\n');
+    const env = createLocalEnvironment({ workspaceRoot: root, userHome });
+
+    const edited = await env.fs.edit(join(root, 'a.txt'), {
+      oldString: 'beta',
+      newString: 'gamma'
+    });
+    expect(edited.occurrences).toBe(1);
+    const after = await env.fs.readText(join(root, 'a.txt'));
+    expect(after.text ?? after.lines.join('\n')).toContain('alpha gamma');
+
+    const long = 'x'.repeat(SPILL_MAX_DIRECT_CHARS + 50);
+    const spilled = await env.fs.spillText(long, { toolName: 'Bash' });
+    expect(spilled.spilled).toBe(true);
+    expect(spilled.storagePath).toContain(join(userHome, '.claude', 'tool-outputs'));
+    const saved = await env.fs.readText(spilled.storagePath!);
+    expect(saved.text ?? saved.lines.join('\n')).toBe(long);
+  });
+
+  it('converts HTML to markdown on the execution plane', () => {
+    const md = htmlToMarkdown(
+      '<html><body><article><h1>Hello</h1><p>World paragraph.</p></article></body></html>'
+    );
+    expect(md).toMatch(/Hello/);
+    expect(md).toMatch(/World paragraph/);
+  });
+
+  it('allows writes under user tool-outputs and rejects other HOME paths', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'exec-ws-out-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-home-out-'));
+    const env = createLocalEnvironment({ workspaceRoot: workspace, userHome });
+    const spilled = join(userHome, '.claude', 'tool-outputs', 'note.txt');
+    await env.fs.writeText(spilled, 'kept', { mkdir: true });
+    const read = await env.fs.readText(spilled);
+    expect(read.text ?? read.lines.join('\n')).toContain('kept');
+    await expect(env.fs.writeText(join(userHome, '.claude', 'secret.txt'), 'nope')).rejects.toThrow(
+      /outside workspace root/
+    );
+  });
+
+  it('reports original length when stored spill is truncated', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-spill-trunc-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-spill-trunc-home-'));
+    const env = createLocalEnvironment({ workspaceRoot: root, userHome });
+    const long = 'z'.repeat(SPILL_MAX_STORAGE_CHARS + 25);
+    const spilled = await env.fs.spillText(long, { toolName: 'Bash', maxDirectChars: 10 });
+    expect(spilled.spilled).toBe(true);
+    expect(spilled.storageTruncated).toBe(true);
+    expect(spilled.originalLength).toBe(long.length);
+    expect(spilled.content).toContain(`first ${SPILL_MAX_STORAGE_CHARS} of ${long.length}`);
+    const saved = await env.fs.readText(spilled.storagePath!);
+    expect((saved.text ?? saved.lines.join('\n')).length).toBe(SPILL_MAX_STORAGE_CHARS);
+  });
+
+  it('treats missing Content-Type as plain text, not HTML', () => {
+    const raw = '<html><body><p>Keep tags</p></body></html>';
+    expect(toReadableContent(raw, '')).toContain('<html>');
   });
 
   it('lists user and workspace skills without bodies', async () => {
@@ -262,6 +342,13 @@ describe('exec-server request logs', () => {
       command: 'printf hi',
       cwd: '/repo'
     });
+    expect(
+      summarizeRpcParams('fs/edit', { path: '/repo/a.ts', oldString: 'foo', newString: 'bar' })
+    ).toEqual({ path: '/repo/a.ts', oldStringChars: 3, newStringChars: 3 });
+    expect(summarizeRpcParams('fs/spillText', { toolName: 'Bash', text: 'hello' })).toEqual({
+      toolName: 'Bash',
+      textChars: 5
+    });
   });
 
   it('formats a single-line request log', () => {
@@ -286,7 +373,7 @@ describe('remote exec-server loopback', () => {
   afterEach(async () => {
     await server?.close();
     server = undefined;
-  });
+  }, 20_000);
 
   it('connects over WebSocket and performs fs + process RPCs', async () => {
     const root = mkdtempSync(join(tmpdir(), 'exec-ws-'));
@@ -332,6 +419,77 @@ describe('remote exec-server loopback', () => {
     expect(JSON.stringify(logs)).not.toContain('secret');
     const sessionIds = new Set(logs.map((e) => e.sessionId));
     expect(sessionIds.size).toBe(1);
+  });
+
+  it('edits a remote file without returning file body', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-edit-'));
+    writeFileSync(join(root, 'note.txt'), 'hello world\n');
+    const logs: ExecServerLogEvent[] = [];
+    server = await startExecServer({
+      host: '127.0.0.1',
+      port: 0,
+      cwd: root,
+      token: 'secret',
+      log: (entry) => logs.push(entry)
+    });
+
+    const remote = await connectRemoteEnvironment({
+      type: 'remote',
+      url: server.url,
+      token: 'secret',
+      clientName: 'vitest'
+    });
+
+    const edited = await remote.fs.edit(join(root, 'note.txt'), {
+      oldString: 'world',
+      newString: 'exec'
+    });
+    expect(edited).toEqual({ occurrences: 1 });
+    expect(JSON.stringify(edited)).not.toContain('hello');
+
+    const text = await remote.fs.readText(join(root, 'note.txt'));
+    expect(text.text ?? text.lines.join('\n')).toContain('hello exec');
+
+    expect(JSON.stringify(logs)).not.toContain('hello world');
+    expect(logs.some((e) => e.method === 'fs/edit')).toBe(true);
+
+    await remote.close();
+  });
+
+  it('spills oversized bash output on the execution plane so Read can open it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-spill-'));
+    const userHome = mkdtempSync(join(tmpdir(), 'exec-spill-home-'));
+    server = await startExecServer({
+      host: '127.0.0.1',
+      port: 0,
+      cwd: root,
+      userHome,
+      token: 'secret'
+    });
+
+    const remote = await connectRemoteEnvironment({
+      type: 'remote',
+      url: server.url,
+      token: 'secret',
+      clientName: 'vitest'
+    });
+
+    const size = SPILL_MAX_DIRECT_CHARS + 1000;
+    const handle = await remote.process.start({
+      command: `python3 -c "print('a'*${size}, end='')"`
+    });
+    const wait = await handle.wait({ timeoutMs: 15_000 });
+    expect(wait.storagePath).toBeTruthy();
+    expect(wait.stdout).toContain('Output too large');
+    expect(wait.stdout).toContain(wait.storagePath!);
+    expect(wait.stdout.length).toBeLessThan(size);
+    expect(wait.stdout).not.toContain('a'.repeat(size));
+
+    const spilled = await remote.fs.readText(wait.storagePath!);
+    const body = spilled.text ?? spilled.lines.join('\n');
+    expect(body.length).toBe(size);
+
+    await remote.close();
   });
 
   it('rejects fs RPCs until initialize then initialized, and keeps session.id', async () => {
@@ -386,6 +544,32 @@ describe('remote exec-server loopback', () => {
       'secret'
     )) as { isFile: boolean };
     expect(meta.isFile).toBe(true);
+  });
+
+  it('rejects initialize when the client protocol is newer than the server', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'exec-proto-'));
+    const environment = createLocalEnvironment({ workspaceRoot: root });
+    const session: ExecSession = {
+      id: 'sess-proto',
+      initializeAccepted: false,
+      initialized: false,
+      environment,
+      processes: new Map()
+    };
+    const ctx = { token: 'secret', environment, session };
+    await expect(
+      handleRequest(
+        ctx,
+        {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { clientName: 'vitest', protocolVersion: '2.0.0', token: 'secret' }
+        },
+        'secret'
+      )
+    ).rejects.toThrow(/Incompatible protocol version/);
+    expect(session.initializeAccepted).toBe(false);
   });
 });
 

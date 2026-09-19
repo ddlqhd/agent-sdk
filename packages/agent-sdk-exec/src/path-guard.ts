@@ -12,8 +12,8 @@ function isInsideRoot(root: string, resolved: string): boolean {
 /**
  * Resolve `targetPath` and, when a workspace root is set, reject paths outside
  * that root and any extra allowed roots (e.g. `{userHome}/.claude/skills`).
- * Extra roots are for read-only skill catalog access; callers must omit them
- * on write / process-cwd checks.
+ * Extra roots on read include the skill catalog and tool-outputs; write callers
+ * must pass only writable extra roots (tool-outputs), never skills.
  */
 export function assertWithinRoot(
   workspaceRoot: string | undefined,
@@ -39,4 +39,9 @@ export function userSkillsRoot(userHome: string): string {
 /** Workspace-level skill directory under the exec cwd / jail. */
 export function workspaceSkillsRoot(cwd: string): string {
   return path.join(path.resolve(cwd), '.claude', 'skills');
+}
+
+/** User-level tool-outputs directory on the exec machine (writable extra root). */
+export function userToolOutputsRoot(userHome: string): string {
+  return path.join(path.resolve(userHome), '.claude', 'tool-outputs');
 }

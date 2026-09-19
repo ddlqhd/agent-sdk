@@ -78,6 +78,18 @@ export function summarizeRpcParams(
         ...pathDetail(p),
         ...(typeof p.text === 'string' ? { textChars: p.text.length } : {})
       };
+    case METHODS.fsEdit:
+      return {
+        ...pathDetail(p),
+        ...(typeof p.oldString === 'string' ? { oldStringChars: p.oldString.length } : {}),
+        ...(typeof p.newString === 'string' ? { newStringChars: p.newString.length } : {}),
+        ...(typeof p.replaceAll === 'boolean' ? { replaceAll: p.replaceAll } : {})
+      };
+    case METHODS.fsSpillText:
+      return {
+        ...(typeof p.toolName === 'string' ? { toolName: p.toolName } : {}),
+        ...(typeof p.text === 'string' ? { textChars: p.text.length } : {})
+      };
     case METHODS.fsCopy:
       return { src: clip(p.src), dest: clip(p.dest) };
     case METHODS.fsGlob:
@@ -106,7 +118,8 @@ export function summarizeRpcParams(
     case METHODS.httpRequest:
       return {
         httpMethod: typeof p.method === 'string' ? p.method : 'GET',
-        url: clip(p.url)
+        url: clip(p.url),
+        ...(typeof p.asReadable === 'boolean' ? { asReadable: p.asReadable } : {})
       };
     default:
       return undefined;

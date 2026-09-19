@@ -12,6 +12,12 @@ describe('mock OpenAI tool-call script', () => {
     expect(inferToolKind('List files with Glob')).toBe('glob-ls');
     expect(inferToolKind('Print working directory with pwd')).toBe('bash-pwd');
     expect(inferToolKind('Run ls in the workspace')).toBe('bash-ls');
+    expect(inferToolKind('Edit /tmp/note.txt replace hello with world')).toBe('edit-replace');
+    expect(inferToolKind("Print 60000 letter a with python")).toBe('bash-spill');
+    expect(inferToolKind('Print 60000 letter a with python then sleep until timeout')).toBe(
+      'bash-timeout-spill'
+    );
+    expect(inferToolKind('Fetch http://example.com/page with WebFetch')).toBe('webfetch');
     expect(inferToolKind('Reply with the mock marker only.')).toBeUndefined();
   });
 
@@ -32,6 +38,29 @@ describe('mock OpenAI tool-call script', () => {
     expect(second.text).toContain(MOCK_ASSISTANT_TEXT);
     expect(second.text).toContain(MOCK_TOOL_DONE_MARKER);
     expect(second.text).toContain('probe-ls.txt');
+  });
+
+  it('emits Edit / Bash spill / WebFetch tool calls from the prompt', () => {
+    expect(
+      decideMockReply({
+        messages: [{ role: 'user', content: 'Edit /tmp/note.txt replace hello with world' }]
+      })
+    ).toEqual({ reply: 'tool', text: '', toolKind: 'edit-replace' });
+    expect(
+      decideMockReply({
+        messages: [{ role: 'user', content: 'Print 60000 letter a with python' }]
+      }).toolKind
+    ).toBe('bash-spill');
+    expect(
+      decideMockReply({
+        messages: [{ role: 'user', content: 'Print 60000 letter a with python then sleep until timeout' }]
+      }).toolKind
+    ).toBe('bash-timeout-spill');
+    expect(
+      decideMockReply({
+        messages: [{ role: 'user', content: 'Fetch http://example.com/page with WebFetch' }]
+      }).toolKind
+    ).toBe('webfetch');
   });
 });
 

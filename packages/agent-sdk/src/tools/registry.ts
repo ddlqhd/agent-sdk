@@ -382,7 +382,7 @@ export class ToolRegistry {
           result.content,
           name,
           tool.category,
-          { args: handlerArgs }
+          { args: handlerArgs, environment: options?.environment }
         );
       }
 

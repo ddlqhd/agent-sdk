@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { ExecError, JSON_RPC_INTERNAL_ERROR, JSON_RPC_INVALID_REQUEST } from '../errors.js';
+import type { DnsLookupFn } from '../environment.js';
 import { createLocalEnvironment } from '../local/environment.js';
 import {
   isJsonRpcRequest,
@@ -18,6 +19,10 @@ export interface ExecServerOptions {
   port?: number;
   token?: string;
   cwd?: string;
+  /** Execution-plane user home (skills + tool-outputs). Defaults to `os.homedir()`. */
+  userHome?: string;
+  /** Test-only DNS override for WebFetch SSRF checks on the execution plane. */
+  dnsLookup?: DnsLookupFn;
   /** When set, emit connection / RPC / disconnect events (CLI prints these). */
   log?: ExecServerLogFn;
 }
@@ -50,7 +55,11 @@ function send(ws: WebSocket, msg: JsonRpcSuccess | JsonRpcFailure): void {
 export async function startExecServer(options: ExecServerOptions = {}): Promise<RunningExecServer> {
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 8787;
-  const environment = createLocalEnvironment({ workspaceRoot: options.cwd });
+  const environment = createLocalEnvironment({
+    workspaceRoot: options.cwd,
+    userHome: options.userHome,
+    dnsLookup: options.dnsLookup
+  });
   const log = options.log;
 
   const wss = new WebSocketServer({ host, port });

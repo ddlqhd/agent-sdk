@@ -4,20 +4,17 @@ import { createLocalEnvironment } from '@ddlqhd/agent-sdk-exec';
 import { editTool } from '../../packages/agent-sdk/src/tools/builtin/filesystem.js';
 
 describe('Edit Tool max file size', () => {
-  it('rejects edit when stat reports size at 1 GiB', async () => {
+  it('rejects edit when execution plane reports a 1 GiB file', async () => {
     const base = createLocalEnvironment();
-    const readText = vi.fn();
     const environment = {
       ...base,
       fs: {
         ...base.fs,
-        stat: async () => ({
-          isFile: true,
-          isDirectory: false,
-          size: 1024 ** 3,
-          mtimeMs: 0
-        }),
-        readText
+        edit: async () => {
+          throw new Error(
+            'Error: file is too large to edit (1073741824 bytes). Maximum size is 1073741824 bytes (1 GiB). Use a different tool or split the work.'
+          );
+        }
       }
     };
 
@@ -36,6 +33,23 @@ describe('Edit Tool max file size', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('1 GiB');
+  });
+
+  it('LocalFileSystem.edit rejects before reading when stat is 1 GiB', async () => {
+    const env = createLocalEnvironment();
+    const stat = vi.spyOn(env.fs, 'stat').mockResolvedValue({
+      isFile: true,
+      isDirectory: false,
+      size: 1024 ** 3,
+      mtimeMs: 0
+    });
+    const readText = vi.spyOn(env.fs, 'readText');
+
+    await expect(env.fs.edit('/tmp/huge.txt', { oldString: 'a', newString: 'b' })).rejects.toThrow(
+      /1 GiB/
+    );
     expect(readText).not.toHaveBeenCalled();
+    stat.mockRestore();
+    readText.mockRestore();
   });
 });

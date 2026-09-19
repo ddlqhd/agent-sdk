@@ -37,7 +37,7 @@ export {
   SmartTruncateStrategy,
   OUTPUT_CONFIG
 } from './output-handler.js';
-export type { OutputStrategy } from './output-handler.js';
+export type { OutputStrategy, OutputHandleContext } from './output-handler.js';
 
 // Built-in tools
 export * from './builtin/index.js';

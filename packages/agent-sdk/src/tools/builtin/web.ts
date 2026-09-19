@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
 import { tavilyWebSearch } from './tavily-search.js';
+import { resolveToolEnvironment } from '../../exec/tool-environment.js';
 import { fetchUrlToReadableContent } from './web-fetch.js';
 
 /**
@@ -23,12 +24,13 @@ Limits and behavior:
     url: z.string().describe('The URL to fetch content from')
   }),
   handler: async ({ url }, context) => {
+    const env = resolveToolEnvironment(context);
     const result = await fetchUrlToReadableContent(url, {
-      http: context?.environment?.http
+      http: env.http
     });
     return result.isError
       ? { content: result.content, isError: true }
-      : { content: result.content };
+      : { content: result.content, metadata: result.storagePath ? { storagePath: result.storagePath } : undefined };
   }
 });
 

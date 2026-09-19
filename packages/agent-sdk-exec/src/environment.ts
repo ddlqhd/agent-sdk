@@ -71,6 +71,32 @@ export interface SearchResult {
   content: string;
 }
 
+export interface EditOptions {
+  oldString: string;
+  newString: string;
+  replaceAll?: boolean;
+  encoding?: string;
+}
+
+export interface EditResult {
+  occurrences: number;
+}
+
+export interface SpillTextOptions {
+  toolName: string;
+  maxDirectChars?: number;
+}
+
+export interface SpillTextResult {
+  content: string;
+  spilled: boolean;
+  storagePath?: string;
+  originalLength: number;
+  lineCount: number;
+  /** True when the stored file is a prefix of the original text. */
+  storageTruncated?: boolean;
+}
+
 export interface FileSystem {
   stat(path: string): Promise<FileStat>;
   readFile(path: string, opts?: ReadFileOptions): Promise<Uint8Array>;
@@ -84,6 +110,8 @@ export interface FileSystem {
   writeText(path: string, text: string, opts?: WriteTextOptions): Promise<void>;
   glob(pattern: string, opts: GlobOptions): Promise<GlobMatch[]>;
   search(opts: SearchOptions): Promise<SearchResult>;
+  edit(path: string, opts: EditOptions): Promise<EditResult>;
+  spillText(text: string, opts: SpillTextOptions): Promise<SpillTextResult>;
 }
 
 export interface SkillListOptions {
@@ -131,6 +159,8 @@ export interface ProcessWaitResult {
   timedOut: boolean;
   aborted: boolean;
   spawnError?: string;
+  /** Set when stdout/stderr were spilled to the execution-plane tool-outputs dir. */
+  storagePath?: string;
 }
 
 export interface ProcessReadOptions {
@@ -159,6 +189,8 @@ export interface ProcessReadResult {
   suggestedWaitMs?: number;
   ringGenerationStdout: number;
   ringGenerationStderr: number;
+  /** Set when content was spilled to the execution-plane tool-outputs dir. */
+  storagePath?: string;
 }
 
 export interface ProcessListItem {
@@ -209,6 +241,10 @@ export interface HttpRequest {
   timeoutMs?: number;
   maxBytes?: number;
   maxRedirects?: number;
+  /** Convert HTML/JSON to readable text on the execution plane (WebFetch). */
+  asReadable?: boolean;
+  /** After conversion, cap returned/spilled text length. */
+  maxOutputChars?: number;
 }
 
 export interface HttpResponse {
@@ -219,6 +255,8 @@ export interface HttpResponse {
   mimeType: string;
   truncated: boolean;
   finalUrl: string;
+  /** Set when readable body was spilled to the execution-plane tool-outputs dir. */
+  storagePath?: string;
 }
 
 export type DnsLookupFn = (

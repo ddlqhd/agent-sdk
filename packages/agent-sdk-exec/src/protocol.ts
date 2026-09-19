@@ -1,4 +1,33 @@
-export const PROTOCOL_VERSION = '1.1.0';
+export const PROTOCOL_VERSION = '1.2.0';
+
+export interface ProtocolVersionParts {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+export function parseProtocolVersion(version: string): ProtocolVersionParts | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
+  if (!match) {
+    return undefined;
+  }
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+}
+
+/**
+ * Same major; server must be >= client so newer clients do not call missing methods.
+ */
+export function isProtocolCompatible(clientVersion: string, serverVersion: string): boolean {
+  const client = parseProtocolVersion(clientVersion);
+  const server = parseProtocolVersion(serverVersion);
+  if (!client || !server || client.major !== server.major) {
+    return false;
+  }
+  if (server.minor !== client.minor) {
+    return server.minor > client.minor;
+  }
+  return server.patch >= client.patch;
+}
 
 export const METHODS = {
   initialize: 'initialize',
@@ -25,6 +54,8 @@ export const METHODS = {
   fsSearch: 'fs/search',
   fsReadText: 'fs/readText',
   fsWriteText: 'fs/writeText',
+  fsEdit: 'fs/edit',
+  fsSpillText: 'fs/spillText',
   httpRequest: 'http/request'
 } as const;
 

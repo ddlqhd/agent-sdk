@@ -1,6 +1,13 @@
-import { mkdir, writeFile } from 'fs/promises';
-import { join, dirname } from 'path';
 import { homedir } from 'os';
+import {
+  createLocalEnvironment,
+  getDefaultLocalEnvironment,
+  SPILL_MAX_DIRECT_CHARS,
+  SPILL_MAX_STORAGE_CHARS,
+  SPILL_SUMMARY_HEAD_LINES,
+  SPILL_SUMMARY_TAIL_LINES,
+  type Environment
+} from '@ddlqhd/agent-sdk-exec';
 import type { ToolResult } from '../core/types.js';
 
 /**
@@ -8,18 +15,25 @@ import type { ToolResult } from '../core/types.js';
  */
 export const OUTPUT_CONFIG = {
   /** 直接返回的最大字符数 (~12k tokens) */
-  maxDirectOutput: 50_000,
+  maxDirectOutput: SPILL_MAX_DIRECT_CHARS,
   /** 保存到文件的最大大小 */
-  maxStorageSize: 10_000_000,
+  maxStorageSize: SPILL_MAX_STORAGE_CHARS,
   /** 摘要显示的行数 */
-  summaryHeadLines: 100,
-  summaryTailLines: 100,
+  summaryHeadLines: SPILL_SUMMARY_HEAD_LINES,
+  summaryTailLines: SPILL_SUMMARY_TAIL_LINES,
   /** 智能截断保留的行数 */
   truncateHeadLines: 500,
   truncateTailLines: 500,
-  /** 存储目录 */
+  /** 存储目录（相对执行面 userHome） */
   storageDir: '.claude/tool-outputs/',
 };
+
+export interface OutputHandleContext {
+  args?: unknown;
+  cwd?: string;
+  userBasePath?: string;
+  environment?: Environment;
+}
 
 /**
  * 输出策略接口
@@ -34,13 +48,24 @@ export interface OutputStrategy {
   handle(
     content: string,
     toolName: string,
-    context?: { args?: unknown; cwd?: string; userBasePath?: string }
+    context?: OutputHandleContext
   ): Promise<ToolResult>;
+}
+
+function resolveSpillEnvironment(context?: OutputHandleContext, fallbackUserHome?: string): Environment {
+  if (context?.environment) {
+    return context.environment;
+  }
+  const userHome = context?.userBasePath || fallbackUserHome;
+  if (userHome && userHome !== homedir()) {
+    return createLocalEnvironment({ userHome });
+  }
+  return getDefaultLocalEnvironment();
 }
 
 /**
  * 文件存储策略 (shell / MCP / web)
- * 保存完整内容到文件，返回摘要 + 文件路径；可用 Read 的 offset/limit 分页查看
+ * 在执行面 spill 完整内容，返回摘要 + 文件路径；可用 Read 的 offset/limit 分页查看
  */
 export class FileStorageStrategy implements OutputStrategy {
   private userBasePath: string;
@@ -52,68 +77,35 @@ export class FileStorageStrategy implements OutputStrategy {
   async handle(
     content: string,
     toolName: string,
-    context?: { args?: unknown; cwd?: string; userBasePath?: string }
+    context?: OutputHandleContext
   ): Promise<ToolResult> {
-    const basePath = context?.userBasePath || this.userBasePath;
-    const timestamp = Date.now();
-    const safeName = toolName.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `${safeName}-${timestamp}.txt`;
-    const storageDir = join(basePath, OUTPUT_CONFIG.storageDir);
-    const filepath = join(storageDir, filename);
-
-    try {
-      // 创建目录并写入文件
-      await mkdir(dirname(filepath), { recursive: true });
-      await writeFile(filepath, content, 'utf-8');
-    } catch (error) {
-      // 文件写入失败，回退到截断策略
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const lines = content.split('\n');
-      return {
-        content:
-          `Output too large (${lines.length} lines)\n\n` +
-          `Failed to save to file: ${errorMessage}\n\n` +
-          `Truncated output:\n${content.slice(0, OUTPUT_CONFIG.maxDirectOutput)}`,
-        metadata: {
-          truncated: true,
-          originalLength: content.length,
-          lineCount: lines.length,
-        },
-      };
+    const env = resolveSpillEnvironment(context, this.userBasePath);
+    const spilled = await env.fs.spillText(content, { toolName });
+    if (!spilled.spilled) {
+      if (spilled.content !== content) {
+        return {
+          content: spilled.content,
+          metadata: {
+            truncated: true,
+            originalLength: spilled.originalLength,
+            lineCount: spilled.lineCount,
+            storageTruncated: spilled.storageTruncated
+          }
+        };
+      }
+      return { content };
     }
-
-    // 生成摘要
-    const lines = content.split('\n');
-    const summary = this.generateSummary(content, lines);
-    const sizeKB = (content.length / 1024).toFixed(1);
 
     return {
-      content:
-        `Output too large (${sizeKB} KB, ${lines.length} lines)\n\n` +
-        `Summary:\n${summary}\n\n` +
-        `Full output saved to: ${filepath}\n` +
-        `Use 'Read' with offset/limit to view specific sections.`,
+      content: spilled.content,
       metadata: {
         truncated: true,
-        originalLength: content.length,
-        storagePath: filepath,
-        lineCount: lines.length,
-      },
+        originalLength: spilled.originalLength,
+        storagePath: spilled.storagePath,
+        lineCount: spilled.lineCount,
+        storageTruncated: spilled.storageTruncated
+      }
     };
-  }
-
-  private generateSummary(content: string, lines: string[]): string {
-    const { summaryHeadLines, summaryTailLines } = OUTPUT_CONFIG;
-
-    if (lines.length <= summaryHeadLines + summaryTailLines) {
-      return content;
-    }
-
-    const head = lines.slice(0, summaryHeadLines).join('\n');
-    const tail = lines.slice(-summaryTailLines).join('\n');
-    const omitted = lines.length - summaryHeadLines - summaryTailLines;
-
-    return `${head}\n\n... (${omitted} lines omitted) ...\n\n${tail}`;
   }
 }
 
@@ -125,13 +117,12 @@ export class PaginationHintStrategy implements OutputStrategy {
   async handle(
     content: string,
     _toolName: string,
-    context?: { args?: unknown; cwd?: string }
+    context?: OutputHandleContext
   ): Promise<ToolResult> {
     const lines = content.split('\n');
     const sizeKB = (content.length / 1024).toFixed(1);
     const previewLines = OUTPUT_CONFIG.summaryHeadLines;
 
-    // 提取文件路径（如果是从 args 中）
     const filePath = this.extractFilePath(context?.args);
 
     let hint = `Content is too large (${lines.length} lines, ${sizeKB} KB)\n\n`;
@@ -179,12 +170,11 @@ export class SmartTruncateStrategy implements OutputStrategy {
   async handle(
     content: string,
     _toolName: string,
-    _context?: { args?: unknown; cwd?: string }
+    _context?: OutputHandleContext
   ): Promise<ToolResult> {
     const lines = content.split('\n');
     const { truncateHeadLines, truncateTailLines, maxDirectOutput } = OUTPUT_CONFIG;
 
-    // 如果行数在限制内，按字符截断
     if (lines.length <= truncateHeadLines + truncateTailLines) {
       const truncated =
         content.slice(0, maxDirectOutput) +
@@ -199,7 +189,6 @@ export class SmartTruncateStrategy implements OutputStrategy {
       };
     }
 
-    // 按行截断，保留首尾
     const head = lines.slice(0, truncateHeadLines);
     const tail = lines.slice(-truncateTailLines);
     const omitted = lines.length - truncateHeadLines - truncateTailLines;
@@ -228,16 +217,15 @@ export class SmartTruncateStrategy implements OutputStrategy {
 export class OutputHandler {
   private strategies: Map<string, OutputStrategy> = new Map();
   private defaultStrategy: OutputStrategy;
+  private userBasePath?: string;
 
   constructor(userBasePath?: string) {
-    // 注册策略
+    this.userBasePath = userBasePath;
     this.strategies.set('shell', new FileStorageStrategy(userBasePath));
     this.strategies.set('mcp', new FileStorageStrategy(userBasePath));
     this.strategies.set('web', new FileStorageStrategy(userBasePath));
     this.strategies.set('filesystem', new PaginationHintStrategy());
     this.strategies.set('search', new SmartTruncateStrategy());
-
-    // 默认策略
     this.defaultStrategy = new SmartTruncateStrategy();
   }
 
@@ -252,18 +240,19 @@ export class OutputHandler {
     content: string,
     toolName: string,
     category?: string,
-    context?: { args?: unknown; cwd?: string; userBasePath?: string }
+    context?: OutputHandleContext
   ): Promise<ToolResult> {
-    // 内容未超限，直接返回
     if (content.length <= OUTPUT_CONFIG.maxDirectOutput) {
       return { content };
     }
 
-    // 选择策略
     const strategy =
       this.strategies.get(category || '') || this.defaultStrategy;
 
-    return strategy.handle(content, toolName, context);
+    return strategy.handle(content, toolName, {
+      ...context,
+      userBasePath: context?.userBasePath ?? this.userBasePath
+    });
   }
 
   /**

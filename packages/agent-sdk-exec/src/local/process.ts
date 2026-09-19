@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { assertWithinRoot } from '../path-guard.js';
 import type {
+  FileSystem,
   ProcessHandle,
   ProcessListItem,
   ProcessReadOptions,
@@ -22,6 +23,7 @@ import {
   type BashJobRecord
 } from './process-manager.js';
 import { getExecutorShellPath } from './shell-path.js';
+import { shouldReplaceWithSpill } from './spill.js';
 
 const DEFAULT_MAX_OUTPUT = 10 * 1024 * 1024;
 const KILL_DELAY = 5000;
@@ -34,7 +36,52 @@ function mergeExecutorEnv(overrides?: Record<string, string>): NodeJS.ProcessEnv
   return base;
 }
 
-function jobToHandle(job: BashJobRecord): ProcessHandle {
+async function applyWaitSpill(
+  fs: FileSystem | undefined,
+  result: ProcessWaitResult
+): Promise<ProcessWaitResult> {
+  if (!fs) {
+    return result;
+  }
+  const parts: string[] = [];
+  if (result.stdout) parts.push(result.stdout);
+  if (result.stderr) parts.push(`STDERR:\n${result.stderr}`);
+  const combined = parts.join('\n');
+  if (!combined) {
+    return result;
+  }
+  const spilled = await fs.spillText(combined, { toolName: 'Bash' });
+  if (!shouldReplaceWithSpill(spilled, combined)) {
+    return result;
+  }
+  return {
+    ...result,
+    stdout: spilled.content,
+    stderr: '',
+    storagePath: spilled.storagePath
+  };
+}
+
+async function applyReadSpill(
+  fs: FileSystem | undefined,
+  result: ProcessReadResult,
+  opts?: ProcessReadOptions
+): Promise<ProcessReadResult> {
+  if (!fs || opts?.raw) {
+    return result;
+  }
+  const spilled = await fs.spillText(result.content, { toolName: 'BashOutput' });
+  if (!shouldReplaceWithSpill(spilled, result.content)) {
+    return result;
+  }
+  return {
+    ...result,
+    content: spilled.content,
+    storagePath: spilled.storagePath
+  };
+}
+
+function jobToHandle(job: BashJobRecord, fs?: FileSystem): ProcessHandle {
   return {
     id: job.id,
     pid: job.pid,
@@ -44,10 +91,10 @@ function jobToHandle(job: BashJobRecord): ProcessHandle {
     status: job.status,
     logFilePath: job.logFilePath,
     async wait(opts): Promise<ProcessWaitResult> {
-      return waitForJob(job.id, opts);
+      return applyWaitSpill(fs, await waitForJob(job.id, opts));
     },
     async read(opts?: ProcessReadOptions): Promise<ProcessReadResult> {
-      return readJobOutput(job.id, opts);
+      return applyReadSpill(fs, await readJobOutput(job.id, opts), opts);
     },
     async write(data: Uint8Array): Promise<void> {
       await writeJobStdin(job.id, data);
@@ -96,7 +143,10 @@ async function waitForJob(
 }
 
 export class LocalProcessRuntime implements ProcessRuntime {
-  constructor(private readonly workspaceRoot?: string) {
+  constructor(
+    private readonly workspaceRoot?: string,
+    private readonly fs?: FileSystem
+  ) {
     installProcessExitCleanup();
   }
 
@@ -125,12 +175,13 @@ export class LocalProcessRuntime implements ProcessRuntime {
         removeJobOnExit: req.removeJobOnExit === true,
         pipeStdin
       });
-      return jobToHandle(job);
+      return jobToHandle(job, this.fs);
     }
 
     return startForeground(req.command, shellPath, cwd, env, {
       args: req.args,
-      pipeStdin
+      pipeStdin,
+      fs: this.fs
     });
   }
 
@@ -140,7 +191,7 @@ export class LocalProcessRuntime implements ProcessRuntime {
 
   async getJob(id: string): Promise<ProcessHandle | undefined> {
     const job = getBackgroundJob(id);
-    return job ? jobToHandle(job) : undefined;
+    return job ? jobToHandle(job, this.fs) : undefined;
   }
 }
 
@@ -149,7 +200,7 @@ function startForeground(
   shellPath: string,
   cwd: string | undefined,
   env: NodeJS.ProcessEnv,
-  options: { args?: string[]; pipeStdin: boolean } = { pipeStdin: false }
+  options: { args?: string[]; pipeStdin: boolean; fs?: FileSystem } = { pipeStdin: false }
 ): ProcessHandle {
   const invocation =
     options.args !== undefined
@@ -224,7 +275,7 @@ function startForeground(
         return { stdout, stderr, exitCode: null, timedOut: false, aborted: true };
       }
 
-      return new Promise((resolve) => {
+      const raw = await new Promise<ProcessWaitResult>((resolve) => {
         let settled = false;
         const finish = (result: ProcessWaitResult): void => {
           if (settled) return;
@@ -291,6 +342,7 @@ function startForeground(
           });
         });
       });
+      return applyWaitSpill(options.fs, raw);
     },
     async read(opts?: ProcessReadOptions): Promise<ProcessReadResult> {
       const stream = opts?.stream ?? 'all';
@@ -304,18 +356,22 @@ function startForeground(
             : opts?.raw
               ? stdout + stderr
               : stdout + (stderr ? `\nSTDERR:\n${stderr}` : '');
-      return {
-        content,
-        nextCursorStdout: stdout.length,
-        nextCursorStderr: stderr.length,
-        nextCursorCombinedApprox: stdout.length + stderr.length,
-        status: closed ? (spawnError ? 'spawn_error' : 'exited') : 'running',
-        newOutput: Boolean(stdout || stderr),
-        exited: closed,
-        exitCode: closed ? exitCode : undefined,
-        ringGenerationStdout: 0,
-        ringGenerationStderr: 0
-      };
+      return applyReadSpill(
+        options.fs,
+        {
+          content,
+          nextCursorStdout: stdout.length,
+          nextCursorStderr: stderr.length,
+          nextCursorCombinedApprox: stdout.length + stderr.length,
+          status: closed ? (spawnError ? 'spawn_error' : 'exited') : 'running',
+          newOutput: Boolean(stdout || stderr),
+          exited: closed,
+          exitCode: closed ? exitCode : undefined,
+          ringGenerationStdout: 0,
+          ringGenerationStderr: 0
+        },
+        opts
+      );
     },
     async write(data: Uint8Array): Promise<void> {
       if (!options.pipeStdin) {

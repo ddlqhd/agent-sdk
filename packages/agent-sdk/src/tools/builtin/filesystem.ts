@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
+import { formatEditToolError } from '@ddlqhd/agent-sdk-exec';
 import { createTool } from '../registry.js';
 import type { ToolDefinition } from '../../core/types.js';
 import { isFilesystemEncodingSupported, normalizeFilesystemEncoding } from './filesystem-encoding.js';
@@ -9,100 +10,6 @@ const DEFAULT_READ_LIMIT = 2000;
 const MAX_LINE_LENGTH = 2000;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
-
-/** Edit loads the full file into memory; reject at or above this size (bytes). */
-const EDIT_MAX_FILE_BYTES = 1024 ** 3;
-
-function detectDominantEol(content: string): '\r\n' | '\n' {
-  let crlf = 0;
-  for (let i = 0; i < content.length - 1; i++) {
-    if (content[i] === '\r' && content[i + 1] === '\n') {
-      crlf++;
-    }
-  }
-  let nl = 0;
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] === '\n') {
-      nl++;
-    }
-  }
-  const bareLf = nl - crlf;
-  if (crlf > bareLf) {
-    return '\r\n';
-  }
-  return '\n';
-}
-
-function normalizeNewStringEols(text: string, eol: '\r\n' | '\n'): string {
-  const unified = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  if (eol === '\n') {
-    return unified;
-  }
-  return unified.replace(/\n/g, '\r\n');
-}
-
-function buildNeedleCandidates(oldString: string, dominantEol: '\r\n' | '\n'): string[] {
-  const out: string[] = [oldString];
-  if (dominantEol === '\r\n') {
-    if (!oldString.includes('\r')) {
-      const v = oldString.replace(/\n/g, '\r\n');
-      if (v !== oldString) {
-        out.push(v);
-      }
-    }
-  } else {
-    if (oldString.includes('\r\n')) {
-      const v = oldString.replace(/\r\n/g, '\n');
-      if (v !== oldString) {
-        out.push(v);
-      }
-    } else if (oldString.includes('\r')) {
-      const v = oldString.replace(/\r/g, '\n');
-      if (v !== oldString) {
-        out.push(v);
-      }
-    }
-  }
-  return out;
-}
-
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle.length === 0) {
-    return 0;
-  }
-  let n = 0;
-  let from = 0;
-  let i = 0;
-  while ((i = haystack.indexOf(needle, from)) !== -1) {
-    n++;
-    from = i + needle.length;
-  }
-  return n;
-}
-
-function replaceNonOverlapping(
-  content: string,
-  needle: string,
-  replacement: string,
-  replaceAll: boolean
-): string {
-  if (!replaceAll) {
-    const i = content.indexOf(needle);
-    if (i === -1) {
-      throw new Error('Edit: needle not found after resolution (internal inconsistency)');
-    }
-    return content.slice(0, i) + replacement + content.slice(i + needle.length);
-  }
-  let out = '';
-  let from = 0;
-  let i = 0;
-  while ((i = content.indexOf(needle, from)) !== -1) {
-    out += content.slice(from, i) + replacement;
-    from = i + needle.length;
-  }
-  out += content.slice(from);
-  return out;
-}
 
 /**
  * Read 工具 - 读取文件内容
@@ -308,66 +215,20 @@ Usage:
       }
 
       const env = resolveToolEnvironment(context);
-      const stat = await env.fs.stat(file_path);
-      if (!stat.isFile) {
-        return {
-          content: `Error: ${file_path} is not a file`,
-          isError: true
-        };
-      }
-      if (stat.size >= EDIT_MAX_FILE_BYTES) {
-        return {
-          content: `Error: file is too large to edit (${stat.size} bytes). Maximum size is ${EDIT_MAX_FILE_BYTES} bytes (1 GiB). Use a different tool or split the work.`,
-          isError: true
-        };
-      }
-
-      const loaded = await env.fs.readText(file_path, { encoding: normalized });
-      if (loaded.unsupportedEncoding) {
-        return {
-          content: `Error: unsupported encoding: ${encoding?.trim() || 'utf8'}`,
-          isError: true
-        };
-      }
-      const content = loaded.text ?? loaded.lines.join('\n');
-
-      const dominantEol = detectDominantEol(content);
-      const candidates = buildNeedleCandidates(old_string, dominantEol);
-      let needle: string | null = null;
-      for (const c of candidates) {
-        if (countOccurrences(content, c) > 0) {
-          needle = c;
-          break;
-        }
-      }
-
-      if (needle === null) {
-        return {
-          content: `old_string not found in ${file_path}`,
-          isError: true
-        };
-      }
-
-      const occurrences = countOccurrences(content, needle);
-
-      if (!replace_all && occurrences > 1) {
-        return {
-          content: `Found ${occurrences} matches for old_string. Provide more context to make it unique, or set replace_all to true.`,
-          isError: true
-        };
-      }
-
-      const normalizedNew = normalizeNewStringEols(new_string, dominantEol);
-      const newContent = replaceNonOverlapping(content, needle, normalizedNew, replace_all);
-
-      await env.fs.writeText(file_path, newContent, { encoding: normalized });
+      const { occurrences } = await env.fs.edit(file_path, {
+        oldString: old_string,
+        newString: new_string,
+        replaceAll: replace_all,
+        encoding: normalized
+      });
 
       return {
         content: `Successfully edited ${file_path} (${occurrences} replacement${occurrences > 1 ? 's' : ''})`
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       return {
-        content: `Error editing file: ${error instanceof Error ? error.message : String(error)}`,
+        content: formatEditToolError(message),
         isError: true
       };
     }

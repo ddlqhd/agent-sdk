@@ -1,5 +1,11 @@
 export { PACKAGE_VERSION } from './version.js';
-export { PROTOCOL_VERSION, METHODS, NOTIFICATIONS } from './protocol.js';
+export {
+  PROTOCOL_VERSION,
+  METHODS,
+  NOTIFICATIONS,
+  parseProtocolVersion,
+  isProtocolCompatible
+} from './protocol.js';
 export type {
   JsonRpcMessage,
   JsonRpcRequest,
@@ -37,6 +43,10 @@ export type {
   HttpRequest,
   HttpResponse,
   DnsLookupFn,
+  EditOptions,
+  EditResult,
+  SpillTextOptions,
+  SpillTextResult,
   AgentEnvironmentConfig,
   LocalEnvironmentConfig,
   RemoteEnvironmentConfig
@@ -46,7 +56,12 @@ export {
   EXEC_ENV_TOKEN,
   isEnvironment
 } from './environment.js';
-export { ExecError, ExecPathError, ExecAuthError } from './errors.js';
+export {
+  ExecError,
+  ExecPathError,
+  ExecAuthError,
+  EXEC_PROTOCOL_MISMATCH
+} from './errors.js';
 export { createLocalEnvironment, getDefaultLocalEnvironment } from './local/environment.js';
 export { LocalFileSystem } from './local/filesystem.js';
 export { LocalProcessRuntime } from './local/process.js';
@@ -68,7 +83,34 @@ export {
   writeFileFromUnicodeString
 } from './local/encoding.js';
 export { truncateMatchLineForDisplay, DEFAULT_GREP_HEAD_LIMIT, MAX_GREP_LINE_LENGTH } from './local/glob-search.js';
-export { assertWithinRoot, userSkillsRoot, workspaceSkillsRoot } from './path-guard.js';
+export { assertWithinRoot, userSkillsRoot, userToolOutputsRoot, workspaceSkillsRoot } from './path-guard.js';
+export {
+  EDIT_MAX_FILE_BYTES,
+  detectDominantEol,
+  normalizeNewStringEols,
+  buildNeedleCandidates,
+  countOccurrences,
+  replaceNonOverlapping,
+  formatEditToolError
+} from './local/edit.js';
+export {
+  SPILL_MAX_DIRECT_CHARS,
+  SPILL_MAX_STORAGE_CHARS,
+  SPILL_SUMMARY_HEAD_LINES,
+  SPILL_SUMMARY_TAIL_LINES,
+  generateSpillSummary,
+  formatSpilledToolOutput,
+  spillFileName,
+  shouldReplaceWithSpill
+} from './local/spill.js';
+export {
+  htmlToMarkdown,
+  formatJsonText,
+  toReadableContent,
+  primaryMimeType,
+  WEB_FETCH_MAX_OUTPUT_CHARS
+} from './local/web-readable.js';
+export { readResponseBodyWithCap } from './local/http.js';
 export { parseSkillFrontmatter, listSkillsFromRoots } from './local/skills.js';
 export { writeJobStdin } from './local/process-manager.js';
 export { buildShellInvocation } from './local/invocation.js';

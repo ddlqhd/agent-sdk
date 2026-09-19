@@ -3,7 +3,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 export const MOCK_ASSISTANT_TEXT = 'mock-control-ok';
 export const MOCK_TOOL_DONE_MARKER = 'mock-tool-done';
 
-export type MockToolKind = 'glob-ls' | 'bash-pwd' | 'bash-ls';
+export type MockToolKind =
+  | 'glob-ls'
+  | 'bash-pwd'
+  | 'bash-ls'
+  | 'edit-replace'
+  | 'bash-spill'
+  | 'bash-timeout-spill'
+  | 'webfetch';
 
 export interface MockChatMessage {
   role?: string;
@@ -82,17 +89,62 @@ export function hasToolResult(messages: MockChatMessage[] | undefined): boolean 
 
 export function inferToolKind(userText: string): MockToolKind | undefined {
   const t = userText.toLowerCase();
+  if (/\bedit\b/.test(t) && /replace/.test(t)) return 'edit-replace';
+  if (/webfetch|fetch https?:\/\//.test(t)) return 'webfetch';
+  if (
+    /timeout/.test(t) &&
+    /(oversized|too large|spill|\b51000\b|\b60000\b)/.test(t) &&
+    /python|print/.test(t)
+  ) {
+    return 'bash-timeout-spill';
+  }
+  if (/(oversized|too large|spill|\b51000\b|\b60000\b)/.test(t) && /python|print/.test(t)) {
+    return 'bash-spill';
+  }
   if (/\bpwd\b|working directory|print cwd/.test(t)) return 'bash-pwd';
   if (/\bls\b|list files|glob/.test(t)) return /\bls\b/.test(t) ? 'bash-ls' : 'glob-ls';
   return undefined;
 }
 
-function toolCallSpec(kind: MockToolKind): { name: string; args: Record<string, unknown> } {
+function toolCallSpec(
+  kind: MockToolKind,
+  userText: string
+): { name: string; args: Record<string, unknown> } {
   switch (kind) {
     case 'bash-pwd':
       return { name: 'Bash', args: { command: 'pwd' } };
     case 'bash-ls':
       return { name: 'Bash', args: { command: 'ls' } };
+    case 'bash-spill':
+      return {
+        name: 'Bash',
+        args: { command: "python3 -c \"print('a'*60000, end='')\"" }
+      };
+    case 'bash-timeout-spill':
+      return {
+        name: 'Bash',
+        args: {
+          command: "python3 -c \"print('a'*60000, end='', flush=True); import time; time.sleep(30)\"",
+          timeout: 2_500
+        }
+      };
+    case 'edit-replace': {
+      const filePath = userText.match(/(\/(?:[^\s:]+\.txt))/)?.[1] ?? '/tmp/missing.txt';
+      const pair = userText.match(/replace\s+(\S+)\s+with\s+(\S+)/i);
+      return {
+        name: 'Edit',
+        args: {
+          file_path: filePath,
+          old_string: pair?.[1] ?? 'hello',
+          new_string: pair?.[2] ?? 'world'
+        }
+      };
+    }
+    case 'webfetch':
+      return {
+        name: 'WebFetch',
+        args: { url: userText.match(/https?:\/\/\S+/)?.[0] ?? 'http://example.com/page' }
+      };
     case 'glob-ls':
     default:
       return { name: 'Glob', args: { pattern: '*' } };
@@ -132,8 +184,8 @@ function writeTextSse(res: ServerResponse, text: string): void {
   ]);
 }
 
-function writeToolSse(res: ServerResponse, kind: MockToolKind): void {
-  const { name, args } = toolCallSpec(kind);
+function writeToolSse(res: ServerResponse, kind: MockToolKind, userText: string): void {
+  const { name, args } = toolCallSpec(kind, userText);
   const argJson = JSON.stringify(args);
   writeSseLines(res, [
     {
@@ -192,8 +244,8 @@ function writeTextComplete(res: ServerResponse, text: string): void {
   );
 }
 
-function writeToolComplete(res: ServerResponse, kind: MockToolKind): void {
-  const { name, args } = toolCallSpec(kind);
+function writeToolComplete(res: ServerResponse, kind: MockToolKind, userText: string): void {
+  const { name, args } = toolCallSpec(kind, userText);
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({
@@ -270,8 +322,8 @@ export async function startMockOpenAIServer(): Promise<MockOpenAIServer> {
         toolKind: decision.toolKind
       });
       if (decision.reply === 'tool' && decision.toolKind) {
-        if (stream) writeToolSse(res, decision.toolKind);
-        else writeToolComplete(res, decision.toolKind);
+        if (stream) writeToolSse(res, decision.toolKind, lastUserText(body.messages));
+        else writeToolComplete(res, decision.toolKind, lastUserText(body.messages));
       } else if (stream) {
         writeTextSse(res, decision.text);
       } else {

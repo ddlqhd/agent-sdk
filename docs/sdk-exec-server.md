@@ -55,7 +55,11 @@ const agent = new Agent({
 
 ## 协议要点
 
-WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，之后才接受 `fs/*`、`process/*`、`http/request`、`skills/list`。`sessionId` 在连接建立时生成，`initialize` 原样返回。`environmentInfo` 含执行面 `userHome`。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
+WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`，之后才接受 `fs/*`（含 `fs/edit`、`fs/spillText`）、`process/*`、`http/request`（`asReadable` 时在执行面转 markdown/JSON）、`skills/list`。`sessionId` 在连接建立时生成，`initialize` 原样返回。`environmentInfo` 含执行面 `userHome`。路径为执行端绝对路径字符串。一期不做 PTY、不做断线会话恢复。
+
+协议版本为 semver（当前 `1.2.0`）。同一 major 下，**server 必须 ≥ client**：新客户端不会对旧 server 调用它没有的方法；旧客户端仍可连新 server。握手双方都会校验，不兼容则拒绝连接。
+
+超长 Bash / WebFetch / MCP 输出落在执行面 `{userHome}/.claude/tool-outputs/`（jail **可写**只开放这一棵额外写根；skills 仍只读）。RPC 只带回摘要和该路径，模型用 **Read** 分页。`process/read` 在 `raw: true`（MCP stdio）时不 spill。`fs/spillText` 最多写入 10_000_000 字符，超出部分截断并在摘要里标明。HTTP 响应按流读取，到达 `maxBytes` 即取消 body，不把整份响应缓冲进内存。timeout / abort 的 Bash 输出同样会 spill，避免大 payload 打回控制面。
 
 `chat` / `tui` / `web` / `-p` / ACP 在远程 environment 初始化失败时不会进入会话。
 
@@ -63,7 +67,7 @@ WebSocket 上每帧一条 JSON-RPC 2.0。握手：`initialize` → `initialized`
 
 会话启动用 `skills/list` 注入 system prompt 的 name / description，**不从控制面扫盘、不传输 skill 目录**。
 
-exec 扫描两棵根（jail **只读**放行 `{userHome}/.claude/skills`，写与进程 cwd 仍只允许 `--cwd`，不开放整个 HOME）：
+exec 扫描两棵根（jail **只读**放行 `{userHome}/.claude/skills`，写允许 `--cwd` 与 `{userHome}/.claude/tool-outputs`，不开放整个 HOME）：
 
 - `{userHome}/.claude/skills`（跑 `agent-sdk-exec` 的 OS 用户 HOME）
 - `{cwd}/.claude/skills`，或 `SkillConfig.workspacePath`（`skills/list` 的 `workspaceSkillsPath`）

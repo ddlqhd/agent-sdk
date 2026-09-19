@@ -6,7 +6,7 @@ import { LocalHttpRuntime } from './http.js';
 import { LocalProcessRuntime } from './process.js';
 import { getExecutorShellPath } from './shell-path.js';
 import { listSkillsFromRoots } from './skills.js';
-import { userSkillsRoot } from '../path-guard.js';
+import { userSkillsRoot, userToolOutputsRoot } from '../path-guard.js';
 import type { DnsLookupFn } from '../environment.js';
 
 export interface CreateLocalEnvironmentOptions {
@@ -19,8 +19,12 @@ export interface CreateLocalEnvironmentOptions {
 export function createLocalEnvironment(options: CreateLocalEnvironmentOptions = {}): Environment {
   const cwd = options.workspaceRoot ?? process.cwd();
   const userHome = options.userHome ?? homedir();
-  const extraRoots = userHome ? [userSkillsRoot(userHome)] : [];
-  const fs = new LocalFileSystem(options.workspaceRoot, extraRoots);
+  const toolOutputsRoot = userHome ? userToolOutputsRoot(userHome) : undefined;
+  const extraRoots = userHome
+    ? [userSkillsRoot(userHome), ...(toolOutputsRoot ? [toolOutputsRoot] : [])]
+    : [];
+  const extraWriteRoots = toolOutputsRoot ? [toolOutputsRoot] : [];
+  const fs = new LocalFileSystem(options.workspaceRoot, extraRoots, extraWriteRoots, toolOutputsRoot);
   return {
     id: options.id ?? `local-${randomUUID()}`,
     kind: 'local',
@@ -32,8 +36,8 @@ export function createLocalEnvironment(options: CreateLocalEnvironmentOptions = 
       userHome
     },
     fs,
-    process: new LocalProcessRuntime(options.workspaceRoot),
-    http: new LocalHttpRuntime(options.dnsLookup),
+    process: new LocalProcessRuntime(options.workspaceRoot, fs),
+    http: new LocalHttpRuntime(options.dnsLookup, fs),
     listSkills: (opts) =>
       listSkillsFromRoots(fs, {
         userHome,
