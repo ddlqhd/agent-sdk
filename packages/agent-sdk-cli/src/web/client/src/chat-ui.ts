@@ -12,6 +12,7 @@ export interface ChatUi {
   appendAssistantDelta(chunk: string): void;
   finishStreaming(): void;
   upsertTool(id: string, name: string, status: 'call' | 'result' | 'error', body: string): void;
+  setRunning(running: boolean): void;
   clear(): void;
   renderHistory(messages: ChatHistoryItem[]): void;
   isNearBottom(): boolean;
@@ -44,6 +45,8 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
   let streamingAssistantBodyEl: HTMLElement | null = null;
   let streamingAssistantMarkdown = '';
   const toolCards = new Map<string, HTMLElement>();
+  let running = false;
+  let pendingEl: HTMLDivElement | null = null;
 
   function syncHero(): void {
     const has = logEl.childElementCount > 0;
@@ -72,6 +75,50 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     streamingThinkingWrap = null;
     streamingAssistantBodyEl = null;
     streamingAssistantMarkdown = '';
+  }
+
+  function createPending(): HTMLDivElement {
+    const div = document.createElement('div');
+    div.className = 'msg assistant msg-pending';
+    div.setAttribute('role', 'status');
+    div.setAttribute('aria-live', 'polite');
+    div.setAttribute('aria-label', '正在运行');
+    const body = document.createElement('div');
+    body.className = 'msg-pending-body';
+    const dots = document.createElement('span');
+    dots.className = 'msg-pending-dots';
+    dots.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) {
+      dots.appendChild(document.createElement('span'));
+    }
+    const label = document.createElement('span');
+    label.className = 'msg-pending-label';
+    label.textContent = '正在运行…';
+    body.appendChild(dots);
+    body.appendChild(label);
+    div.appendChild(body);
+    return div;
+  }
+
+  function pinPending(): void {
+    if (!running || !pendingEl) return;
+    if (pendingEl.parentElement === logEl && logEl.lastElementChild === pendingEl) return;
+    logEl.appendChild(pendingEl);
+  }
+
+  function setRunning(next: boolean): void {
+    running = next;
+    if (!next) {
+      pendingEl?.remove();
+      pendingEl = null;
+      syncHero();
+      return;
+    }
+    const pinned = isNearBottom();
+    if (!pendingEl) pendingEl = createPending();
+    pinPending();
+    syncHero();
+    scrollIfPinned(pinned);
   }
 
   function createAssistantBody(): HTMLDivElement {
@@ -128,6 +175,7 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     div.appendChild(role);
     div.appendChild(body);
     logEl.appendChild(div);
+    pinPending();
     syncHero();
     const el = scroller();
     el.scrollTop = el.scrollHeight;
@@ -215,6 +263,7 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
     }
     card.classList.toggle('is-error', status === 'error');
     card.classList.toggle('is-ok', status === 'result');
+    pinPending();
     scrollIfPinned(pinned);
   }
 
@@ -239,6 +288,7 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
         streamingAssistantThinkingEl = pre;
       }
       streamingAssistantThinkingEl.textContent += chunk;
+      pinPending();
       scrollIfPinned(pinned);
     },
     endThinking() {
@@ -259,17 +309,21 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
       }
       streamingAssistantMarkdown += chunk;
       renderMarkdownInto(streamingAssistantBodyEl, streamingAssistantMarkdown);
+      pinPending();
       scrollIfPinned(pinned);
     },
     finishStreaming,
     upsertTool,
+    setRunning,
     clear() {
+      setRunning(false);
       logEl.innerHTML = '';
       toolCards.clear();
       finishStreaming();
       syncHero();
     },
     renderHistory(messages) {
+      setRunning(false);
       logEl.innerHTML = '';
       toolCards.clear();
       finishStreaming();

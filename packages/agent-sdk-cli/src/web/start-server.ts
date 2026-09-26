@@ -565,6 +565,12 @@ function attachSocketHandlers(
           if (!state.runtimeConfig) {
             console.warn(`${LOG_PREFIX} [${connId}] ${msg.type} rejected: Configure the agent first.`);
             sendJson(socket, { type: 'error', message: 'Configure the agent first.' });
+            sendJson(socket, {
+              type: 'chat_done',
+              requestId: msg.requestId,
+              sessionId: msg.sessionId || '',
+              finalText: ''
+            });
             return;
           }
           const requestedSessionId = msg.sessionId || state.activeSessionId;
@@ -573,6 +579,12 @@ function attachSocketHandlers(
               `${LOG_PREFIX} [${connId}] ${msg.type} rejected: No active session. Create or resume a session first.`
             );
             sendJson(socket, { type: 'error', message: 'No active session. Create or resume a session first.' });
+            sendJson(socket, {
+              type: 'chat_done',
+              requestId: msg.requestId,
+              sessionId: '',
+              finalText: ''
+            });
             return;
           }
           const { len, preview } = chatPreview(msg.text);
@@ -580,17 +592,16 @@ function attachSocketHandlers(
             `${LOG_PREFIX} [${connId}] ${msg.type} requestId=${msg.requestId} sessionId=${requestedSessionId.slice(0, 8)}… textLen=${len} preview=${JSON.stringify(preview)}`
           );
           let target = state.runtime.get(requestedSessionId);
-          if (!target) {
-            target = await state.runtime.create(resolvedCwd(), requestedSessionId);
-            console.log(`${LOG_PREFIX} [${connId}] chat: created new agent runtime for session`);
-          }
-          state.activeSessionId = requestedSessionId;
-
           const requestId = msg.requestId;
           const ac = new AbortController();
           state.abortByRequest.set(requestId, { sessionId: requestedSessionId, controller: ac });
 
           try {
+            if (!target) {
+              target = await state.runtime.create(resolvedCwd(), requestedSessionId);
+              console.log(`${LOG_PREFIX} [${connId}] chat: created new agent runtime for session`);
+            }
+            state.activeSessionId = requestedSessionId;
             const result = await runTurn({
               agent: target.agent,
               text: msg.text,
@@ -616,6 +627,7 @@ function attachSocketHandlers(
             });
           } catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
+            const sessionId = target?.agent.getSessionManager().sessionId || requestedSessionId;
             console.error(
               `${LOG_PREFIX} [${connId}] chat stream error requestId=${requestId} sessionId=${requestedSessionId.slice(0, 8)}…`,
               err.message,
@@ -633,7 +645,7 @@ function attachSocketHandlers(
             sendJson(socket, {
               type: 'chat_done',
               requestId,
-              sessionId: target.agent.getSessionManager().sessionId || requestedSessionId,
+              sessionId,
               finalText: ''
             });
           } finally {

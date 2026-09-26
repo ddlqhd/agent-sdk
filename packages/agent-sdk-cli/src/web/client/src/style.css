@@ -613,6 +613,64 @@ body {
   background: var(--color-chat-assistant);
 }
 
+.msg-pending {
+  position: relative;
+}
+
+.msg-pending-body {
+  display: flex;
+  align-items: center;
+  min-height: 1.25rem;
+}
+
+.msg-pending-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  height: 1rem;
+}
+
+.msg-pending-dots span {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  animation: msg-pending-bounce 1.05s ease-in-out infinite;
+}
+
+.msg-pending-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.msg-pending-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes msg-pending-bounce {
+  0%,
+  70%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  35% {
+    transform: translateY(-0.28rem);
+    opacity: 1;
+  }
+}
+
+.msg-pending-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .msg.user .msg-body {
   white-space: pre-wrap;
 }
@@ -1649,5 +1707,24 @@ code {
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+  }
+
+  .msg-pending-dots {
+    display: none;
+  }
+
+  .msg-pending-dots span {
+    animation: none;
+  }
+
+  .msg-pending-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    color: var(--color-text-muted);
+    font-size: var(--text-ui-sm);
   }
 }

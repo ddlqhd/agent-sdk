@@ -331,6 +331,7 @@ function resetChatUiAfterDisconnect(): void {
   btnStop.disabled = true;
   btnSend.disabled = false;
   chatUi.finishStreaming();
+  chatUi.setRunning(false);
 }
 
 function connect(): void {
@@ -373,10 +374,11 @@ function connect(): void {
   });
 }
 
-function send(msg: ClientMessage): void {
-  if (ws?.readyState !== WebSocket.OPEN) return;
+function send(msg: ClientMessage): boolean {
+  if (ws?.readyState !== WebSocket.OPEN) return false;
   logOutbound(msg);
   ws.send(JSON.stringify(msg));
+  return true;
 }
 
 function showConfirmDialog(opts: {
@@ -702,9 +704,11 @@ function handleServerMessage(msg: ServerMessage): void {
     case 'ask_user_question': {
       const prevDisabled = chatInput.disabled;
       chatInput.disabled = true;
+      chatUi.setRunning(false);
       void showAskUserQuestionDialog(msg.questions)
         .then((answers) => {
           send({ type: 'ask_user_question_reply', requestId: msg.requestId, answers });
+          if (activeRequestId) chatUi.setRunning(true);
         })
         .finally(() => {
           chatInput.disabled = prevDisabled;
@@ -723,6 +727,7 @@ function handleServerMessage(msg: ServerMessage): void {
       btnStop.disabled = true;
       btnSend.disabled = false;
       chatUi.finishStreaming();
+      chatUi.setRunning(false);
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
       appendEventLine('chat_done', { requestId: msg.requestId, usage: msg.usage });
@@ -1276,20 +1281,23 @@ formChat.addEventListener('submit', (e) => {
     return;
   }
   setComposerError('');
+
+  const requestId = crypto.randomUUID();
+  const sent = chatUseRun.checked
+    ? send({ type: 'chat_run', text, sessionId: currentSessionId, requestId })
+    : send({ type: 'chat', text, sessionId: currentSessionId, requestId });
+  if (!sent) {
+    setComposerError('未连接：请点击重新连接或启动服务端（端口 3001）。');
+    return;
+  }
+
   chatInput.value = '';
   chatUi.appendUser(text);
   chatUi.finishStreaming();
-
-  const requestId = crypto.randomUUID();
   activeRequestId = requestId;
   btnStop.disabled = false;
   btnSend.disabled = true;
-
-  if (chatUseRun.checked) {
-    send({ type: 'chat_run', text, sessionId: currentSessionId, requestId });
-  } else {
-    send({ type: 'chat', text, sessionId: currentSessionId, requestId });
-  }
+  chatUi.setRunning(true);
 });
 
 btnStop.addEventListener('click', () => {
