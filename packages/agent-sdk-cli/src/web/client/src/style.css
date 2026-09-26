@@ -986,6 +986,30 @@ body {
   margin-left: auto;
 }
 
+/* —— 单轮指标（回复下方一行灰色小字） —— */
+.turn-stats {
+  margin: -0.75rem 0 1rem;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+/* —— 会话累计指标（输入框下方） —— */
+.session-stats {
+  margin: 0.45rem 0.15rem 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+.session-stats[hidden] {
+  display: none;
+}
+
 /* —— Details —— */
 .details {
   display: flex;

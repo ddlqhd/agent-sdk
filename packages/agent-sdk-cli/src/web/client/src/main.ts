@@ -1,5 +1,11 @@
-import type { AskUserQuestionAnswer, AskUserQuestionItem, SessionCheckpoint } from '@ddlqhd/agent-sdk';
+import type {
+  AskUserQuestionAnswer,
+  AskUserQuestionItem,
+  SessionCheckpoint,
+  SessionUsageSummary
+} from '@ddlqhd/agent-sdk';
 import { chatPreview, formatBaseUrlForLog } from '../../shared/log-utils.js';
+import { formatSessionStats, formatTurnStats, usageTotal } from '../../shared/metrics.js';
 import type { ClientMessage, ModelProvider, ServerMessage, WebUiDefaults } from '../../shared/ws-protocol.js';
 import { initChatUi, formatToolArguments, truncateForChatSnippet } from './chat-ui.js';
 import { initLayout } from './layout.js';
@@ -39,6 +45,7 @@ const btnSend = document.querySelector<HTMLButtonElement>('#btn-send')!;
 const btnStop = document.querySelector<HTMLButtonElement>('#btn-stop')!;
 const composerHint = document.querySelector<HTMLElement>('#composer-hint')!;
 const composerError = document.querySelector<HTMLParagraphElement>('#composer-error')!;
+const sessionStatsEl = document.querySelector<HTMLParagraphElement>('#session-stats')!;
 const appBanner = document.querySelector<HTMLParagraphElement>('#app-banner')!;
 const eventLog = document.querySelector<HTMLPreElement>('#event-log')!;
 const btnEventsClear = document.querySelector<HTMLButtonElement>('#btn-events-clear')!;
@@ -659,6 +666,17 @@ function showAskUserQuestionDialog(questions: AskUserQuestionItem[]): Promise<As
   });
 }
 
+/** 更新输入框下方的会话累计指标；无数据或全零时隐藏 */
+function renderSessionStats(stats?: SessionUsageSummary): void {
+  if (!stats || (stats.turns === 0 && usageTotal(stats.usage) === 0)) {
+    sessionStatsEl.hidden = true;
+    sessionStatsEl.textContent = '';
+    return;
+  }
+  sessionStatsEl.textContent = formatSessionStats(stats);
+  sessionStatsEl.hidden = false;
+}
+
 function handleServerMessage(msg: ServerMessage): void {
   if (msg.type === 'stream_event') {
     const ev = msg.event as Record<string, unknown>;
@@ -686,6 +704,7 @@ function handleServerMessage(msg: ServerMessage): void {
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
       chatUi.clear();
+      renderSessionStats(undefined);
       resetToolStreamState();
       clearInspectorLogs();
       checkpointListEl.innerHTML = '';
@@ -730,6 +749,8 @@ function handleServerMessage(msg: ServerMessage): void {
       chatUi.setRunning(false);
       if (msg.sessionId) currentSessionId = msg.sessionId;
       refreshSessionLabel();
+      if (msg.turn) chatUi.appendTurnStats(formatTurnStats(msg.turn));
+      if (msg.session) renderSessionStats(msg.session);
       appendEventLine('chat_done', { requestId: msg.requestId, usage: msg.usage });
       requestSessionList();
       return;
@@ -748,6 +769,7 @@ function handleServerMessage(msg: ServerMessage): void {
       btnSend.disabled = false;
       setBanner('');
       chatUi.clear();
+      renderSessionStats(undefined);
       resetToolStreamState();
       clearInspectorLogs();
       checkpointListEl.innerHTML = '';
@@ -759,6 +781,9 @@ function handleServerMessage(msg: ServerMessage): void {
       resetToolStreamState();
       chatUi.renderHistory(msg.messages);
       clearInspectorLogs();
+      return;
+    case 'session_stats':
+      renderSessionStats(msg.stats);
       return;
     case 'sessions:checkpoints':
       renderCheckpointList(msg.checkpoints);

@@ -387,6 +387,49 @@ export interface SessionTokenUsage {
 }
 
 /**
+ * 单轮（turn）Token 使用增量
+ *
+ * inputTokens 只统计**未命中缓存**的输入；缓存读/写单列，
+ * 因此 prompt 总量 = inputTokens + cacheReadTokens + cacheWriteTokens。
+ */
+export interface TokenUsageDelta {
+  /** 本轮未命中缓存的输入 tokens */
+  inputTokens: number;
+  /** 本轮输出 tokens */
+  outputTokens: number;
+  /** 本轮缓存读取 tokens */
+  cacheReadTokens: number;
+  /** 本轮缓存写入 tokens */
+  cacheWriteTokens: number;
+}
+
+/**
+ * 单轮（turn）统计：增量用量与耗时
+ */
+export interface TurnStats {
+  /** 本轮增量用量 */
+  usage: TokenUsageDelta;
+  /** 本轮墙钟耗时 (ms)，含工具执行 */
+  durationMs: number;
+  /** 本轮模型生成耗时 (ms)，不含工具执行 */
+  generationMs: number;
+}
+
+/**
+ * 会话累计使用统计（用于 UI 展示与恢复）
+ */
+export interface SessionUsageSummary {
+  /** 累计 token 用量（`contextTokens` 恒为 0） */
+  usage: SessionTokenUsage;
+  /** 已记录轮次数（storage 中 usage 行数） */
+  turns: number;
+  /** 累计模型生成耗时 (ms)，不含工具执行 */
+  generationMs: number;
+  /** 累计本轮墙钟耗时 (ms)（各 turn 的 durationMs 之和，含工具执行） */
+  durationMs: number;
+}
+
+/**
  * 模型能力描述
  */
 export interface ModelCapabilities {
@@ -560,11 +603,26 @@ export interface RewindEntry {
   timestamp: number;
 }
 
-/** 会话中一行：普通消息、summary 或 rewind 元条目 */
+/**
+ * JSONL 中的单轮使用统计行（append-only；恢复会话时按活动链重算累计用量）
+ */
+export interface UsageEntry {
+  $type: 'usage';
+  /** 本轮增量用量 */
+  usage: TokenUsageDelta;
+  /** 本轮墙钟耗时 (ms)，含工具执行 */
+  durationMs?: number;
+  /** 本轮模型生成耗时 (ms)，不含工具执行 */
+  generationMs?: number;
+  timestamp: number;
+}
+
+/** 会话中一行：普通消息、summary、rewind 或 usage 元条目 */
 export type SessionEntry =
   | (Message & { $type?: 'message' })
   | SummaryEntry
-  | RewindEntry;
+  | RewindEntry
+  | UsageEntry;
 
 /** {@link SessionManager.listSessionCheckpoints} 返回的可回退 user prompt */
 export interface SessionCheckpoint {

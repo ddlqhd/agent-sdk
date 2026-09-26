@@ -5,7 +5,8 @@ import type {
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
-  RewindEntry
+  RewindEntry,
+  UsageEntry
 } from '../core/types.js';
 
 function preservedSessionFields(
@@ -111,6 +112,9 @@ export class JsonlStorage implements StorageAdapter {
       if (parsed.$type === 'rewind') {
         return parsed as unknown as RewindEntry;
       }
+      if (parsed.$type === 'usage') {
+        return parsed as unknown as UsageEntry;
+      }
       const { timestamp: _t, ...rest } = parsed;
       return rest as unknown as SessionEntry;
     } catch {
@@ -132,8 +136,14 @@ export class JsonlStorage implements StorageAdapter {
       entries
         .map((e) => {
       const rec =
-        (e as SummaryEntry).$type === 'summary' || (e as RewindEntry).$type === 'rewind'
-          ? { ...e, timestamp: ((e as SummaryEntry | RewindEntry).timestamp ?? now) }
+        (e as SummaryEntry).$type === 'summary' ||
+        (e as RewindEntry).$type === 'rewind' ||
+        (e as UsageEntry).$type === 'usage'
+          ? {
+              ...e,
+              timestamp:
+                ((e as SummaryEntry | RewindEntry | UsageEntry).timestamp ?? now)
+            }
           : ({
               ...(e as unknown as Record<string, unknown>),
               timestamp: (e as { timestamp?: number }).timestamp ?? now

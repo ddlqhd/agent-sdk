@@ -11,9 +11,13 @@ import type {
   SessionCheckpoint,
   SessionEntry,
   SessionInfo,
+  SessionTokenUsage,
+  SessionUsageSummary,
   StorageAdapter,
   StorageConfig,
-  SummaryEntry
+  SummaryEntry,
+  TurnStats,
+  UsageEntry
 } from '../core/types.js';
 import {
   formatSyntheticFallbackNotice,
@@ -33,8 +37,12 @@ export function isRewindEntry(e: SessionEntry): e is RewindEntry {
   return (e as RewindEntry).$type === 'rewind';
 }
 
+export function isUsageEntry(e: SessionEntry): e is UsageEntry {
+  return (e as UsageEntry).$type === 'usage';
+}
+
 export function isPersistableMessageEntry(e: SessionEntry): e is Message & { $type?: 'message' } {
-  if (isSummaryEntry(e) || isRewindEntry(e)) {
+  if (isSummaryEntry(e) || isRewindEntry(e) || isUsageEntry(e)) {
     return false;
   }
   const m = e as Message;
@@ -83,7 +91,7 @@ function entryToMessage(e: SessionEntry): Message | null {
   if (isSummaryEntry(e)) {
     return summaryToUserMessage(e);
   }
-  if (isRewindEntry(e)) {
+  if (isRewindEntry(e) || isUsageEntry(e)) {
     return null;
   }
   const m = e as Message;
@@ -171,6 +179,76 @@ export function reconstructActiveMessages(entries: SessionEntry[]): Message[] {
   }
   const tailActive = reconstructSegmentFromLastSummary(tailSlice);
   return [...prefix, ...tailActive];
+}
+
+/**
+ * 会话文件中的 usage 行。
+ *
+ * 不传 `throughRawIndex` 时返回全部 usage 行。token 已经花掉，
+ * 因此不随 rewind 丢弃；整段 fork 时整体拷贝到新会话。
+ *
+ * 传入检查点的原始下标时，只保留该下标及之前的 usage 行，
+ * 让按检查点分叉的累计用量和拷走的消息前缀一致。
+ */
+export function reconstructSessionUsageRows(
+  entries: SessionEntry[],
+  throughRawIndex?: number
+): UsageEntry[] {
+  if (throughRawIndex === undefined) {
+    return entries.filter(isUsageEntry);
+  }
+  const end = Math.min(throughRawIndex, entries.length - 1);
+  const rows: UsageEntry[] = [];
+  for (let i = 0; i <= end; i++) {
+    const entry = entries[i];
+    if (entry && isUsageEntry(entry)) {
+      rows.push(entry);
+    }
+  }
+  return rows;
+}
+
+/** 累计一组 usage 行 */
+export function summarizeUsageRows(rows: UsageEntry[]): SessionUsageSummary {
+  const usage: SessionTokenUsage = {
+    contextTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0
+  };
+  let generationMs = 0;
+  let durationMs = 0;
+  for (const row of rows) {
+    const delta = row.usage ?? {};
+    usage.inputTokens += delta.inputTokens ?? 0;
+    usage.outputTokens += delta.outputTokens ?? 0;
+    usage.cacheReadTokens += delta.cacheReadTokens ?? 0;
+    usage.cacheWriteTokens += delta.cacheWriteTokens ?? 0;
+    generationMs += row.generationMs ?? 0;
+    durationMs += row.durationMs ?? 0;
+  }
+  usage.totalTokens = usage.inputTokens + usage.outputTokens;
+  return { usage, turns: rows.length, generationMs, durationMs };
+}
+
+/** 从磁盘原始条目重算会话累计用量（resume / rewind / fork 后调用） */
+export function reconstructSessionUsage(entries: SessionEntry[]): SessionUsageSummary {
+  return summarizeUsageRows(reconstructSessionUsageRows(entries));
+}
+
+export function buildUsageEntry(
+  stats: Pick<TurnStats, 'usage' | 'durationMs' | 'generationMs'>,
+  timestamp: number = Date.now()
+): UsageEntry {
+  return {
+    $type: 'usage',
+    usage: { ...stats.usage },
+    durationMs: stats.durationMs,
+    generationMs: stats.generationMs,
+    timestamp
+  };
 }
 
 function formatCheckpointPreview(content: string | ContentPart[]): string {
@@ -396,6 +474,35 @@ export class SessionManager {
     return reconstructActiveMessages(raw);
   }
 
+  /**
+   * 活动链消息 + 累计用量（一次 raw 读取，供 resume / rewind 复用）
+   */
+  async loadActiveSessionState(): Promise<{ messages: Message[]; usage: SessionUsageSummary }> {
+    const raw = await this.loadRawEntries();
+    return {
+      messages: reconstructActiveMessages(raw),
+      usage: reconstructSessionUsage(raw)
+    };
+  }
+
+  /**
+   * 追加单轮 usage 行（turn 结束时由 Agent 调用）
+   */
+  async appendUsageEntry(
+    stats: Pick<TurnStats, 'usage' | 'durationMs' | 'generationMs'>,
+    timestamp?: number
+  ): Promise<void> {
+    await this.appendEntries([buildUsageEntry(stats, timestamp)]);
+  }
+
+  /**
+   * 重算会话累计用量（usage 行不随 rewind 丢弃）；用于 resume / rewind / fork 后恢复
+   */
+  async loadSessionUsage(): Promise<SessionUsageSummary> {
+    const raw = await this.loadRawEntries();
+    return reconstructSessionUsage(raw);
+  }
+
   async listSessionCheckpoints(): Promise<SessionCheckpoint[]> {
     if (!this.currentSessionId) {
       throw new Error('No session attached');
@@ -456,7 +563,10 @@ export class SessionManager {
       messages = reconstructActiveMessages(entries);
     }
     const messageEntries = messages.map((m) => messageToSessionEntry(m));
-    await this.storage.append(newId, messageEntries);
+    // Full fork copies every usage row (spent tokens survive rewind).
+    // A checkpoint fork only copies usage rows at or before that raw index.
+    const usageRows = reconstructSessionUsageRows(entries, throughRawIndex);
+    await this.storage.append(newId, [...messageEntries, ...usageRows]);
     await this.copySessionMetaIfPresent(sourceSessionId, newId);
     return {
       sessionId: newId,

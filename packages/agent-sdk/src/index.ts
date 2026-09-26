@@ -105,15 +105,20 @@ export {
   createSessionManager,
   reconstructActiveMessages,
   reconstructPrefixMessages,
+  reconstructSessionUsage,
+  reconstructSessionUsageRows,
+  summarizeUsageRows,
   messageToSessionEntry,
   buildSummaryEntry,
   buildRewindEntry,
+  buildUsageEntry,
   listSessionCheckpointsFromRaw,
   encodeCheckpointId,
   decodeCheckpointId,
   isPersistableMessageEntry,
   isUserCheckpointEntry,
-  isRewindEntry
+  isRewindEntry,
+  isUsageEntry
 } from './storage/index.js';
 export type { JsonlStorageConfig, SessionManagerConfig } from './storage/index.js';
 

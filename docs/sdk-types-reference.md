@@ -309,7 +309,54 @@ interface SessionTokenUsage {
 }
 ```
 
-`cacheReadTokens` / `cacheWriteTokens` 为明细字段（如 Anthropic cache）。Anthropic 流式 input 阶段 `promptTokens` 为 **input_tokens + cache_read + cache_creation** 合计（用于 `contextTokens`）；`inputTokens` 累计仅加 uncached 部分（`promptTokens - cacheRead - cacheWrite`），避免与 cache 明细双重累计。
+`cacheReadTokens` / `cacheWriteTokens` 为明细字段（如 Anthropic cache）。Anthropic 流式 input 阶段 `promptTokens` 为 **input_tokens + cache_read + cache_creation** 合计（用于 `contextTokens`）；`inputTokens` 累计仅加 uncached 部分（`promptTokens - cacheRead - cacheWrite`），避免与 cache 明细双重累计。OpenAI 的 `usage.prompt_tokens_details.cached_tokens` 会记入 `cacheReadTokens`。
+
+### `TokenUsageDelta` / `TurnStats` / `SessionUsageSummary`
+
+单轮（turn）与会话级指标：宿主据此展示 TPS、token 消耗与缓存命中率。
+
+```ts
+/** 单轮增量用量；inputTokens 只统计未命中缓存的输入 */
+interface TokenUsageDelta {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+interface TurnStats {
+  usage: TokenUsageDelta;
+  /** 本轮墙钟耗时 (ms)，含工具执行 */
+  durationMs: number;
+  /** 本轮模型生成耗时 (ms)，不含工具执行 —— TPS 的分母 */
+  generationMs: number;
+}
+
+interface SessionUsageSummary {
+  /** 累计用量，`contextTokens` 恒为 0 */
+  usage: SessionTokenUsage;
+  /** 已记录轮次数（jsonl 中 usage 行数） */
+  turns: number;
+  /** 累计模型生成耗时 (ms) */
+  generationMs: number;
+  /** 累计本轮墙钟耗时 (ms) */
+  durationMs: number;
+}
+```
+
+对应 `Agent` 方法：
+
+| 方法 | 说明 |
+|------|------|
+| `getLastTurnStats(): TurnStats \| undefined` | 最近一轮结束后的统计（`stream()` 完全消费后可用；turn 进行中或尚无历史为 `undefined`） |
+| `getSessionUsageSummary(): SessionUsageSummary` | 会话累计用量 + 轮次 + 累计耗时 |
+| `reloadSessionUsage(): Promise<SessionUsageSummary>` | 从会话存储重算累计用量（attach / rewind / fork 后由 `SessionRuntime` 调用，宿主也可手动调用） |
+
+**口径约定**：
+
+- **TPS** = `outputTokens / (generationMs / 1000)`，分母只算模型生成时间（工具执行时间只进 `durationMs`）。
+- **缓存命中率** = `cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)`；分母为 0、或缓存读写全为 0（如 Ollama）时应显示 `—` 而不是 `0%`。
+- **累计值跨刷新保留**：每轮结束 Agent 追加一条 `UsageEntry`，resume 时由 `loadSessionUsage()` 重算。
 
 ## 4. 工具层类型
 
@@ -794,10 +841,22 @@ interface RewindEntry {
   timestamp: number;
 }
 
+/** 单轮用量行：turn 结束时由 Agent 追加，resume/fork 据此重算累计用量 */
+interface UsageEntry {
+  $type: 'usage';
+  usage: TokenUsageDelta;
+  /** 本轮墙钟耗时 (ms)，含工具执行 */
+  durationMs?: number;
+  /** 本轮模型生成耗时 (ms)，不含工具执行 */
+  generationMs?: number;
+  timestamp: number;
+}
+
 type SessionEntry =
   | (Message & { $type?: 'message' })
   | SummaryEntry
-  | RewindEntry;
+  | RewindEntry
+  | UsageEntry;
 
 interface SessionCheckpoint {
   checkpointId: string;
@@ -820,11 +879,25 @@ interface StorageAdapter {
 }
 ```
 
-- **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }`；回退时追加 `{ $type: 'rewind', keepThroughRawIndex, ... }`。
+- **Jsonl**：每会话 `<id>.jsonl` 为 **append-only**；压缩时在文件末尾追加 `{ $type: 'summary', ... }`；回退时追加 `{ $type: 'rewind', keepThroughRawIndex, ... }`；每轮结束追加 `{ $type: 'usage', ... }`。
 - **Resume 活动链**：无 rewind 时从**最后一个** `summary` 起重建；有 rewind 时 prefix（0..`keepThroughRawIndex`）+ tail（最后一条 rewind 之后，仍走 summary 语义）。**不包含** system。
+- **Usage 行是元行**：`reconstructActiveMessages`、checkpoint 索引（`listSessionCheckpointsFromRaw` / `userTurnIndex` 解析）都会跳过它，不会变成消息；但 usage 行**不随 rewind 丢弃**——token 已经花掉，累计值按会话生命周期计算。整段 `forkSession` 拷贝全部 usage 行；按检查点分叉时只拷贝该原始下标及之前的 usage 行。
 - **System prompt 不落盘**（jsonl / meta 都不写正文）；`cwd` / `agentName` 写在 `<id>.meta.json`。
-- **`SessionInfo.messageCount`**：raw JSONL 行数（含 summary/rewind），非 active 消息条数。
+- **`SessionInfo.messageCount`**：raw JSONL 行数（含 summary/rewind/usage），非 active 消息条数。
 - **`list()`**：以 meta 为准；允许只有 meta、尚无 jsonl 的会话（`messageCount: 0`）。`exists()` / `attachSession` 仍要求 jsonl 文件存在。
+
+会话累计用量的读写入口（`SessionManager`）：
+
+```ts
+/** turn 结束时写入一条 usage 行 */
+appendUsageEntry(stats: Pick<TurnStats, 'usage' | 'durationMs' | 'generationMs'>, timestamp?: number): Promise<void>;
+/** 从 usage 行重算累计用量（resume / rewind / fork 后） */
+loadSessionUsage(): Promise<SessionUsageSummary>;
+/** 一次 raw 读取同时得到活动链消息与累计用量 */
+loadActiveSessionState(): Promise<{ messages: Message[]; usage: SessionUsageSummary }>;
+```
+
+纯函数（可直接用于测试 / 自定义 UI）：`reconstructSessionUsage(entries)`、`reconstructSessionUsageRows(entries, throughRawIndex?)`、`summarizeUsageRows(rows)`。`throughRawIndex` 省略时取全部 usage 行。
 
 `SessionInfo`:
 

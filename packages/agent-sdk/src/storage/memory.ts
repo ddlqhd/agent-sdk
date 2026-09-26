@@ -3,7 +3,8 @@ import type {
   SessionInfo,
   StorageAdapter,
   SummaryEntry,
-  RewindEntry
+  RewindEntry,
+  UsageEntry
 } from '../core/types.js';
 
 function preservedSessionFields(
@@ -33,8 +34,12 @@ export class MemoryStorage implements StorageAdapter {
     const existing = this.sessions.get(sessionId) ?? [];
     const now = Date.now();
     const stamped = entries.map((e) => {
-      if ((e as SummaryEntry).$type === 'summary' || (e as RewindEntry).$type === 'rewind') {
-        const meta = e as SummaryEntry | RewindEntry;
+      if (
+        (e as SummaryEntry).$type === 'summary' ||
+        (e as RewindEntry).$type === 'rewind' ||
+        (e as UsageEntry).$type === 'usage'
+      ) {
+        const meta = e as SummaryEntry | RewindEntry | UsageEntry;
         return { ...meta, timestamp: meta.timestamp ?? now };
       }
       return {

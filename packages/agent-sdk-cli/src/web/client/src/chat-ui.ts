@@ -11,6 +11,8 @@ export interface ChatUi {
   endThinking(): void;
   appendAssistantDelta(chunk: string): void;
   finishStreaming(): void;
+  /** 在日志末尾追加一行常驻的灰色小字（本轮指标） */
+  appendTurnStats(text: string): void;
   upsertTool(id: string, name: string, status: 'call' | 'result' | 'error', body: string): void;
   setRunning(running: boolean): void;
   clear(): void;
@@ -313,6 +315,17 @@ export function initChatUi(opts: { logEl: HTMLDivElement; heroEl: HTMLElement })
       scrollIfPinned(pinned);
     },
     finishStreaming,
+    appendTurnStats(text) {
+      if (!text) return;
+      const pinned = isNearBottom();
+      const div = document.createElement('div');
+      div.className = 'turn-stats';
+      div.setAttribute('role', 'status');
+      div.textContent = text;
+      logEl.appendChild(div);
+      syncHero();
+      scrollIfPinned(pinned);
+    },
     upsertTool,
     setRunning,
     clear() {

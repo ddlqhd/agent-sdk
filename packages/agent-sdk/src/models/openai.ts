@@ -47,6 +47,18 @@ export type OpenAIReasoningTextDetail = {
 };
 
 /**
+ * 读取 OpenAI `usage.prompt_tokens_details.cached_tokens`（prompt 缓存命中 tokens）。
+ * 未返回该字段（或值非法）时为 0，此时命中率在 UI 中显示为「—」。
+ */
+export function readOpenAICachedTokens(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const details = (usage as { prompt_tokens_details?: { cached_tokens?: unknown } })
+    .prompt_tokens_details;
+  const cached = details?.cached_tokens;
+  return typeof cached === 'number' && Number.isFinite(cached) && cached > 0 ? cached : 0;
+}
+
+/**
  * Read thinking text from an OpenAI-compat message or delta, and the wire keys that carried it.
  * Text preference is `reasoning`, then `reasoning_content`, then `reasoning_details`.
  * Every key with non-empty text is recorded so replay can echo that same set.
@@ -367,7 +379,13 @@ export class OpenAIAdapter extends BaseModelAdapter {
     // 1) CLI 把 📊 Tokens 行夹在 thinking/text 增量之间反复打印；
     // 2) `Agent` 累计 sessionUsage 时把 cumulative 输入按 chunk 数倍数累加。
     let pendingUsage:
-      | { promptTokens: number; completionTokens: number; totalTokens: number }
+      | {
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+          /** OpenAI `prompt_tokens_details.cached_tokens`；Agent 计入 sessionUsage.cacheReadTokens */
+          cacheReadTokens?: number;
+        }
       | undefined;
     let pendingUsageRaw: unknown | undefined;
 
@@ -396,10 +414,12 @@ export class OpenAIAdapter extends BaseModelAdapter {
 
             // 即便本 chunk 没有 choice（如标准 OpenAI 的最末尾 usage-only chunk），仍要捕获 usage。
             if (data.usage) {
+              const cachedTokens = readOpenAICachedTokens(data.usage);
               pendingUsage = {
                 promptTokens: data.usage.prompt_tokens,
                 completionTokens: data.usage.completion_tokens,
-                totalTokens: data.usage.total_tokens
+                totalTokens: data.usage.total_tokens,
+                ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {})
               };
               if (params.includeRawStreamEvents) {
                 pendingUsageRaw = data;
@@ -592,6 +612,10 @@ export class OpenAIAdapter extends BaseModelAdapter {
         completionTokens: data.usage.completion_tokens,
         totalTokens: data.usage.total_tokens
       };
+      const cachedTokens = readOpenAICachedTokens(data.usage);
+      if (cachedTokens > 0) {
+        result.metadata = { cacheReadTokens: cachedTokens, cacheWriteTokens: 0 };
+      }
     }
 
     return result;

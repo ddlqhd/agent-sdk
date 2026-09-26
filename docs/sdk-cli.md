@@ -216,6 +216,19 @@ agent-sdk tui [options]
 
 界面是会话优先的三栏工作台：左侧会话列表（`ready` / 新建 / 分支 / 发送后自动刷新，可收成图标轨），中间居中对话，右侧可开关的工具执行与事件流。助手正文按 **GitHub Flavored Markdown** 渲染（标题、列表、代码块、表格、链接等）；思考过程与工具卡片仍是纯文本。模型、路径与安全选项在侧栏底部的**设置**浮层（左侧分类、右侧表单项）；连接后按该表单自动 `configure`。默认暗色，可切浅色（`localStorage`，首次跟随系统）。`chat_run` 调试开关也在设置里。
 
+**Token 指标**：
+
+- 每轮结束会在该轮回复下方追加一行常驻灰色小字（`.turn-stats`），形如
+  `101.9 tok/s · 5,234 tokens（输入 1,020 · 输出 214 · 缓存读 4,000） · 缓存命中 80% · 耗时 3.4s（生成 2.1s）`。
+  括号内各项之和等于前面的 token 总数；缓存读/写为 0 时省略。
+- 输入框下方常驻会话累计（`.session-stats`），形如
+  `会话 12 轮 · 33,432 tokens（输入 6,910 · 输出 1,522 · 缓存读 20,000 · 缓存写 5,000） · 缓存命中 63% · 平均 24.8 tok/s · 累计 1m 36s（生成 1m 1s）`；新建会话、切换会话时隐藏。
+- **TPS** 分母只算模型生成时间（工具执行时间只进「耗时」）；会话平均 TPS = 累计输出 tokens / 累计生成耗时。
+- **缓存命中率** = `cacheRead / (input + cacheRead + cacheWrite)`；分母为 0 或缓存读写全为 0（如 Ollama 不回传缓存字段）显示 `—` 而不是 `0%`。OpenAI 走 `usage.prompt_tokens_details.cached_tokens`。
+- 累计值来自每轮落盘的 `UsageEntry` 行，**刷新 / 重连 / 恢复会话后仍保留**；`rewind` 不会把已花掉的 token 从累计值里扣掉。历史轮次的指标行不回填，只显示本次会话窗口内产生的轮次。
+
+对应协议（`shared/ws-protocol.ts`）：`chat_done` 增加可选 `turn`（`TurnStats`）与 `session`（`SessionUsageSummary`）；新的 `session_stats` 消息在 `sessions:resume` / `sessions:rewind` / `sessions:fork` 之后下发，用于重建页脚。文本格式化是纯函数，位于 `shared/metrics.ts`（`formatTurnStats` / `formatSessionStats` 等，含单测 `tests/unit/metrics.test.ts`）。
+
 设置里点「应用配置」会把字段写到 `<userBase>/.claude/agent-sdk-settings.json`（`userBase` 为启动时的 `--user-base-path`，默认 `~`，文件权限 `0600`）。自动握手 `configure` 只读不写。模型页的 **API 地址** 写入 `agent-default-model.baseUrl`（仅 `http` / `https`，拒绝 `user:pass@`，最长 2048 字符）；留空并应用会删除已保存地址，改用环境变量或官方默认。**API Key** 写入 `agent-default-model.apiKey`，明文、不加密。握手只下发掩码（例如 `…ab12`），不下发明文。输入框留空表示保持已保存的 Key；点「清除」并应用后从文件删除，改回 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`。协议上省略 `apiKey` / `baseUrl` 表示保持，`null` 表示删除。切换提供商再保存时，没有重新填写的 Key 和地址会丢掉，避免把上一个提供商的凭据套到新提供商上。`chat` / `-p` / `web` 读取时也只在保存时的 provider 与当前 provider 一致（或当时没写 provider）时使用这份 Key 和地址。其余可选字段（temperature / thinking / thinkingLevel / contextLength / mcpConfigPath）省略即删除。覆盖顺序是 **显式 CLI flag > settings 文件 > 内置默认**。文件不存 `cwd`。CLI 只读不写该文件。
 
 ```bash
@@ -332,7 +345,7 @@ agent-sdk tools test <tool-name>     # 用 JSON 参数试跑工具（-a / --args
 
 ```bash
 agent-sdk sessions list [options]           # 列出所有会话
-agent-sdk sessions show <id>                  # 查看会话（默认活动链；--raw 含 summary/rewind 审计行）
+agent-sdk sessions show <id>                  # 查看会话（默认活动链；--raw 含 summary/rewind/usage 审计行）
 agent-sdk sessions checkpoints <id>           # 列出可回退 user prompt（0-based userTurnIndex）
 agent-sdk sessions rewind <id> [options]    # 磁盘回退（不 sync 其他进程中的 Agent 内存）
 agent-sdk sessions fork <sourceId> [options]  # 分支新会话
@@ -365,7 +378,7 @@ delete / clear 选项:
 
 注意：
 
-- `sessions list` 的 **Entries** 为 raw JSONL 行数（含 summary/rewind），非活动消息条数。
+- `sessions list` 的 **Entries** 为 raw JSONL 行数（含 summary/rewind/usage），非活动消息条数。
 - `sessions list` 的 `-f` 表示 **format**；`sessions delete` / `sessions clear` 的 `-f` 表示 **force**。
 - 离线 `sessions rewind` 只改 JSONL；正在运行的 chat / `agent-sdk web` 须用 `Agent.rewindToCheckpoint`（交互式 `/rewind` 或 Web UI）。
 

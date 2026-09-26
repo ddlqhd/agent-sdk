@@ -142,6 +142,7 @@ export class SessionRuntime<TExtra = unknown, TContext = unknown> {
     const extra = await this.hooks.createExtra({ sessionId, cwd, context });
     const agent = await this.hooks.buildAgent({ sessionId, cwd, extra, context });
     await agent.getSessionManager().attachSession(sessionId);
+    await agent.reloadSessionUsage();
     const messages = await agent.getSessionManager().loadActiveMessages();
     const record: SessionRecord<TExtra> = {
       sessionId,
@@ -200,6 +201,7 @@ export class SessionRuntime<TExtra = unknown, TContext = unknown> {
       const extra = await this.hooks.createExtra({ sessionId: newId, cwd, context });
       const forked = await this.hooks.buildAgent({ sessionId: newId, cwd, extra, context });
       await forked.getSessionManager().attachSession(newId);
+      await forked.reloadSessionUsage();
       const messages = await forked.getSessionManager().loadActiveMessages();
       const record: SessionRecord<TExtra> = {
         sessionId: newId,

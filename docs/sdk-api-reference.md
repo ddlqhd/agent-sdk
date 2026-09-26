@@ -42,6 +42,7 @@
 - `getMessages()` / `clearMessages()`：消息历史
 - `setSystemPrompt(prompt)` / `appendSystemPrompt(content)` / `getSystemPrompt()`：系统提示词管理
 - `compressContext()` / `getContextStatus()` / `getSessionUsage()`：上下文与 token 状态
+- `getSessionUsageSummary()` / `getLastTurnStats()` / `reloadSessionUsage()`：会话累计指标（TPS / token / 缓存命中率 / 耗时），见 [`sdk-types-reference.md`](./sdk-types-reference.md) 第 3 节
 - `getMCPAdapter()`：返回当前 `MCPAdapter` 或 `null`（未连接 MCP 时）
 - `processInput(input)`：解析 `/skill-name` 形式输入并可选调用 skill，返回是否已触发及替换后的 prompt（`Agent.stream`/`run` 内部已调用）
 - `invokeSkill(name, args?)`：按名称加载 skill 内容并做模板处理，返回可注入对话的 prompt 字符串
@@ -132,7 +133,7 @@
 - `JsonlStorage` / `createJsonlStorage(basePath?)`
 - `MemoryStorage` / `createMemoryStorage()`
 - `SessionManager` / `createSessionManager(config?)` — 另含 `forkSession`、`rewindSession`、`rewindToCheckpoint`、`listSessionCheckpoints`
-- Helpers：`buildRewindEntry`、`reconstructPrefixMessages`、`listSessionCheckpointsFromRaw`
+- Helpers：`buildRewindEntry`、`buildUsageEntry`、`reconstructPrefixMessages`、`reconstructSessionUsage` / `reconstructSessionUsageRows` / `summarizeUsageRows`、`listSessionCheckpointsFromRaw`
 
 #### Rewind 集成指南
 

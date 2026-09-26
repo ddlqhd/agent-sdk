@@ -192,6 +192,16 @@ function attachSocketHandlers(
   async function sendSessionHistory(sessionId: string, agent: Agent): Promise<void> {
     const messages = await loadChatHistory(agent);
     sendJson(socket, { type: 'sessions:history', sessionId, messages });
+    sendSessionStats(sessionId, agent);
+  }
+
+  /** 下发会话累计指标（输入框下方页脚） */
+  function sendSessionStats(sessionId: string, agent: Agent): void {
+    sendJson(socket, {
+      type: 'session_stats',
+      sessionId,
+      stats: agent.getSessionUsageSummary()
+    });
   }
 
   async function resolveSessionAgent(sessionId: string): Promise<Agent | null> {
@@ -502,6 +512,7 @@ function attachSocketHandlers(
           const result = await agent.rewindToCheckpoint(rewindOpts);
           const messages = await loadChatHistory(agent);
           sendJson(socket, { type: 'sessions:rewind', sessionId, result, messages });
+          sendSessionStats(sessionId, agent);
           return;
         }
 
@@ -539,6 +550,7 @@ function attachSocketHandlers(
             result: forked.forkResult,
             messages
           });
+          sendSessionStats(forked.sessionId, forked.agent);
           return;
         }
 
@@ -615,6 +627,8 @@ function attachSocketHandlers(
               }
             });
             const sid = target.agent.getSessionManager().sessionId || requestedSessionId;
+            const turn = target.agent.getLastTurnStats();
+            const session = target.agent.getSessionUsageSummary();
             console.log(
               `${LOG_PREFIX} [${connId}] chat_done ok requestId=${requestId} sessionId=${sid.slice(0, 8)}… finalTextLen=${result.finalText.length} usage=${result.usage ? JSON.stringify(result.usage) : 'none'}`
             );
@@ -623,7 +637,9 @@ function attachSocketHandlers(
               requestId,
               sessionId: sid,
               finalText: result.finalText,
-              usage: result.usage
+              usage: result.usage,
+              turn,
+              session
             });
           } catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
@@ -642,11 +658,15 @@ function attachSocketHandlers(
                 error: err
               } as StreamEvent)
             });
+            const failedTurn = target?.agent.getLastTurnStats();
+            const failedSession = target?.agent.getSessionUsageSummary();
             sendJson(socket, {
               type: 'chat_done',
               requestId,
               sessionId,
-              finalText: ''
+              finalText: '',
+              ...(failedTurn ? { turn: failedTurn } : {}),
+              ...(failedSession ? { session: failedSession } : {})
             });
           } finally {
             state.abortByRequest.delete(requestId);

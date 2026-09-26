@@ -10,6 +10,8 @@ import {
   reconstructPrefixMessages,
   buildRewindEntry,
   buildSummaryEntry,
+  buildUsageEntry,
+  isUsageEntry,
   listSessionCheckpointsFromRaw,
   encodeCheckpointId,
   decodeCheckpointId
@@ -224,6 +226,39 @@ describe('SessionManager fork and rewind', () => {
     const rows = mem.export()[forked.sessionId] ?? [];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ role: 'user', content: 'u1' });
+  });
+
+  it('checkpoint fork copies usage rows only through that raw index', async () => {
+    sm.createSession('src');
+    const turnUsage = (inputTokens: number, outputTokens: number) =>
+      buildUsageEntry({
+        usage: { inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        durationMs: 100,
+        generationMs: 80
+      });
+    await sm.appendEntries([
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      turnUsage(10, 5),
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a2' },
+      turnUsage(20, 7)
+    ]);
+
+    const mem = sm.getStorage() as MemoryStorage;
+    const atFirstUser = await sm.forkSession('src', { userTurnIndex: 0 });
+    const firstRows = mem.export()[atFirstUser.sessionId] ?? [];
+    expect(firstRows.filter(isUsageEntry)).toHaveLength(0);
+    expect(firstRows).toEqual([expect.objectContaining({ role: 'user', content: 'u1' })]);
+
+    const atSecondUser = await sm.forkSession('src', { userTurnIndex: 1 });
+    const secondUsage = (mem.export()[atSecondUser.sessionId] ?? []).filter(isUsageEntry);
+    expect(secondUsage).toHaveLength(1);
+    expect(secondUsage[0]).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5 } });
+
+    const full = await sm.forkSession('src');
+    const fullUsage = (mem.export()[full.sessionId] ?? []).filter(isUsageEntry);
+    expect(fullUsage).toHaveLength(2);
   });
 
   it('copy session meta on fork (memory)', async () => {

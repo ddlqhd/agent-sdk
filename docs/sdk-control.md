@@ -12,7 +12,7 @@ Web 私有 WS ────────────┼─→ SessionRuntime + bui
 ACP stdio ──────────────┘
 ```
 
-- **kernel 保证**：create / load / list / fork / close、`runTurn`、provider/env、`AGENT_SDK_EXEC_SERVER_*`
+- **kernel 保证**：create / load / list / fork / close、`runTurn`、provider/env、`AGENT_SDK_EXEC_SERVER_*`；`load` / `fork` 会调用 `Agent.reloadSessionUsage()` 恢复会话累计用量（供 Web 页脚指标使用）
 - **adapter 故意不同**：ACP 审批与 edit mode、Web rewind / settings persist、CLI allowlist 与 TTY AskUserQuestion
 - **执行面**：仍是 [`sdk-exec-server.md`](./sdk-exec-server.md)，不是控制面
 

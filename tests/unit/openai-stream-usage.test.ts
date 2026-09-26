@@ -112,4 +112,55 @@ describe('OpenAIAdapter stream usage emission', () => {
     const chunks = await collectStream(new OpenAIAdapter({ apiKey: 'sk' }));
     expect(chunks.some(c => c.type === 'metadata')).toBe(false);
   });
+
+  it('captures prompt_tokens_details.cached_tokens as cacheReadTokens', async () => {
+    stubFetchWithSSE(
+      sseLines([
+        { choices: [{ index: 0, delta: { content: 'Hello' }, finish_reason: 'stop' }] },
+        {
+          choices: [],
+          usage: {
+            prompt_tokens: 1000,
+            completion_tokens: 10,
+            total_tokens: 1010,
+            prompt_tokens_details: { cached_tokens: 800 }
+          }
+        }
+      ])
+    );
+
+    const chunks = await collectStream(new OpenAIAdapter({ apiKey: 'sk' }));
+    const metadata = chunks.filter(c => c.type === 'metadata');
+    expect(metadata).toHaveLength(1);
+    expect(metadata[0]).toMatchObject({
+      type: 'metadata',
+      metadata: {
+        usage: {
+          promptTokens: 1000,
+          completionTokens: 10,
+          totalTokens: 1010,
+          cacheReadTokens: 800
+        }
+      }
+    });
+  });
+
+  it('omits cacheReadTokens when the server reports no cached tokens', async () => {
+    stubFetchWithSSE(
+      sseLines([
+        { choices: [{ index: 0, delta: { content: 'Hello' }, finish_reason: 'stop' }] },
+        {
+          choices: [],
+          usage: { prompt_tokens: 1000, completion_tokens: 10, total_tokens: 1010 }
+        }
+      ])
+    );
+
+    const chunks = await collectStream(new OpenAIAdapter({ apiKey: 'sk' }));
+    const metadata = chunks.filter(c => c.type === 'metadata');
+    expect(metadata).toHaveLength(1);
+    const usage = (metadata[0] as { metadata?: { usage?: Record<string, unknown> } }).metadata?.usage;
+    expect(usage).toBeDefined();
+    expect(usage).not.toHaveProperty('cacheReadTokens');
+  });
 });

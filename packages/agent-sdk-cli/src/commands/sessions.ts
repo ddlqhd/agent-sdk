@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { SessionManager, isRewindEntry } from '@ddlqhd/agent-sdk';
+import { SessionManager, isRewindEntry, isUsageEntry } from '@ddlqhd/agent-sdk';
 import { formatTable } from '../utils/output.js';
 import { createCliSessionManager, listSessionsForPicker } from '../utils/session-cli.js';
 import type {
@@ -126,7 +126,7 @@ export function createSessionsCommand(): Command {
       );
       console.log(chalk.gray(`\nTotal: ${sessions.length} sessions`));
       console.log(
-        chalk.gray('Note: Entries = raw JSONL line count (includes summary/rewind), not active messages.')
+        chalk.gray('Note: Entries = raw JSONL line count (includes summary/rewind/usage), not active messages.')
       );
       if (options.withActive) {
         console.log(chalk.gray('Active = current activity chain message count.'));
@@ -140,7 +140,7 @@ export function createSessionsCommand(): Command {
       .command('show <id>')
       .description('Show session messages (active chain after last compaction by default)')
       .option('-l, --limit <n>', 'Limit number of messages', parseInt, 50)
-      .option('--raw', 'Full append-only transcript including pre-compaction history')
+      .option('--raw', 'Full append-only transcript including summary/rewind/usage meta rows and pre-compaction history')
   ).action(async (id, options) => {
     const manager = createCliSessionManager(options.userBasePath);
     await ensureSessionExists(manager, id);
@@ -163,6 +163,12 @@ export function createSessionsCommand(): Command {
             role: 'rewind',
             content: `keepThroughRawIndex=${e.keepThroughRawIndex}`,
             extra: `@ ${new Date(e.timestamp).toISOString()}`
+          });
+        } else if (isUsageEntry(e)) {
+          display.push({
+            role: 'usage',
+            content: `in=${e.usage.inputTokens} out=${e.usage.outputTokens} cache_read=${e.usage.cacheReadTokens} cache_write=${e.usage.cacheWriteTokens}`,
+            extra: `gen=${e.generationMs ?? 0}ms duration=${e.durationMs ?? 0}ms @ ${new Date(e.timestamp).toISOString()}`
           });
         } else {
           const m = e as Message;

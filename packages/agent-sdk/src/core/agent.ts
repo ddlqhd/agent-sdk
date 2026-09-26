@@ -30,6 +30,9 @@ import {
   type RewindSessionResult,
   type RewindToCheckpointOptions,
   type SessionCheckpoint,
+  type SessionUsageSummary,
+  type TokenUsageDelta,
+  type TurnStats,
   type OpenAIReasoningWireField,
   mergeOpenAIReasoningFields
 } from '../core/types.js';
@@ -145,6 +148,22 @@ export class Agent {
   // inputTokens/outputTokens: 累计消耗
   // totalTokens: 累计总消耗 (inputTokens + outputTokens)
   private sessionUsage: SessionTokenUsage = Agent.createEmptySessionUsage();
+  /** 已落盘的轮次数（storage 中 usage 行数） */
+  private sessionTurns = 0;
+  /** 累计模型生成耗时 (ms)，与 {@link sessionTurns} 同步落盘 */
+  private sessionGenerationMs = 0;
+  /** 累计本轮墙钟耗时 (ms)，与 {@link sessionTurns} 同步落盘 */
+  private sessionDurationMs = 0;
+
+  // —— 当前 turn（stream 调用）的统计 ——
+  /** turn 开始时的 usage 快照；`null` 表示没有进行中的 turn */
+  private turnUsageSnapshot: SessionTokenUsage | null = null;
+  private turnStartedAt = 0;
+  private turnGenerationMs = 0;
+  /** 最近一次模型请求开始时间；`null` 表示没有在途请求 */
+  private modelRequestStartedAt: number | null = null;
+  /** 最近一次结束的 turn 统计（供宿主读取，turn 开始时清空） */
+  private lastTurnStats: TurnStats | undefined;
 
   private static resolveModel(config: AgentConfig): ModelAdapter {
     if (config.model) {
@@ -698,6 +717,150 @@ export class Agent {
     this.messages = [];
     this.persistedNonSystemCount = 0;
     this.sessionUsage = Agent.createEmptySessionUsage();
+    this.sessionTurns = 0;
+    this.sessionGenerationMs = 0;
+    this.sessionDurationMs = 0;
+    this.lastTurnStats = undefined;
+    this.turnUsageSnapshot = null;
+    this.modelRequestStartedAt = null;
+  }
+
+  /** 开始统计一个 turn：记录 usage 快照与起始时间 */
+  private beginTurnStats(): void {
+    this.turnUsageSnapshot = { ...this.sessionUsage };
+    this.turnStartedAt = Date.now();
+    this.turnGenerationMs = 0;
+    this.modelRequestStartedAt = null;
+    this.lastTurnStats = undefined;
+  }
+
+  private beginModelRequestTiming(): void {
+    this.modelRequestStartedAt = Date.now();
+  }
+
+  private endModelRequestTiming(): void {
+    if (this.modelRequestStartedAt === null) return;
+    this.turnGenerationMs += Math.max(0, Date.now() - this.modelRequestStartedAt);
+    this.modelRequestStartedAt = null;
+  }
+
+  /**
+   * 结束当前 turn：计算增量用量与耗时，把 usage 行写入会话存储（幂等）。
+   * 由 `stream()` 的 `finally` 调用，覆盖正常 / 中断 / 报错 / 提前返回等所有路径。
+   */
+  private async finalizeTurnStats(): Promise<TurnStats | undefined> {
+    const snapshot = this.turnUsageSnapshot;
+    if (!snapshot) {
+      return this.lastTurnStats;
+    }
+    this.turnUsageSnapshot = null;
+
+    let generationMs = this.turnGenerationMs;
+    if (this.modelRequestStartedAt !== null) {
+      generationMs += Math.max(0, Date.now() - this.modelRequestStartedAt);
+      this.modelRequestStartedAt = null;
+    }
+    const durationMs = Math.max(0, Date.now() - this.turnStartedAt);
+    const usage = Agent.diffSessionUsage(snapshot, this.sessionUsage);
+    const stats: TurnStats = { usage, durationMs, generationMs };
+    this.lastTurnStats = stats;
+
+    const hasTokens =
+      usage.inputTokens > 0 ||
+      usage.outputTokens > 0 ||
+      usage.cacheReadTokens > 0 ||
+      usage.cacheWriteTokens > 0;
+    if (!hasTokens) {
+      return stats;
+    }
+
+    try {
+      await this.sessionManager.appendUsageEntry(stats);
+    } catch (error) {
+      this.sessionUsage.inputTokens = snapshot.inputTokens;
+      this.sessionUsage.outputTokens = snapshot.outputTokens;
+      this.sessionUsage.cacheReadTokens = snapshot.cacheReadTokens;
+      this.sessionUsage.cacheWriteTokens = snapshot.cacheWriteTokens;
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('warn', {
+        component: 'session',
+        event: 'session.usage.persist.error',
+        message: 'Failed to persist turn usage entry',
+        operation: 'persist',
+        errorName: err.name,
+        errorMessage: err.message,
+        metadata: { phase: 'turn_usage' }
+      });
+      return stats;
+    }
+
+    this.sessionTurns += 1;
+    this.sessionGenerationMs += generationMs;
+    this.sessionDurationMs += durationMs;
+    return stats;
+  }
+
+  /** 从会话存储的 usage 行重算累计用量（attach / rewind / fork 后调用） */
+  async reloadSessionUsage(): Promise<SessionUsageSummary> {
+    if (!this.sessionManager.sessionId) {
+      this.sessionTurns = 0;
+      this.sessionGenerationMs = 0;
+      this.sessionDurationMs = 0;
+      return this.getSessionUsageSummary();
+    }
+    try {
+      this.applyRestoredUsage(await this.sessionManager.loadSessionUsage());
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.log('warn', {
+        component: 'session',
+        event: 'session.usage.restore.error',
+        message: 'Failed to restore session usage from storage',
+        errorName: err.name,
+        errorMessage: err.message,
+        metadata: { phase: 'turn_usage' }
+      });
+    }
+    return this.getSessionUsageSummary();
+  }
+
+  /** 用 storage 重算结果覆盖累计用量（保留当前上下文大小） */
+  private applyRestoredUsage(summary: SessionUsageSummary): void {
+    this.sessionUsage = {
+      ...summary.usage,
+      contextTokens: this.sessionUsage.contextTokens
+    };
+    this.sessionTurns = summary.turns;
+    this.sessionGenerationMs = summary.generationMs;
+    this.sessionDurationMs = summary.durationMs;
+  }
+
+  /** 会话累计用量 + 轮次 + 累计生成耗时（UI 页脚使用） */
+  getSessionUsageSummary(): SessionUsageSummary {
+    return {
+      usage: this.getSessionUsage(),
+      turns: this.sessionTurns,
+      generationMs: this.sessionGenerationMs,
+      durationMs: this.sessionDurationMs
+    };
+  }
+
+  /** 最近一次结束的 turn 统计；turn 进行中或尚无历史时为 `undefined` */
+  getLastTurnStats(): TurnStats | undefined {
+    return this.lastTurnStats;
+  }
+
+  /** 会话累计用量的增量（after - before，不含 contextTokens） */
+  private static diffSessionUsage(
+    before: SessionTokenUsage,
+    after: SessionTokenUsage
+  ): TokenUsageDelta {
+    return {
+      inputTokens: Math.max(0, after.inputTokens - before.inputTokens),
+      outputTokens: Math.max(0, after.outputTokens - before.outputTokens),
+      cacheReadTokens: Math.max(0, after.cacheReadTokens - before.cacheReadTokens),
+      cacheWriteTokens: Math.max(0, after.cacheWriteTokens - before.cacheWriteTokens)
+    };
   }
 
   /** Map session cumulative usage to {@link TokenUsage} for stream events and callbacks. */
@@ -773,7 +936,9 @@ export class Agent {
       }
       try {
         await this.sessionManager.attachSession(options.sessionId);
-        this.messages = await this.sessionManager.loadActiveMessages();
+        const restored = await this.sessionManager.loadActiveSessionState();
+        this.messages = restored.messages;
+        this.applyRestoredUsage(restored.usage);
         this.notifySessionResume(
           options.sessionId,
           this.messages.filter((m) => m.role !== 'system').length
@@ -795,7 +960,9 @@ export class Agent {
     while (this.messages[0]?.role === 'system') {
       this.messages.shift();
     }
-    this.messages = await this.sessionManager.loadActiveMessages();
+    const restored = await this.sessionManager.loadActiveSessionState();
+    this.messages = restored.messages;
+    this.applyRestoredUsage(restored.usage);
     this.appendInitialSystemMessages(options);
     this.syncPersistedNonSystemFromMemory();
     this.sessionUsage = this.contextManager
@@ -1608,6 +1775,8 @@ export class Agent {
 
       yield this.streamOut({ type: 'start', timestamp: Date.now() });
       const persistOnAbortIfNeeded = this.createAbortPersistController();
+      // 会话/输入准备完成后才开始统计本轮（前置失败不覆盖上一轮统计）
+      this.beginTurnStats();
 
       try {
         const maxIterations = Math.max(1, this.config.maxIterations ?? DEFAULT_MAX_ITERATIONS);
@@ -1625,6 +1794,7 @@ export class Agent {
           yield* this.yieldContextCompressionEvents(iteration);
 
           this.notifyModelRequestStart(iteration, options);
+          this.beginModelRequestTiming();
 
           const modelParams = this.buildModelParamsForStream(options, signal);
           const state = this.createEmptyModelStreamState();
@@ -1649,6 +1819,7 @@ export class Agent {
           }
 
           this.notifyModelRequestEnd(iteration);
+          this.endModelRequestTiming();
 
           const assistantMessage = this.buildAssistantMessageFromStreamAggregate({
             assistantContent: state.assistantContent,
@@ -1688,6 +1859,8 @@ export class Agent {
         yield* this.yieldStreamCatchError(error, persistOnAbortIfNeeded);
       }
     } finally {
+      // 所有终止路径（正常 / 中断 / 报错 / 提前返回）统一在这里收口本轮统计并落盘 usage 行
+      await this.finalizeTurnStats();
       this.currentRunId = undefined;
       this.attachSdkLogToHooks();
     }

@@ -8,7 +8,9 @@ import type {
   ForkSessionResult,
   RewindSessionResult,
   SessionCheckpoint,
-  TokenUsage
+  SessionUsageSummary,
+  TokenUsage,
+  TurnStats
 } from '@ddlqhd/agent-sdk';
 import type { ChatHistoryItem } from './message-text.js';
 
@@ -115,7 +117,12 @@ export type ServerMessage =
       sessionId: string;
       finalText: string;
       usage?: TokenUsage;
+      /** 本轮指标（TPS / token / 缓存命中率 / 耗时）；无 token 消耗的轮次可能缺失 */
+      turn?: TurnStats;
+      /** 会话累计指标（输入框下方）；配置错误等早退分支不带 */
+      session?: SessionUsageSummary;
     }
+  | { type: 'session_stats'; sessionId: string; stats: SessionUsageSummary }
   | { type: 'sessions:list'; sessions: SessionListItem[] }
   | { type: 'sessions:new'; sessionId: string }
   | { type: 'sessions:deleted'; sessionId: string }
