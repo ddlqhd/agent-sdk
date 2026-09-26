@@ -64,6 +64,20 @@ export interface BuildAgentOptions {
   thinking?: boolean;
   /** → AgentModelConfig.thinkingLevel; `createModel` / adapters use when supported (e.g. Ollama `think`). */
   thinkingLevel?: 'low' | 'medium' | 'high';
+  /**
+   * Model API base URL.
+   * Non-empty string wins.
+   * `null` clears a custom URL (env / built-in default; Ollama still uses `OLLAMA_BASE_URL`).
+   * Omit to fall back to `defaults.baseUrl` when the provider matches.
+   */
+  baseUrl?: string | null;
+  /**
+   * Model API key.
+   * Non-empty string wins.
+   * `null` clears a saved key and uses the provider environment variable.
+   * Omit to fall back to `defaults.apiKey` when the provider matches, then the environment.
+   */
+  apiKey?: string | null;
   mcpConfigPath?: string;
   cwd?: string;
   userBasePath?: string;
@@ -142,9 +156,40 @@ function resolvePathRelative(p: string | undefined, base: string): string | unde
   return resolve(base, trimmed);
 }
 
-function resolveApiKey(provider: ModelProvider, defaults: WebRuntimeDefaults): string | undefined {
-  if (defaults.apiKey && (!defaults.provider || defaults.provider === provider)) {
-    return defaults.apiKey;
+/**
+ * Page `baseUrl` wins. `null` means the page cleared it.
+ * An omitted value keeps `--base-url` / the startup settings URL when the provider matches.
+ */
+export function resolveModelBaseUrl(
+  provider: ModelProvider,
+  configured: string | null | undefined,
+  defaults: Pick<WebRuntimeDefaults, 'provider' | 'baseUrl'>
+): string | undefined {
+  const explicit = configured?.trim();
+  if (explicit) return explicit;
+  if (configured === null) {
+    return provider === 'ollama' ? getOllamaBaseUrl() : undefined;
+  }
+  const baseUrlApplies = !defaults.provider || defaults.provider === provider;
+  const seeded = baseUrlApplies ? defaults.baseUrl?.trim() : undefined;
+  if (provider === 'ollama') return seeded || getOllamaBaseUrl();
+  return seeded || undefined;
+}
+
+/**
+ * Page `apiKey` wins. `null` means the page cleared it and only the provider env var applies.
+ * An omitted value keeps `--api-key` / the startup settings key when the provider matches.
+ */
+export function resolveModelApiKey(
+  provider: ModelProvider,
+  configured: string | null | undefined,
+  defaults: Pick<WebRuntimeDefaults, 'provider' | 'apiKey'>
+): string | undefined {
+  const explicit = configured?.trim();
+  if (explicit) return explicit;
+  if (configured === null) return requireProviderEnv(provider);
+  if (defaults.apiKey?.trim() && (!defaults.provider || defaults.provider === provider)) {
+    return defaults.apiKey.trim();
   }
   return requireProviderEnv(provider);
 }
@@ -159,7 +204,7 @@ export async function buildAgent(
   defaults: WebRuntimeDefaults
 ): Promise<{ agent: Agent; warnings: string[] }> {
   const warnings: string[] = [];
-  const key = resolveApiKey(config.provider, defaults);
+  const key = resolveModelApiKey(config.provider, config.apiKey, defaults);
   if (config.provider !== 'ollama' && !key) {
     throw new Error(describeMissingKey(config.provider));
   }
@@ -169,13 +214,10 @@ export async function buildAgent(
   const userBasePath =
     resolvePathRelative(config.userBasePath, defaults.userBasePath) ?? defaults.userBasePath;
 
-  const baseUrlApplies = !defaults.provider || defaults.provider === config.provider;
-  const cliBaseUrl = baseUrlApplies ? defaults.baseUrl : undefined;
-
   const modelConfig = {
     provider: config.provider,
     apiKey: key,
-    baseUrl: config.provider === 'ollama' ? cliBaseUrl || getOllamaBaseUrl() : cliBaseUrl,
+    baseUrl: resolveModelBaseUrl(config.provider, config.baseUrl, defaults),
     model: config.model,
     ...(config.thinking !== undefined ? { thinking: config.thinking } : {}),
     ...(config.thinkingLevel !== undefined ? { thinkingLevel: config.thinkingLevel } : {})

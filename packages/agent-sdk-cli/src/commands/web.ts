@@ -2,9 +2,10 @@ import { Command } from 'commander';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
-import { parseProviderCli } from '../utils/agent-bootstrap.js';
+import { parseProviderCli, savedModelSecretsApply } from '../utils/agent-bootstrap.js';
 import { describeCliLogLevelOption, parseCliLogLevel } from '../utils/sdk-log.js';
-import { loadUserSettings } from '../utils/user-settings.js';
+import { loadUserSettings, type UserSettings } from '../utils/user-settings.js';
+import type { WebRuntimeDefaults } from '../web/agent-factory.js';
 import type { ModelProvider } from '../web/shared/ws-protocol.js';
 import { resolveWebClientDist } from '../web/paths.js';
 import { parseListenPort, resolveListenPort } from '../web/http-utils.js';
@@ -29,6 +30,45 @@ export interface WebCommandOptions {
 }
 
 /**
+ * Seed `agent-sdk web` runtime defaults from flags and the user settings file.
+ * Saved apiKey / baseUrl apply only when their stored provider matches the resolved provider.
+ */
+export function resolveWebRuntimeDefaults(
+  options: WebCommandOptions,
+  settings: UserSettings | null,
+  cwd: string,
+  userBasePath: string
+): WebRuntimeDefaults {
+  const saved = settings?.agentDefaultModel;
+  const provider = options.provider
+    ? parseProviderCli(options.provider)
+    : (saved?.provider ?? 'openai');
+  const savedApplies = savedModelSecretsApply(saved?.provider, provider);
+  return {
+    cwd,
+    userBasePath,
+    mcpConfigPath: options.mcpConfig ?? settings?.agent?.mcpConfigPath,
+    provider: provider as ModelProvider,
+    model: options.model ?? saved?.model,
+    apiKey: options.apiKey ?? (savedApplies ? saved?.apiKey : undefined),
+    baseUrl: options.baseUrl ?? (savedApplies ? saved?.baseUrl : undefined),
+    includeDemoTools: options.demoTools === true,
+    logLevel: options.logLevel,
+    logFile: options.logFile,
+    execServer: options.execServer,
+    execToken: options.execToken,
+    temperature: saved?.temperature,
+    thinking: saved?.thinking,
+    thinkingLevel: saved?.thinkingLevel,
+    memory: settings?.agent?.memory,
+    contextManagement: settings?.agent?.contextManagement,
+    contextLength: settings?.agent?.contextLength,
+    storage: settings?.web?.storage,
+    safeToolsOnly: settings?.web?.safeToolsOnly
+  };
+}
+
+/**
  * Local Agent Studio UI (HTTP + WebSocket `/ws`).
  */
 export function createWebCommand(): Command {
@@ -36,8 +76,11 @@ export function createWebCommand(): Command {
     .description('Start the local Agent Studio web UI (HTTP + WebSocket)')
     .option('--provider <provider>', 'LLM provider (openai/anthropic/ollama)', parseProviderCli)
     .option('-m, --model <model>', 'Model ID (written to UI defaults)')
-    .option('-k, --api-key <key>', 'API key (server-side only)')
-    .option('-u, --base-url <url>', 'API base URL for the selected --provider')
+    .option('-k, --api-key <key>', 'API key (overrides a saved key; the browser only receives a mask)')
+    .option(
+      '-u, --base-url <url>',
+      'API base URL (seeds the settings field; overrides a saved URL)'
+    )
     .option('--mcp-config <path>', 'MCP config file (used when the UI path is empty)')
     .option('--user-base-path <path>', 'User base path (default: ~)')
     .option('--cwd <path>', 'Working directory (default: current directory)')
@@ -58,9 +101,6 @@ export function createWebCommand(): Command {
         const cwd = options.cwd ? resolve(options.cwd) : process.cwd();
         const userBasePath = options.userBasePath ? resolve(options.userBasePath) : homedir();
         const settings = loadUserSettings(userBasePath);
-        const provider = options.provider
-          ? parseProviderCli(options.provider)
-          : (settings?.agentDefaultModel?.provider ?? 'openai');
         const port = resolveListenPort(options.port, process.env.PORT);
         const host = options.host ?? '127.0.0.1';
 
@@ -69,28 +109,7 @@ export function createWebCommand(): Command {
           host,
           clientDist: resolveWebClientDist(),
           allowRemote: options.allowRemote === true,
-          defaults: {
-            cwd,
-            userBasePath,
-            mcpConfigPath: options.mcpConfig ?? settings?.agent?.mcpConfigPath,
-            provider: provider as ModelProvider,
-            model: options.model ?? settings?.agentDefaultModel?.model,
-            apiKey: options.apiKey,
-            baseUrl: options.baseUrl,
-            includeDemoTools: options.demoTools === true,
-            logLevel: options.logLevel,
-            logFile: options.logFile,
-            execServer: options.execServer,
-            execToken: options.execToken,
-            temperature: settings?.agentDefaultModel?.temperature,
-            thinking: settings?.agentDefaultModel?.thinking,
-            thinkingLevel: settings?.agentDefaultModel?.thinkingLevel,
-            memory: settings?.agent?.memory,
-            contextManagement: settings?.agent?.contextManagement,
-            contextLength: settings?.agent?.contextLength,
-            storage: settings?.web?.storage,
-            safeToolsOnly: settings?.web?.safeToolsOnly
-          }
+          defaults: resolveWebRuntimeDefaults(options, settings, cwd, userBasePath)
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

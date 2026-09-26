@@ -120,7 +120,7 @@ agent-sdk chat [options]
 选项:
   --provider <provider>    模型提供商 (openai, anthropic, ollama；未指定时读用户设置，再默认 openai)
   -m, --model <model>      模型 ID（如 gpt-4o、claude-sonnet-4）
-  -k, --api-key <key>      API Key
+  -k, --api-key <key>      API Key（覆盖 settings 中保存的 Key）
   -u, --base-url <url>     基础 URL
   -M, --model-name <name>  已弃用，等同 `--model`（help 中隐藏）
   -t, --temperature <num>  温度 (0-2)
@@ -212,11 +212,11 @@ agent-sdk tui [options]
 
 ### web
 
-本地 **Agent Studio** Web UI：同一进程提供静态页面与 WebSocket `/ws`。浏览器不接触 API Key；密钥走服务端环境变量或 `--api-key`。
+本地 **Agent Studio** Web UI：同一进程提供静态页面与 WebSocket `/ws`。API Key 可在设置页填写；留空时仍走服务端环境变量或 `--api-key`。
 
 界面是会话优先的三栏工作台：左侧会话列表（`ready` / 新建 / 分支 / 发送后自动刷新，可收成图标轨），中间居中对话，右侧可开关的工具执行与事件流。助手正文按 **GitHub Flavored Markdown** 渲染（标题、列表、代码块、表格、链接等）；思考过程与工具卡片仍是纯文本。模型、路径与安全选项在侧栏底部的**设置**浮层（左侧分类、右侧表单项）；连接后按该表单自动 `configure`。默认暗色，可切浅色（`localStorage`，首次跟随系统）。`chat_run` 调试开关也在设置里。
 
-设置里点「应用配置」会把**非密钥**字段写到 `<userBase>/.claude/agent-sdk-settings.json`（`userBase` 为启动时的 `--user-base-path`，默认 `~`）。自动握手 `configure` 只读不写。清空可选字段（temperature / thinking / thinkingLevel / contextLength / mcpConfigPath）会从文件中删除对应键。`agent-sdk chat` / `-p` / `web` 共用这份默认模型；覆盖顺序是 **显式 CLI flag > settings 文件 > 内置默认**。文件不含 API Key（仍走环境变量 / `--api-key`），也不存 `cwd`。CLI 只读不写该文件。
+设置里点「应用配置」会把字段写到 `<userBase>/.claude/agent-sdk-settings.json`（`userBase` 为启动时的 `--user-base-path`，默认 `~`，文件权限 `0600`）。自动握手 `configure` 只读不写。模型页的 **API 地址** 写入 `agent-default-model.baseUrl`（仅 `http` / `https`，拒绝 `user:pass@`，最长 2048 字符）；留空并应用会删除已保存地址，改用环境变量或官方默认。**API Key** 写入 `agent-default-model.apiKey`，明文、不加密。握手只下发掩码（例如 `…ab12`），不下发明文。输入框留空表示保持已保存的 Key；点「清除」并应用后从文件删除，改回 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`。协议上省略 `apiKey` / `baseUrl` 表示保持，`null` 表示删除。切换提供商再保存时，没有重新填写的 Key 和地址会丢掉，避免把上一个提供商的凭据套到新提供商上。`chat` / `-p` / `web` 读取时也只在保存时的 provider 与当前 provider 一致（或当时没写 provider）时使用这份 Key 和地址。其余可选字段（temperature / thinking / thinkingLevel / contextLength / mcpConfigPath）省略即删除。覆盖顺序是 **显式 CLI flag > settings 文件 > 内置默认**。文件不存 `cwd`。CLI 只读不写该文件。
 
 ```bash
 # 默认 http://127.0.0.1:3001（与 chat 共用 cwd / userBasePath / 会话目录）
@@ -239,8 +239,8 @@ agent-sdk web [options]
   --demo-tools             注册 DemoCalculator 示例工具
   --provider <provider>    模型提供商（覆盖 settings / 写入 UI 默认值）
   -m, --model <model>      模型 ID（覆盖 settings / 写入 UI 默认值）
-  -k, --api-key <key>      API Key（仅服务端使用）
-  -u, --base-url <url>     仅当 UI 仍使用上述 --provider 时生效
+  -k, --api-key <key>      服务端默认 Key（覆盖已保存的 Key；浏览器只收到掩码）
+  -u, --base-url <url>     填入设置页「API 地址」（覆盖已保存的地址；页面留空并应用后删除）
   --mcp-config <path>      MCP 配置文件（UI 未填路径时使用）
   --user-base-path <path>  用户基础路径（默认: ~；jsonl 会话与 CLI 相同）
   --cwd <path>             工作目录（默认: 当前目录）
@@ -263,7 +263,7 @@ stdout 会打印连接、RPC method 和断开，用来确认控制面请求是�
 
 本仓库需先 `pnpm build`：CLI 包会把 Vite 客户端打进 `dist/web-client`，发布的 `@ddlqhd/agent-sdk-cli` 已包含该静态资源。未构建时 `agent-sdk web` 会提示先 build。`tsup --watch` 不会清空已构建的 `dist/web-client`。
 
-默认只绑定回环地址，并对浏览器 WebSocket 校验 `Origin`（仅 `http://127.0.0.1:<port>` / `http://localhost:<port>`）。`--host 0.0.0.0` 必须同时加 `--allow-remote`；这会跳过 Origin 校验，任何能连上的客户端都可以驱动带工具的 Agent，不要对公网暴露。
+默认只绑定回环地址，并对浏览器 WebSocket 校验 `Origin`（仅 `http://127.0.0.1:<port>` / `http://localhost:<port>`）。握手不下发明文 API Key。`--host 0.0.0.0` 必须同时加 `--allow-remote`；这会跳过 Origin 校验，任何能连上的客户端都可以驱动带工具的 Agent，不要对公网暴露。
 
 ### Print mode (`-p`)
 
@@ -295,7 +295,7 @@ agent-sdk -p [prompt] [options]
   --bare                   跳过 hooks/skills/memory/MCP 自动发现/subagent profile
   --provider <provider>    模型提供商 (openai, anthropic, ollama；默认 openai)
   -m, --model <model>      模型 ID
-  -k, --api-key <key>      API Key
+  -k, --api-key <key>      API Key（覆盖 settings 中保存的 Key）
   -v, --verbose            显示完整的工具调用参数和结果（调试模式）
   --resume, --continue     恢复最近会话
   (其他选项同 chat)

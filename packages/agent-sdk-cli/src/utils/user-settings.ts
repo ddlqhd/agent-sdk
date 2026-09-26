@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { normalizeHttpBaseUrl } from './http-base-url.js';
 import type { ModelProvider } from '../web/shared/ws-protocol.js';
 
 const SETTINGS_FILENAME = 'agent-sdk-settings.json';
@@ -10,6 +11,10 @@ const MODEL_PROVIDERS = new Set<ModelProvider>(['openai', 'anthropic', 'ollama']
 export interface AgentDefaultModelSettings {
   provider?: ModelProvider;
   model?: string;
+  /** Model API base URL (http/https). */
+  baseUrl?: string;
+  /** Model API key, stored in plaintext. */
+  apiKey?: string;
   temperature?: number;
   thinking?: boolean;
   thinkingLevel?: 'low' | 'medium' | 'high';
@@ -38,6 +43,8 @@ export interface UserSettings {
 export interface AgentDefaultModelPatch {
   provider?: ModelProvider | null;
   model?: string | null;
+  baseUrl?: string | null;
+  apiKey?: string | null;
   temperature?: number | null;
   thinking?: boolean | null;
   thinkingLevel?: 'low' | 'medium' | 'high' | null;
@@ -86,18 +93,40 @@ function asOptionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function asOptionalHttpBaseUrl(value: unknown): string | undefined {
+  const raw = asOptionalString(value);
+  if (!raw) return undefined;
+  return normalizeHttpBaseUrl(raw);
+}
+
+/**
+ * `undefined` keeps a saved value. `null`, blank, or invalid deletes it.
+ * `dropOnOmit` deletes on undefined too (provider changed, so the old secret must not be relabeled).
+ */
+function persistSecret(
+  value: string | null | undefined,
+  normalize: (raw: string) => string | undefined,
+  dropOnOmit: boolean
+): string | null | undefined {
+  if (value === undefined) return dropOnOmit ? null : undefined;
+  if (value === null) return null;
+  return normalize(value) ?? null;
+}
+
 function parseAgentDefaultModel(raw: unknown): AgentDefaultModelSettings | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const obj = raw as Record<string, unknown>;
   const provider = isModelProvider(obj.provider) ? obj.provider : undefined;
   const model = asOptionalString(obj.model);
+  const baseUrl = asOptionalHttpBaseUrl(obj.baseUrl);
+  const apiKey = asOptionalString(obj.apiKey);
   const temperature = asOptionalFiniteNumber(obj.temperature);
   const thinking = typeof obj.thinking === 'boolean' ? obj.thinking : undefined;
   const thinkingLevel =
     obj.thinkingLevel === 'low' || obj.thinkingLevel === 'medium' || obj.thinkingLevel === 'high'
       ? obj.thinkingLevel
       : undefined;
-  return mergeSection(undefined, { provider, model, temperature, thinking, thinkingLevel });
+  return mergeSection(undefined, { provider, model, baseUrl, apiKey, temperature, thinking, thinkingLevel });
 }
 
 function parseAgentBehavior(raw: unknown): AgentBehaviorSettings | undefined {
@@ -192,24 +221,41 @@ export function mergeUserSettings(base: UserSettings | null, patch: UserSettings
   };
 }
 
-export function settingsFromConfigure(input: {
-  provider: ModelProvider;
-  model: string;
-  temperature?: number;
-  thinking?: boolean;
-  thinkingLevel?: 'low' | 'medium' | 'high';
-  memory?: boolean;
-  contextManagement?: boolean;
-  contextLength?: number;
-  mcpConfigPath?: string;
-  storage: 'memory' | 'jsonl';
-  safeToolsOnly?: boolean;
-}): UserSettingsPatch {
+export function settingsFromConfigure(
+  input: {
+    provider: ModelProvider;
+    model: string;
+    /**
+     * Non-empty http(s) URL without userinfo.
+     * Omit keeps a saved URL; null, blank, or invalid deletes it.
+     */
+    baseUrl?: string | null;
+    /**
+     * Non-empty API key, stored in plaintext.
+     * Omit keeps a saved key; null or blank deletes it.
+     */
+    apiKey?: string | null;
+    temperature?: number;
+    thinking?: boolean;
+    thinkingLevel?: 'low' | 'medium' | 'high';
+    memory?: boolean;
+    contextManagement?: boolean;
+    contextLength?: number;
+    mcpConfigPath?: string;
+    storage: 'memory' | 'jsonl';
+    safeToolsOnly?: boolean;
+  },
+  previous?: UserSettings | null
+): UserSettingsPatch {
+  const previousProvider = previous?.agentDefaultModel?.provider;
+  const providerChanged = previousProvider !== undefined && previousProvider !== input.provider;
   return {
     version: 1,
     agentDefaultModel: {
       provider: input.provider,
       model: input.model,
+      baseUrl: persistSecret(input.baseUrl, normalizeHttpBaseUrl, providerChanged),
+      apiKey: persistSecret(input.apiKey, (raw) => asOptionalString(raw), providerChanged),
       temperature: input.temperature ?? null,
       thinking: input.thinking ?? null,
       thinkingLevel: input.thinkingLevel ?? null
@@ -255,6 +301,7 @@ export function persistConfigureSettings(
   userBasePath: string | undefined,
   input: Parameters<typeof settingsFromConfigure>[0]
 ): void {
-  const next = mergeUserSettings(loadUserSettings(userBasePath), settingsFromConfigure(input));
+  const current = loadUserSettings(userBasePath);
+  const next = mergeUserSettings(current, settingsFromConfigure(input, current));
   saveUserSettings(userBasePath, next);
 }

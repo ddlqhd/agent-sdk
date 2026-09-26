@@ -42,6 +42,17 @@ function isCliModelProvider(value: string): value is ModelProvider {
   return (CLI_MODEL_PROVIDERS as readonly string[]).includes(value);
 }
 
+/**
+ * Saved apiKey / baseUrl belong to the provider stored beside them.
+ * A missing stored provider still applies (older settings files).
+ */
+export function savedModelSecretsApply(
+  savedProvider: string | undefined,
+  provider: string
+): boolean {
+  return !savedProvider || savedProvider === provider;
+}
+
 /** @internal Exported for unit tests. */
 export function parseProviderCli(value: string): ModelProvider {
   const s = value.trim().toLowerCase();
@@ -116,7 +127,7 @@ export function addModelOptions(cmd: Command): Command {
   return cmd
     .option('--provider <provider>', 'LLM provider (openai/anthropic/ollama)', parseProviderCli)
     .option('-m, --model <model>', 'Model name (e.g. gpt-4o, claude-sonnet-4)')
-    .option('-k, --api-key <key>', 'API key')
+    .option('-k, --api-key <key>', 'API key (overrides a key saved in settings)')
     .option('-u, --base-url <url>', 'Base URL for API')
     .addOption(new Option('-M, --model-name <name>', 'Deprecated alias for --model').hideHelp())
     .option('-s, --session <id>', 'Session ID to resume')
@@ -219,10 +230,12 @@ export function modelConfigFromOptions(
   settings?: UserSettings | null
 ): AgentModelConfig {
   const { provider, model } = resolveCliModelSelection(options, settings);
+  const saved = settings?.agentDefaultModel;
+  const savedApplies = savedModelSecretsApply(saved?.provider, provider);
   return {
     provider,
-    apiKey: options.apiKey,
-    baseUrl: options.baseUrl,
+    apiKey: options.apiKey ?? (savedApplies ? saved?.apiKey : undefined),
+    baseUrl: options.baseUrl ?? (savedApplies ? saved?.baseUrl : undefined),
     model,
     thinking: options.thinking ?? settings?.agentDefaultModel?.thinking,
     thinkingLevel: options.thinkingLevel ?? settings?.agentDefaultModel?.thinkingLevel

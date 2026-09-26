@@ -29,7 +29,9 @@ describe('parseUserSettings', () => {
         temperature: 0.2,
         thinking: true,
         thinkingLevel: 'high',
-        apiKey: 'should-ignore'
+        baseUrl: 'https://api.example/v1',
+        apiKey: 'sk-plain',
+        note: 'should-ignore'
       },
       agent: { memory: false, contextManagement: true, contextLength: 128000, mcpConfigPath: 'mcp.json' },
       web: { storage: 'jsonl', safeToolsOnly: true }
@@ -41,7 +43,9 @@ describe('parseUserSettings', () => {
         model: 'claude-sonnet-4',
         temperature: 0.2,
         thinking: true,
-        thinkingLevel: 'high'
+        thinkingLevel: 'high',
+        baseUrl: 'https://api.example/v1',
+        apiKey: 'sk-plain'
       },
       agent: {
         memory: false,
@@ -185,5 +189,114 @@ describe('mergeUserSettings / persistConfigureSettings', () => {
     expect(stored?.agentDefaultModel).not.toHaveProperty('temperature');
     expect(stored?.agent).not.toHaveProperty('mcpConfigPath');
     expect(stored?.agent).not.toHaveProperty('contextLength');
+  });
+
+  it('persists an http(s) baseUrl and drops it when configure clears the field', () => {
+    const root = mkdtempSync(join(tmpdir(), 'user-settings-'));
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'https://gateway.example/v1/',
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel?.baseUrl).toBe('https://gateway.example/v1/');
+
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: null,
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel).not.toHaveProperty('baseUrl');
+
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'ftp://nope',
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel).not.toHaveProperty('baseUrl');
+  });
+
+  it('stores apiKey as plaintext and drops it when configure clears the field', () => {
+    const root = mkdtempSync(join(tmpdir(), 'user-settings-'));
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test-plain',
+      storage: 'jsonl'
+    });
+    const raw = JSON.parse(readFileSync(getUserSettingsPath(root), 'utf8')) as {
+      'agent-default-model'?: { apiKey?: string };
+    };
+    expect(raw['agent-default-model']?.apiKey).toBe('sk-test-plain');
+    expect(loadUserSettings(root)?.agentDefaultModel?.apiKey).toBe('sk-test-plain');
+
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: null,
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel).not.toHaveProperty('apiKey');
+  });
+
+  it('keeps apiKey and baseUrl when a later persist omits them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'user-settings-'));
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'sk-keep',
+      storage: 'jsonl'
+    });
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'sk-keep'
+    });
+  });
+
+  it('drops apiKey and baseUrl when persist changes provider and omits them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'user-settings-'));
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'sk-openai',
+      storage: 'jsonl'
+    });
+    persistConfigureSettings(root, {
+      provider: 'anthropic',
+      model: 'claude-x',
+      storage: 'jsonl'
+    });
+    const model = loadUserSettings(root)?.agentDefaultModel;
+    expect(model).toEqual({ provider: 'anthropic', model: 'claude-x' });
+    expect(model).not.toHaveProperty('apiKey');
+    expect(model).not.toHaveProperty('baseUrl');
+  });
+
+  it('drops a baseUrl that embeds userinfo', () => {
+    const root = mkdtempSync(join(tmpdir(), 'user-settings-'));
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'https://gateway.example/v1',
+      storage: 'jsonl'
+    });
+    persistConfigureSettings(root, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      baseUrl: 'https://user:pass@gateway.example/v1',
+      storage: 'jsonl'
+    });
+    expect(loadUserSettings(root)?.agentDefaultModel).not.toHaveProperty('baseUrl');
   });
 });

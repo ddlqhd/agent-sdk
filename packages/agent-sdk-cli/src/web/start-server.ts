@@ -12,13 +12,13 @@ import type {
 } from '@ddlqhd/agent-sdk';
 import { SessionRuntime, runTurn } from '@ddlqhd/agent-sdk-control';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
-import type { ClientMessage, ServerMessage, SessionListItem, WebUiDefaults } from './shared/ws-protocol.js';
+import type { ClientMessage, ServerMessage, SessionListItem } from './shared/ws-protocol.js';
 import {
   firstUserQuestionTitle,
   messagesToChatHistory,
   type ChatHistoryItem
 } from './shared/message-text.js';
-import { chatPreview, truncateForLog } from './shared/log-utils.js';
+import { chatPreview, formatBaseUrlForLog, truncateForLog } from './shared/log-utils.js';
 import {
   buildAgent,
   closeSharedAgentLogger,
@@ -35,7 +35,13 @@ import {
   parseClientMessage,
   resolveStaticFile
 } from './http-utils.js';
-import { persistConfigureSettings } from '../utils/user-settings.js';
+import { loadUserSettings, persistConfigureSettings } from '../utils/user-settings.js';
+import {
+  applyPersistedModelDefaults,
+  snapshotModelDefaults,
+  withModelDefaults
+} from './model-defaults.js';
+import { toUiDefaults } from './ui-defaults.js';
 
 const LOG_PREFIX = '[agent-sdk web]';
 
@@ -64,26 +70,6 @@ function sendJson(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
-function toUiDefaults(defaults: WebRuntimeDefaults): WebUiDefaults {
-  return {
-    cwd: defaults.cwd,
-    userBasePath: defaults.userBasePath,
-    ...(defaults.mcpConfigPath ? { mcpConfigPath: defaults.mcpConfigPath } : {}),
-    ...(defaults.provider ? { provider: defaults.provider } : {}),
-    ...(defaults.model ? { model: defaults.model } : {}),
-    ...(defaults.temperature !== undefined ? { temperature: defaults.temperature } : {}),
-    ...(defaults.contextLength !== undefined ? { contextLength: defaults.contextLength } : {}),
-    ...(defaults.thinking !== undefined ? { thinking: defaults.thinking } : {}),
-    ...(defaults.thinkingLevel ? { thinkingLevel: defaults.thinkingLevel } : {}),
-    ...(defaults.storage ? { storage: defaults.storage } : {}),
-    ...(defaults.safeToolsOnly === true ? { safeToolsOnly: true } : {}),
-    ...(typeof defaults.memory === 'boolean' ? { memory: defaults.memory } : {}),
-    ...(typeof defaults.contextManagement === 'boolean'
-      ? { contextManagement: defaults.contextManagement }
-      : {})
-  };
-}
-
 function attachSocketHandlers(
   socket: WebSocket,
   defaults: WebRuntimeDefaults,
@@ -100,6 +86,14 @@ function attachSocketHandlers(
     runtimeConfig: null,
     abortByRequest: new Map()
   };
+
+  /**
+   * Model defaults owned by this connection. Captured at attach and rewritten only by
+   * this connection's own persist: a persist from another connection updates the shared
+   * `defaults` (so later connections see the file) but must not change what an already
+   * configured connection falls back to.
+   */
+  const modelSeed = snapshotModelDefaults(defaults);
 
   function resolvedCwd(): string {
     const raw = state.runtimeConfig?.cwd?.trim();
@@ -182,7 +176,10 @@ function attachSocketHandlers(
     if (!state.runtimeConfig) {
       throw new Error('Configure the agent first.');
     }
-    const { agent, warnings } = await buildAgent({ ...state.runtimeConfig, askUserQuestion }, defaults);
+    const { agent, warnings } = await buildAgent(
+      { ...state.runtimeConfig, askUserQuestion },
+      withModelDefaults(defaults, modelSeed)
+    );
     lastBuildWarnings = warnings;
     return agent;
   }
@@ -268,12 +265,15 @@ function attachSocketHandlers(
       switch (msg.type) {
         case 'hello':
           console.log(`${LOG_PREFIX} [${connId}] inbound hello`);
-          sendJson(socket, { type: 'hello_ok', defaults: toUiDefaults(defaults) });
+          sendJson(socket, {
+            type: 'hello_ok',
+            defaults: toUiDefaults(withModelDefaults(defaults, modelSeed))
+          });
           return;
 
         case 'configure': {
           console.log(
-            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} persist=${msg.persist === true} contextLength=${msg.contextLength ?? '(default)'} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
+            `${LOG_PREFIX} [${connId}] configure provider=${msg.provider} model=${msg.model} baseUrl=${formatBaseUrlForLog(msg.baseUrl)} apiKey=${msg.apiKey ? '(set)' : msg.apiKey === null ? '(cleared)' : '(default)'} storage=${msg.storage} safeToolsOnly=${msg.safeToolsOnly === true} persist=${msg.persist === true} contextLength=${msg.contextLength ?? '(default)'} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'} cwd=${msg.cwd ? truncateForLog(msg.cwd) : '(default)'} userBasePath=${msg.userBasePath ? truncateForLog(msg.userBasePath) : '(default)'} mcpConfigPath=${msg.mcpConfigPath ? truncateForLog(msg.mcpConfigPath) : '(none)'}`
           );
           const persistWarnings: string[] = [];
           if (msg.persist === true) {
@@ -281,6 +281,8 @@ function attachSocketHandlers(
               persistConfigureSettings(defaults.userBasePath, {
                 provider: msg.provider,
                 model: msg.model,
+                baseUrl: msg.baseUrl,
+                apiKey: msg.apiKey,
                 temperature: msg.temperature,
                 thinking: msg.thinking,
                 thinkingLevel: msg.thinkingLevel,
@@ -290,6 +292,15 @@ function attachSocketHandlers(
                 mcpConfigPath: msg.mcpConfigPath,
                 storage: msg.storage,
                 safeToolsOnly: msg.safeToolsOnly
+              });
+              const storedModel = loadUserSettings(defaults.userBasePath)?.agentDefaultModel;
+              // Refresh this connection's snapshot and the server-wide defaults; other
+              // connections keep the snapshot they captured at attach.
+              applyPersistedModelDefaults(defaults, modelSeed, {
+                provider: storedModel?.provider ?? msg.provider,
+                model: storedModel?.model ?? msg.model,
+                baseUrl: storedModel?.baseUrl,
+                apiKey: storedModel?.apiKey
               });
             } catch (err) {
               const detail = err instanceof Error ? err.message : String(err);
@@ -302,6 +313,8 @@ function attachSocketHandlers(
           state.runtimeConfig = {
             provider: msg.provider,
             model: msg.model,
+            baseUrl: msg.baseUrl,
+            apiKey: msg.apiKey,
             temperature: msg.temperature,
             contextLength: msg.contextLength,
             storage: msg.storage,

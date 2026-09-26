@@ -1,5 +1,5 @@
 import type { AskUserQuestionAnswer, AskUserQuestionItem, SessionCheckpoint } from '@ddlqhd/agent-sdk';
-import { chatPreview } from '../../shared/log-utils.js';
+import { chatPreview, formatBaseUrlForLog } from '../../shared/log-utils.js';
 import type { ClientMessage, ModelProvider, ServerMessage, WebUiDefaults } from '../../shared/ws-protocol.js';
 import { initChatUi, formatToolArguments, truncateForChatSnippet } from './chat-ui.js';
 import { initLayout } from './layout.js';
@@ -16,6 +16,9 @@ const formConfig = document.querySelector<HTMLFormElement>('#form-config')!;
 const cfgWarnings = document.querySelector<HTMLParagraphElement>('#cfg-warnings')!;
 const cfgProvider = document.querySelector<HTMLSelectElement>('#cfg-provider')!;
 const cfgModel = document.querySelector<HTMLInputElement>('#cfg-model')!;
+const cfgBaseUrl = document.querySelector<HTMLInputElement>('#cfg-base-url')!;
+const cfgApiKey = document.querySelector<HTMLInputElement>('#cfg-api-key')!;
+const btnClearApiKey = document.querySelector<HTMLButtonElement>('#btn-clear-api-key')!;
 const currentSessionEl = document.querySelector<HTMLElement>('#current-session')!;
 const btnSessionMore = document.querySelector<HTMLButtonElement>('#btn-session-more')!;
 const sessionMoreMenu = document.querySelector<HTMLElement>('#session-more-menu')!;
@@ -114,11 +117,43 @@ let configured = false;
 let currentSessionId: string | undefined;
 let activeRequestId: string | null = null;
 let eventFilter: 'all' | 'text' | 'tool' | 'other' = 'all';
+/** Fields the user has edited. A later hello_ok must not overwrite them. */
+const dirtyFields = new Set<string>();
+/** Provider last received from the server, used to drop secrets when the form provider changes. */
+let seededProvider: ModelProvider | undefined;
+/** Base URL last received from the server, restored if the user switches back before apply. */
+let seededBaseUrl = '';
+/** Mask from hello_ok, never the plaintext key. */
+let savedApiKeyHint: string | undefined;
+/** User asked to delete the saved key on the next configure. */
+let clearApiKey = false;
+
+function markFieldDirty(target: EventTarget | null): void {
+  if (!(target instanceof HTMLElement)) return;
+  const name = target.getAttribute('name');
+  if (name) dirtyFields.add(name);
+}
+
+function isPristine(name: string): boolean {
+  return !dirtyFields.has(name);
+}
 
 const MODEL_HINTS: Record<ModelProvider, string> = {
   openai: 'gpt-4o',
   anthropic: 'claude-sonnet-4-20250514',
   ollama: 'nemotron-3-super:cloud'
+};
+
+const BASE_URL_PLACEHOLDERS: Record<ModelProvider, string> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  ollama: 'http://127.0.0.1:11434'
+};
+
+const API_KEY_PLACEHOLDERS: Record<ModelProvider, string> = {
+  openai: '留空则使用 OPENAI_API_KEY',
+  anthropic: '留空则使用 ANTHROPIC_API_KEY',
+  ollama: 'Ollama 通常不需要'
 };
 
 const DEFAULT_MODEL_NAMES = new Set(Object.values(MODEL_HINTS));
@@ -131,7 +166,7 @@ function logOutbound(msg: ClientMessage): void {
       break;
     case 'configure':
       console.log(
-        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} storage=${msg.storage} persist=${msg.persist === true} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'}`
+        `${LOG_PREFIX} send configure provider=${msg.provider} model=${msg.model} baseUrl=${formatBaseUrlForLog(msg.baseUrl)} apiKey=${msg.apiKey ? '(set)' : msg.apiKey === null ? '(cleared)' : '(default)'} storage=${msg.storage} persist=${msg.persist === true} safeToolsOnly=${msg.safeToolsOnly === true} thinking=${msg.thinking !== undefined ? String(msg.thinking) : '(default)'} thinkingLevel=${msg.thinkingLevel ?? '(default)'}`
       );
       break;
     case 'chat':
@@ -203,10 +238,40 @@ function setComposerError(text: string): void {
   composerError.hidden = !text;
 }
 
+function baseUrlHost(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return '';
+  }
+}
+
+function syncBaseUrlPlaceholder(): void {
+  const provider = cfgProvider.value as ModelProvider;
+  const sample = BASE_URL_PLACEHOLDERS[provider] ?? BASE_URL_PLACEHOLDERS.openai;
+  cfgBaseUrl.placeholder = `留空则使用默认（${sample}）`;
+}
+
+function syncApiKeyPlaceholder(): void {
+  const provider = cfgProvider.value as ModelProvider;
+  const fallback = API_KEY_PLACEHOLDERS[provider] ?? API_KEY_PLACEHOLDERS.openai;
+  if (clearApiKey) {
+    cfgApiKey.placeholder = '应用后清除已保存的 Key，改用环境变量';
+    return;
+  }
+  const hintApplies = savedApiKeyHint && (!seededProvider || provider === seededProvider);
+  if (hintApplies && !cfgApiKey.value.trim()) {
+    cfgApiKey.placeholder = `已保存 ${savedApiKeyHint}，留空保持不变`;
+    return;
+  }
+  cfgApiKey.placeholder = fallback;
+}
+
 function refreshComposerHint(): void {
   const provider = cfgProvider.value;
   const model = cfgModel.value.trim();
-  composerHint.textContent = model ? `${provider} · ${model}` : provider;
+  const host = baseUrlHost(cfgBaseUrl.value.trim());
+  composerHint.textContent = [provider, model, host].filter(Boolean).join(' · ');
 }
 
 function setSessionMoreOpen(open: boolean): void {
@@ -958,15 +1023,22 @@ function renderCheckpointList(checkpoints: SessionCheckpoint[]): void {
 
 function applyServerDefaults(defaults?: WebUiDefaults): void {
   if (!defaults) return;
-  if (defaults.provider) {
+  seededProvider = defaults.provider ?? seededProvider;
+  seededBaseUrl = defaults.baseUrl ?? '';
+  savedApiKeyHint = defaults.hasApiKey ? defaults.apiKeyHint || '••••' : undefined;
+
+  if (isPristine('provider') && defaults.provider) {
     cfgProvider.value = defaults.provider;
+  }
+  if (isPristine('model')) {
     if (defaults.model) {
       cfgModel.value = defaults.model;
-    } else if (cfgModel.value.trim() === '' || DEFAULT_MODEL_NAMES.has(cfgModel.value)) {
+    } else if (
+      defaults.provider &&
+      (cfgModel.value.trim() === '' || DEFAULT_MODEL_NAMES.has(cfgModel.value))
+    ) {
       cfgModel.value = MODEL_HINTS[defaults.provider];
     }
-  } else if (defaults.model) {
-    cfgModel.value = defaults.model;
   }
   const cwdInput = formConfig.querySelector<HTMLInputElement>('[name="cwd"]');
   const userInput = formConfig.querySelector<HTMLInputElement>('[name="userBasePath"]');
@@ -981,30 +1053,55 @@ function applyServerDefaults(defaults?: WebUiDefaults): void {
   const thinkingLevelSelect = formConfig.querySelector<HTMLSelectElement>('[name="thinkingLevel"]');
   if (cwdInput && defaults.cwd) cwdInput.placeholder = defaults.cwd;
   if (userInput && defaults.userBasePath) userInput.placeholder = defaults.userBasePath;
-  if (mcpInput) {
+  if (mcpInput && isPristine('mcpConfigPath')) {
     if (defaults.mcpConfigPath) mcpInput.value = defaults.mcpConfigPath;
     else mcpInput.placeholder = mcpInput.placeholder || '可选，相对工作目录';
   }
-  if (tempInput && defaults.temperature !== undefined) tempInput.value = String(defaults.temperature);
-  if (ctxInput && defaults.contextLength !== undefined) ctxInput.value = String(defaults.contextLength);
-  if (storageSelect && defaults.storage) storageSelect.value = defaults.storage;
-  if (safeTools && defaults.safeToolsOnly !== undefined) safeTools.checked = defaults.safeToolsOnly;
-  if (memory && defaults.memory !== undefined) memory.checked = defaults.memory;
-  if (contextManagement && defaults.contextManagement !== undefined) {
+  if (tempInput && isPristine('temperature') && defaults.temperature !== undefined) {
+    tempInput.value = String(defaults.temperature);
+  }
+  if (ctxInput && isPristine('contextLength') && defaults.contextLength !== undefined) {
+    ctxInput.value = String(defaults.contextLength);
+  }
+  if (storageSelect && isPristine('storage') && defaults.storage) storageSelect.value = defaults.storage;
+  if (safeTools && isPristine('safeToolsOnly') && defaults.safeToolsOnly !== undefined) {
+    safeTools.checked = defaults.safeToolsOnly;
+  }
+  if (memory && isPristine('memory') && defaults.memory !== undefined) memory.checked = defaults.memory;
+  if (contextManagement && isPristine('contextManagement') && defaults.contextManagement !== undefined) {
     contextManagement.checked = defaults.contextManagement;
   }
-  if (thinkingSelect && defaults.thinking !== undefined) {
+  if (thinkingSelect && isPristine('thinking') && defaults.thinking !== undefined) {
     thinkingSelect.value = defaults.thinking ? 'true' : 'false';
   }
-  if (thinkingLevelSelect && defaults.thinkingLevel) {
+  if (thinkingLevelSelect && isPristine('thinkingLevel') && defaults.thinkingLevel) {
     thinkingLevelSelect.value = defaults.thinkingLevel;
   }
+  if (isPristine('baseUrl')) cfgBaseUrl.value = defaults.baseUrl ?? '';
+  if (isPristine('apiKey')) {
+    cfgApiKey.value = '';
+    clearApiKey = false;
+  }
+  syncBaseUrlPlaceholder();
+  syncApiKeyPlaceholder();
+  refreshComposerHint();
+}
+
+function readApiKeyForConfigure(): string | null | undefined {
+  const typed = cfgApiKey.value.trim();
+  if (typed) return typed;
+  if (clearApiKey) return null;
+  const provider = cfgProvider.value as ModelProvider;
+  if (seededProvider && provider !== seededProvider) return null;
+  return undefined;
 }
 
 function readConfigureMessage(persist = false): ClientMessage {
   const fd = new FormData(formConfig);
   const provider = String(fd.get('provider') || 'ollama') as ModelProvider;
   const model = String(fd.get('model') || MODEL_HINTS[provider]);
+  const baseUrl = String(fd.get('baseUrl') || '').trim() || null;
+  const apiKey = readApiKeyForConfigure();
   const temperature = fd.get('temperature') ? Number(fd.get('temperature')) : undefined;
   const rawCtxLen = String(fd.get('contextLength') ?? '').trim();
   const contextLengthParsed = rawCtxLen !== '' ? Number(rawCtxLen) : undefined;
@@ -1035,6 +1132,8 @@ function readConfigureMessage(persist = false): ClientMessage {
     type: 'configure',
     provider,
     model,
+    baseUrl,
+    ...(apiKey !== undefined ? { apiKey } : {}),
     temperature,
     ...(contextLength !== undefined ? { contextLength } : {}),
     storage,
@@ -1056,21 +1155,47 @@ function syncThemeButton(): void {
   btnTheme.setAttribute('aria-label', btnTheme.title);
 }
 
+formConfig.addEventListener('input', (ev) => {
+  markFieldDirty(ev.target);
+  if (ev.target === cfgApiKey && cfgApiKey.value.trim()) clearApiKey = false;
+});
+formConfig.addEventListener('change', (ev) => {
+  markFieldDirty(ev.target);
+});
+
+btnClearApiKey.addEventListener('click', () => {
+  cfgApiKey.value = '';
+  clearApiKey = true;
+  dirtyFields.add('apiKey');
+  syncApiKeyPlaceholder();
+});
+
 cfgProvider.addEventListener('change', () => {
   const p = cfgProvider.value as ModelProvider;
+  cfgApiKey.value = '';
+  dirtyFields.add('apiKey');
+  cfgBaseUrl.value = seededProvider && p === seededProvider ? seededBaseUrl : '';
+  dirtyFields.add('baseUrl');
+  syncBaseUrlPlaceholder();
+  syncApiKeyPlaceholder();
   const hint = MODEL_HINTS[p];
   if (['gpt-4', 'gpt-4o'].some((x) => cfgModel.value.includes(x)) && p !== 'openai') {
     cfgModel.value = hint;
+    dirtyFields.add('model');
     refreshComposerHint();
     return;
   }
   if (cfgModel.value.trim() === '' || cfgModel.value === hint || DEFAULT_MODEL_NAMES.has(cfgModel.value)) {
     cfgModel.value = hint;
+    dirtyFields.add('model');
   }
   refreshComposerHint();
 });
 
 cfgModel.addEventListener('input', () => refreshComposerHint());
+cfgBaseUrl.addEventListener('input', () => refreshComposerHint());
+syncBaseUrlPlaceholder();
+syncApiKeyPlaceholder();
 
 formConfig.addEventListener('submit', (e) => {
   e.preventDefault();

@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { AskUserQuestionAnswer } from '@ddlqhd/agent-sdk';
+import { normalizeHttpBaseUrl } from '../utils/http-base-url.js';
 import type { ClientMessage, ModelProvider } from './shared/ws-protocol.js';
 
 /** Messages that must run even while a chat stream is occupying the serial queue. */
@@ -107,6 +108,31 @@ function asOptionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/** `undefined` means the field was omitted. `null` means explicitly cleared. */
+function parseConfigureBaseUrl(
+  value: unknown
+): { ok: true; baseUrl?: string | null } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true };
+  if (value === null) return { ok: true, baseUrl: null };
+  if (typeof value !== 'string') return { ok: false, error: 'configure: invalid baseUrl' };
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: true, baseUrl: null };
+  const normalized = normalizeHttpBaseUrl(trimmed);
+  if (!normalized) return { ok: false, error: 'configure: invalid baseUrl' };
+  return { ok: true, baseUrl: normalized };
+}
+
+/** `undefined` means the field was omitted. `null` means explicitly cleared. */
+function parseConfigureApiKey(
+  value: unknown
+): { ok: true; apiKey?: string | null } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true };
+  if (value === null) return { ok: true, apiKey: null };
+  if (typeof value !== 'string') return { ok: false, error: 'configure: invalid apiKey' };
+  const trimmed = value.trim();
+  return { ok: true, apiKey: trimmed || null };
+}
+
 /**
  * Narrow a parsed JSON value to {@link ClientMessage}. Rejects unknown types and missing required fields.
  */
@@ -148,6 +174,10 @@ export function parseClientMessage(raw: unknown): ParseClientMessageResult {
       ) {
         return { ok: false, error: 'configure: invalid thinkingLevel' };
       }
+      const baseUrl = parseConfigureBaseUrl(obj.baseUrl);
+      if (!baseUrl.ok) return baseUrl;
+      const apiKey = parseConfigureApiKey(obj.apiKey);
+      if (!apiKey.ok) return apiKey;
       return {
         ok: true,
         msg: {
@@ -155,6 +185,8 @@ export function parseClientMessage(raw: unknown): ParseClientMessageResult {
           provider: obj.provider as ModelProvider,
           model: obj.model,
           storage: obj.storage,
+          ...(baseUrl.baseUrl !== undefined ? { baseUrl: baseUrl.baseUrl } : {}),
+          ...(apiKey.apiKey !== undefined ? { apiKey: apiKey.apiKey } : {}),
           ...(asOptionalFiniteNumber(obj.temperature) !== undefined
             ? { temperature: obj.temperature as number }
             : {}),

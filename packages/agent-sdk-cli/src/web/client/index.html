@@ -285,6 +285,41 @@
                 模型 ID
                 <input name="model" id="cfg-model" type="text" value="gpt-4o" autocomplete="off" />
               </label>
+              <label>
+                API 地址
+                <input
+                  name="baseUrl"
+                  id="cfg-base-url"
+                  type="text"
+                  inputmode="url"
+                  placeholder="留空则使用默认（https://api.openai.com/v1）"
+                  title="模型 API 根地址，必须以 http:// 或 https:// 开头，不能包含用户名或密码。OpenAI / Anthropic 建议包含 /v1。留空并应用会删除已保存地址，改用环境变量或官方默认。"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </label>
+              <label>
+                API Key
+                <span class="api-key-field">
+                  <input
+                    name="apiKey"
+                    id="cfg-api-key"
+                    type="password"
+                    placeholder="留空则使用 OPENAI_API_KEY"
+                    title="留空保持已保存的 Key。点「清除」并应用后从设置文件删除，改用环境变量。明文只写在本机设置文件（权限 0600），不会发回浏览器。"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button
+                    type="button"
+                    id="btn-clear-api-key"
+                    class="btn btn-ghost btn-sm"
+                    title="应用后从设置文件删除 Key，改用环境变量"
+                  >
+                    清除
+                  </button>
+                </span>
+              </label>
               <label id="cfg-thinking-wrap">
                 Thinking（布尔）
                 <select name="thinking" id="cfg-thinking">

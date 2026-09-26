@@ -39,7 +39,21 @@ export type ClientMessage =
       thinking?: boolean;
       /** Maps to AgentModelConfig.thinkingLevel (omit for default; adapters use when supported). */
       thinkingLevel?: 'low' | 'medium' | 'high';
-      /** When true, write non-secret fields to the user settings file after configure. */
+      /**
+       * Model API base URL.
+       * A non-empty string overrides the server default.
+       * `null` clears a custom URL (provider env / built-in default).
+       * Omit to keep the server default (`--base-url` or saved settings).
+       */
+      baseUrl?: string | null;
+      /**
+       * Model API key.
+       * A non-empty string overrides the server default.
+       * `null` clears a saved key (fall back to the provider environment variable).
+       * Omit to keep the server default (`--api-key` or saved settings).
+       */
+      apiKey?: string | null;
+      /** When true, write configure fields (including the API key in plaintext) to the user settings file. */
       persist?: boolean;
     }
   | { type: 'chat'; text: string; sessionId?: string; requestId: string; forkSession?: boolean }
@@ -74,6 +88,12 @@ export interface WebUiDefaults {
   mcpConfigPath?: string;
   provider?: ModelProvider;
   model?: string;
+  /** Saved or CLI API base URL, used to prefill the settings field. */
+  baseUrl?: string;
+  /** True when the server holds an API key. The key itself is not sent. */
+  hasApiKey?: boolean;
+  /** Masked hint such as `…ab12`, present only when `hasApiKey` is true. */
+  apiKeyHint?: string;
   temperature?: number;
   contextLength?: number;
   thinking?: boolean;

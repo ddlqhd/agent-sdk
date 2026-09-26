@@ -2,7 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { createWebCommand } from '../../packages/agent-sdk-cli/src/commands/web.js';
+import { resolveModelApiKey, resolveModelBaseUrl } from '../../packages/agent-sdk-cli/src/web/agent-factory.js';
+import type { WebRuntimeDefaults } from '../../packages/agent-sdk-cli/src/web/agent-factory.js';
+import { createWebCommand, resolveWebRuntimeDefaults } from '../../packages/agent-sdk-cli/src/commands/web.js';
+import {
+  applyPersistedModelDefaults,
+  snapshotModelDefaults,
+  withModelDefaults
+} from '../../packages/agent-sdk-cli/src/web/model-defaults.js';
+import { toUiDefaults } from '../../packages/agent-sdk-cli/src/web/ui-defaults.js';
+import { baseUrlForLog, maskApiKey } from '../../packages/agent-sdk-cli/src/web/shared/log-utils.js';
 import { resolveCliPackageRoot } from '../../packages/agent-sdk-cli/src/web/paths.js';
 import {
   assertLoopbackBind,
@@ -133,6 +142,50 @@ describe('parseClientMessage', () => {
     if (persisted.ok && persisted.msg.type === 'configure') {
       expect(persisted.msg.persist).toBe(true);
     }
+    const withUrl = parseClientMessage({
+      type: 'configure',
+      provider: 'openai',
+      model: 'gpt-4o',
+      storage: 'jsonl',
+      baseUrl: ' https://api.example/v1/ '
+    });
+    expect(withUrl.ok).toBe(true);
+    if (withUrl.ok && withUrl.msg.type === 'configure') {
+      expect(withUrl.msg.baseUrl).toBe('https://api.example/v1/');
+    }
+    const cleared = parseClientMessage({
+      type: 'configure',
+      provider: 'openai',
+      model: 'gpt-4o',
+      storage: 'jsonl',
+      baseUrl: null
+    });
+    expect(cleared.ok).toBe(true);
+    if (cleared.ok && cleared.msg.type === 'configure') {
+      expect(cleared.msg.baseUrl).toBeNull();
+    }
+    const withKey = parseClientMessage({
+      type: 'configure',
+      provider: 'openai',
+      model: 'gpt-4o',
+      storage: 'jsonl',
+      apiKey: ' sk-test '
+    });
+    expect(withKey.ok).toBe(true);
+    if (withKey.ok && withKey.msg.type === 'configure') {
+      expect(withKey.msg.apiKey).toBe('sk-test');
+    }
+    const clearedKey = parseClientMessage({
+      type: 'configure',
+      provider: 'openai',
+      model: 'gpt-4o',
+      storage: 'jsonl',
+      apiKey: null
+    });
+    expect(clearedKey.ok).toBe(true);
+    if (clearedKey.ok && clearedKey.msg.type === 'configure') {
+      expect(clearedKey.msg.apiKey).toBeNull();
+    }
     const chat = parseClientMessage({ type: 'chat', text: 'hi', requestId: 'r1' });
     expect(chat.ok).toBe(true);
     const del = parseClientMessage({ type: 'sessions:delete', sessionId: 's1' });
@@ -148,6 +201,295 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage({ type: 'chat', text: 'hi' }).ok).toBe(false);
     expect(parseClientMessage({ type: 'nope' }).ok).toBe(false);
     expect(parseClientMessage(null).ok).toBe(false);
+    expect(
+      parseClientMessage({
+        type: 'configure',
+        provider: 'openai',
+        model: 'gpt-4o',
+        storage: 'jsonl',
+        baseUrl: 'ftp://files.example'
+      }).ok
+    ).toBe(false);
+    expect(
+      parseClientMessage({
+        type: 'configure',
+        provider: 'openai',
+        model: 'gpt-4o',
+        storage: 'jsonl',
+        baseUrl: 'not a url'
+      }).ok
+    ).toBe(false);
+    expect(
+      parseClientMessage({
+        type: 'configure',
+        provider: 'openai',
+        model: 'gpt-4o',
+        storage: 'jsonl',
+        apiKey: 1
+      }).ok
+    ).toBe(false);
+    expect(
+      parseClientMessage({
+        type: 'configure',
+        provider: 'openai',
+        model: 'gpt-4o',
+        storage: 'jsonl',
+        baseUrl: 'https://user:pass@api.example/v1'
+      }).ok
+    ).toBe(false);
+    expect(
+      parseClientMessage({
+        type: 'configure',
+        provider: 'openai',
+        model: 'gpt-4o',
+        storage: 'jsonl',
+        baseUrl: `https://api.example/${'a'.repeat(3000)}`
+      }).ok
+    ).toBe(false);
+  });
+});
+
+describe('resolveModelBaseUrl', () => {
+  it('prefers the page URL over the seeded default', () => {
+    expect(
+      resolveModelBaseUrl('openai', 'https://gateway.example/v1', {
+        provider: 'openai',
+        baseUrl: 'https://cli.example/v1'
+      })
+    ).toBe('https://gateway.example/v1');
+  });
+
+  it('keeps the seeded URL when configure omits baseUrl and the provider matches', () => {
+    expect(
+      resolveModelBaseUrl('openai', undefined, {
+        provider: 'openai',
+        baseUrl: 'https://cli.example/v1'
+      })
+    ).toBe('https://cli.example/v1');
+  });
+
+  it('ignores the seeded URL when the page clears it', () => {
+    expect(
+      resolveModelBaseUrl('openai', null, {
+        provider: 'openai',
+        baseUrl: 'https://cli.example/v1'
+      })
+    ).toBeUndefined();
+  });
+
+  it('does not apply a seeded URL for a different provider', () => {
+    expect(
+      resolveModelBaseUrl('anthropic', undefined, {
+        provider: 'openai',
+        baseUrl: 'https://cli.example/v1'
+      })
+    ).toBeUndefined();
+  });
+});
+
+describe('resolveModelApiKey', () => {
+  it('prefers the page API key over the seeded default', () => {
+    expect(
+      resolveModelApiKey('openai', 'sk-page', {
+        provider: 'openai',
+        apiKey: 'sk-cli'
+      })
+    ).toBe('sk-page');
+  });
+
+  it('keeps the seeded API key when configure omits it and the provider matches', () => {
+    expect(
+      resolveModelApiKey('openai', undefined, {
+        provider: 'openai',
+        apiKey: 'sk-cli'
+      })
+    ).toBe('sk-cli');
+  });
+
+  it('ignores the seeded API key when the page clears it', () => {
+    const previous = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      expect(
+        resolveModelApiKey('openai', null, {
+          provider: 'openai',
+          apiKey: 'sk-cli'
+        })
+      ).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+
+  it('does not apply a seeded API key for a different provider', () => {
+    const previous = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      expect(
+        resolveModelApiKey('anthropic', undefined, {
+          provider: 'openai',
+          apiKey: 'sk-openai'
+        })
+      ).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous;
+    }
+  });
+});
+
+describe('resolveWebRuntimeDefaults', () => {
+  it('uses a saved key and URL when the provider matches', () => {
+    const defaults = resolveWebRuntimeDefaults(
+      {},
+      {
+        version: 1,
+        agentDefaultModel: {
+          provider: 'openai',
+          model: 'gpt-4o',
+          apiKey: 'sk-saved',
+          baseUrl: 'https://saved.example/v1'
+        }
+      },
+      '/work',
+      '/home'
+    );
+    expect(defaults.provider).toBe('openai');
+    expect(defaults.apiKey).toBe('sk-saved');
+    expect(defaults.baseUrl).toBe('https://saved.example/v1');
+  });
+
+  it('does not seed a saved key or URL for a different --provider', () => {
+    const defaults = resolveWebRuntimeDefaults(
+      { provider: 'anthropic' },
+      {
+        version: 1,
+        agentDefaultModel: {
+          provider: 'openai',
+          apiKey: 'sk-saved',
+          baseUrl: 'https://saved.example/v1'
+        }
+      },
+      '/work',
+      '/home'
+    );
+    expect(defaults.provider).toBe('anthropic');
+    expect(defaults.apiKey).toBeUndefined();
+    expect(defaults.baseUrl).toBeUndefined();
+  });
+
+  it('lets explicit flags override a saved key and URL', () => {
+    const defaults = resolveWebRuntimeDefaults(
+      { provider: 'anthropic', apiKey: 'sk-flag', baseUrl: 'https://flag.example' },
+      {
+        version: 1,
+        agentDefaultModel: {
+          provider: 'openai',
+          apiKey: 'sk-saved',
+          baseUrl: 'https://saved.example/v1'
+        }
+      },
+      '/work',
+      '/home'
+    );
+    expect(defaults.apiKey).toBe('sk-flag');
+    expect(defaults.baseUrl).toBe('https://flag.example');
+  });
+});
+
+describe('toUiDefaults', () => {
+  it('sends a mask instead of the API key and drops userinfo from the URL', () => {
+    const ui = toUiDefaults({
+      cwd: '/work',
+      userBasePath: '/home',
+      provider: 'openai',
+      apiKey: 'sk-test-plain-1234',
+      baseUrl: 'https://user:pass@gateway.example/v1'
+    });
+    expect(ui.hasApiKey).toBe(true);
+    expect(ui.apiKeyHint).toBe('…1234');
+    expect(ui).not.toHaveProperty('apiKey');
+    expect(ui.baseUrl).toBeUndefined();
+    expect(JSON.stringify(ui)).not.toContain('sk-test-plain-1234');
+    expect(JSON.stringify(ui)).not.toContain('user:pass');
+  });
+
+  it('omits the key hint when no key is configured', () => {
+    const ui = toUiDefaults({ cwd: '/work', userBasePath: '/home' });
+    expect(ui.hasApiKey).toBeUndefined();
+    expect(ui.apiKeyHint).toBeUndefined();
+  });
+});
+
+describe('model default seed', () => {
+  const base: WebRuntimeDefaults = {
+    cwd: '/work',
+    userBasePath: '/home',
+    provider: 'openai',
+    model: 'gpt-4o',
+    apiKey: 'sk-openai',
+    baseUrl: 'https://openai.example/v1'
+  };
+
+  it('keeps an existing connection on its snapshot after another connection persists', () => {
+    const defaults: WebRuntimeDefaults = { ...base };
+    const connA = snapshotModelDefaults(defaults);
+    // connection B switches provider and persists, rewriting the shared defaults
+    applyPersistedModelDefaults(defaults, snapshotModelDefaults(defaults), {
+      provider: 'anthropic',
+      model: 'claude-x'
+    });
+    expect(withModelDefaults(defaults, connA)).toEqual({
+      cwd: '/work',
+      userBasePath: '/home',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-openai',
+      baseUrl: 'https://openai.example/v1'
+    });
+  });
+
+  it('hands the persisted values to connections opened afterwards', () => {
+    const defaults: WebRuntimeDefaults = { ...base };
+    applyPersistedModelDefaults(defaults, snapshotModelDefaults(defaults), {
+      provider: 'anthropic',
+      model: 'claude-x',
+      baseUrl: undefined,
+      apiKey: undefined
+    });
+    const connC = withModelDefaults(defaults, snapshotModelDefaults(defaults));
+    expect(connC.provider).toBe('anthropic');
+    expect(connC.model).toBe('claude-x');
+    expect(connC.apiKey).toBeUndefined();
+    expect(connC.baseUrl).toBeUndefined();
+    expect(connC.cwd).toBe('/work');
+    expect(connC.userBasePath).toBe('/home');
+  });
+
+  it('refreshes the persisting connection own snapshot', () => {
+    const defaults: WebRuntimeDefaults = { ...base };
+    const connB = snapshotModelDefaults(defaults);
+    applyPersistedModelDefaults(defaults, connB, {
+      provider: 'anthropic',
+      model: 'claude-x',
+      apiKey: 'sk-ant',
+      baseUrl: undefined
+    });
+    expect(connB.apiKey).toBe('sk-ant');
+    expect(withModelDefaults(defaults, connB).apiKey).toBe('sk-ant');
+  });
+});
+
+describe('secret log helpers', () => {
+  it('logs only the host of a base URL', () => {
+    expect(baseUrlForLog('https://user:pass@gateway.example:8443/v1')).toBe('gateway.example:8443');
+    expect(baseUrlForLog('not a url')).toBe('(invalid)');
+  });
+
+  it('masks api keys and hides short values', () => {
+    expect(maskApiKey('sk-test-plain-1234')).toBe('…1234');
+    expect(maskApiKey('short')).toBe('••••');
   });
 });
 
