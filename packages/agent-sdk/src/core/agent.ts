@@ -883,9 +883,11 @@ export class Agent {
   }
 
   /**
-   * Rebuilds the primary system message every run (including resume) so runtime
-   * `options.systemPrompt`, cwd/env, and skills list stay current. Persisted JSONL
-   * omits system lines; see {@link JsonlStorage}.
+   * Rebuilds the primary system message and long-term memory every run (including
+   * resume) so runtime `options.systemPrompt`, cwd/env, skills, and `CLAUDE.md`
+   * stay current. Persisted JSONL omits system lines; see {@link JsonlStorage}.
+   * Memory is inserted immediately after the primary system prompt, before history,
+   * so later turns keep the same prefix instead of dropping it once a user message exists.
    */
   private appendInitialSystemMessages(options?: StreamOptions): void {
     while (this.messages[0]?.role === 'system') {
@@ -907,23 +909,20 @@ export class Agent {
     );
 
     if (this.config.memory !== false) {
-      const hasUserMessages = this.messages.some(m => m.role === 'user');
-      if (!hasUserMessages) {
-        const memoryManager = new MemoryManager(
-          this.config.cwd,
-          this.config.memoryConfig,
-          this.config.userBasePath,
-          this.logCtx
-        );
-        const memoryContent = memoryManager.loadMemory();
-        if (memoryContent) {
-          const memMsg: Message = {
-            role: 'system',
-            content: memoryContent
-          };
-          this.messages.push(memMsg);
-          this.notifySystemMessage(memMsg, 'memory');
-        }
+      const memoryManager = new MemoryManager(
+        this.config.cwd,
+        this.config.memoryConfig,
+        this.config.userBasePath,
+        this.logCtx
+      );
+      const memoryContent = memoryManager.loadMemory();
+      if (memoryContent) {
+        const memMsg: Message = {
+          role: 'system',
+          content: memoryContent
+        };
+        this.messages.splice(1, 0, memMsg);
+        this.notifySystemMessage(memMsg, 'memory');
       }
     }
   }

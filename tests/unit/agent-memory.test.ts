@@ -139,6 +139,36 @@ describe('Agent Memory Integration', () => {
     expect(userMessageAfterClear?.content).toBe('Hello again');
   });
 
+  it('keeps memory in the prompt on later turns', async () => {
+    const memoryContent = '# Memory Content\n\nstay-across-turns';
+    writeFileSync(testMemoryPath, memoryContent);
+
+    const agent = createAgent({
+      model: createMockModel(),
+      memory: true,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      exclusiveTools: [],
+      storage: { type: 'memory' },
+      contextManagement: false,
+      userBasePath: testWorkspaceDir,
+      memoryConfig: {
+        workspacePath: testMemoryPath
+      }
+    });
+
+    await agent.run('Hello');
+    await agent.run('Again');
+
+    const messages = agent.getMessages();
+    const memoryMessages = messages.filter(
+      m => m.role === 'system' && typeof m.content === 'string' && m.content.includes('stay-across-turns')
+    );
+    expect(memoryMessages).toHaveLength(1);
+    expect(messages[0]?.role).toBe('system');
+    expect(messages[1]).toBe(memoryMessages[0]);
+    expect(messages.filter(m => m.role === 'user').map(m => m.content)).toEqual(['Hello', 'Again']);
+  });
+
   it('should not load memory when disabled', async () => {
     const memoryContent = '# Memory Content';
     writeFileSync(testMemoryPath, memoryContent);
