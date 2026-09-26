@@ -1313,8 +1313,25 @@ tabButtons.forEach((btn) => {
   });
 });
 
+/** True only for the Enter Safari re-dispatches right after IME compositionend. */
+let compositionJustEnded = false;
+
+chatInput.addEventListener('compositionend', () => {
+  compositionJustEnded = true;
+  setTimeout(() => {
+    compositionJustEnded = false;
+  }, 0);
+});
+
 chatInput.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.shiftKey) return;
+  // In-composition Enter (keyCode 229) confirms the IME candidate; preventDefault would cancel it.
+  if (e.isComposing || e.keyCode === 229) return;
+  // Safari/WebKit then fires a plain Enter after compositionend. Swallow the newline, but do not send.
+  if (compositionJustEnded) {
+    e.preventDefault();
+    return;
+  }
   e.preventDefault();
   formChat.requestSubmit();
 });
