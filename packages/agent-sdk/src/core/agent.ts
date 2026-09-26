@@ -29,7 +29,9 @@ import {
   type ForkSessionResult,
   type RewindSessionResult,
   type RewindToCheckpointOptions,
-  type SessionCheckpoint
+  type SessionCheckpoint,
+  type OpenAIReasoningWireField,
+  mergeOpenAIReasoningFields
 } from '../core/types.js';
 import type { SubagentProfile } from '../subagents/types.js';
 import { randomUUID } from 'crypto';
@@ -80,6 +82,7 @@ interface ModelStreamState {
   assistantContent: string;
   thinkingContent: string;
   thinkingSignature?: string;
+  thinkingReasoningFields?: OpenAIReasoningWireField[];
   fatalModelError: boolean;
 }
 
@@ -1021,6 +1024,7 @@ export class Agent {
       assistantContent: '',
       thinkingContent: '',
       thinkingSignature: undefined,
+      thinkingReasoningFields: undefined,
       fatalModelError: false
     };
   }
@@ -1038,6 +1042,12 @@ export class Agent {
       }
       if (out.signature) {
         state.thinkingSignature = out.signature;
+      }
+      if (out.reasoningFields && out.reasoningFields.length > 0) {
+        state.thinkingReasoningFields = mergeOpenAIReasoningFields(
+          state.thinkingReasoningFields,
+          out.reasoningFields
+        );
       }
     }
     if (out.type === 'tool_call') {
@@ -1078,11 +1088,26 @@ export class Agent {
     assistantContent: string;
     thinkingContent: string;
     thinkingSignature?: string;
+    thinkingReasoningFields?: OpenAIReasoningWireField[];
     toolCalls: ToolCall[];
     interruptPath: boolean;
   }): Message | undefined {
-    const { assistantContent, thinkingContent, thinkingSignature, toolCalls, interruptPath } =
-      args;
+    const {
+      assistantContent,
+      thinkingContent,
+      thinkingSignature,
+      thinkingReasoningFields,
+      toolCalls,
+      interruptPath
+    } = args;
+    const thinkingPart = (): ContentPart => ({
+      type: 'thinking',
+      thinking: thinkingContent,
+      ...(thinkingSignature ? { signature: thinkingSignature } : {}),
+      ...(thinkingContent.length > 0 && thinkingReasoningFields && thinkingReasoningFields.length > 0
+        ? { reasoningFields: thinkingReasoningFields }
+        : {})
+    });
 
     if (interruptPath) {
       if (!assistantContent) {
@@ -1094,11 +1119,7 @@ export class Agent {
       };
       if (thinkingContent || thinkingSignature) {
         assistantMessage.content = [
-          {
-            type: 'thinking',
-            thinking: thinkingContent,
-            ...(thinkingSignature ? { signature: thinkingSignature } : {})
-          },
+          thinkingPart(),
           { type: 'text', text: assistantContent }
         ];
       }
@@ -1110,13 +1131,7 @@ export class Agent {
       content: assistantContent
     };
     if (thinkingContent || thinkingSignature) {
-      const contentParts: ContentPart[] = [
-        {
-          type: 'thinking',
-          thinking: thinkingContent,
-          ...(thinkingSignature ? { signature: thinkingSignature } : {})
-        }
-      ];
+      const contentParts: ContentPart[] = [thinkingPart()];
       if (assistantContent.trim()) {
         contentParts.push({ type: 'text', text: assistantContent });
       }
@@ -1306,6 +1321,7 @@ export class Agent {
       assistantContent: state.assistantContent,
       thinkingContent: state.thinkingContent,
       thinkingSignature: state.thinkingSignature,
+      thinkingReasoningFields: state.thinkingReasoningFields,
       toolCalls: [],
       interruptPath: true
     });
@@ -1638,6 +1654,7 @@ export class Agent {
             assistantContent: state.assistantContent,
             thinkingContent: state.thinkingContent,
             thinkingSignature: state.thinkingSignature,
+            thinkingReasoningFields: state.thinkingReasoningFields,
             toolCalls: state.toolCalls,
             interruptPath: false
           })!;

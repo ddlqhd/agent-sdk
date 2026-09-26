@@ -156,6 +156,7 @@ describe('OpenAIAdapter complete reasoning field', () => {
     );
     const r = await new OpenAIAdapter({ apiKey: 'sk' }).complete(minimalParams());
     expect(r.thinking).toBe('legacy only');
+    expect(r.reasoningFields).toEqual(['reasoning_content']);
   });
 });
 
@@ -228,13 +229,22 @@ describe('OpenAIAdapter stream reasoning', () => {
       })
     );
 
-    const types: string[] = [];
+    const chunks: Array<{ type: string; reasoningFields?: string[] }> = [];
     for await (const c of new OpenAIAdapter({ apiKey: 'sk' }).stream(minimalParams())) {
-      types.push(c.type);
+      chunks.push({
+        type: c.type,
+        ...(c.type === 'thinking' ? { reasoningFields: c.reasoningFields } : {})
+      });
     }
 
-    expect(types.indexOf('thinking')).toBeLessThan(types.indexOf('thinking_block_end'));
-    expect(types.indexOf('thinking_block_end')).toBeLessThan(types.indexOf('text'));
+    const thinking = chunks.find(c => c.type === 'thinking');
+    expect(thinking?.reasoningFields).toEqual(['reasoning_content']);
+    expect(chunks.map(c => c.type).indexOf('thinking')).toBeLessThan(
+      chunks.map(c => c.type).indexOf('thinking_block_end')
+    );
+    expect(chunks.map(c => c.type).indexOf('thinking_block_end')).toBeLessThan(
+      chunks.map(c => c.type).indexOf('text')
+    );
   });
 
   it('emits trailing thinking_block_end if stream ends mid-reasoning', async () => {
@@ -365,6 +375,59 @@ describe('splitOpenAIMessageContent', () => {
       ])
     ).toEqual({ content: 'only' });
   });
+
+  it('replays only reasoning_content when that was the response field', () => {
+    expect(
+      splitOpenAIMessageContent([
+        { type: 'thinking', thinking: 'trace', reasoningFields: ['reasoning_content'] },
+        { type: 'text', text: 'answer' }
+      ])
+    ).toEqual({
+      content: 'answer',
+      reasoningContent: 'trace'
+    });
+  });
+
+  it('replays only reasoning when that was the response field', () => {
+    expect(
+      splitOpenAIMessageContent([
+        { type: 'thinking', thinking: 'trace', reasoningFields: ['reasoning'] },
+        { type: 'text', text: 'answer' }
+      ])
+    ).toEqual({
+      content: 'answer',
+      reasoning: 'trace'
+    });
+  });
+
+  it('replays only reasoning_details when that was the response field', () => {
+    expect(
+      splitOpenAIMessageContent([
+        { type: 'thinking', thinking: 'trace', reasoningFields: ['reasoning_details'] },
+        { type: 'text', text: 'answer' }
+      ])
+    ).toEqual({
+      content: 'answer',
+      reasoningDetails: [{ type: 'reasoning.text', text: 'trace' }]
+    });
+  });
+
+  it('replays reasoning and reasoning_details together when both were present', () => {
+    expect(
+      splitOpenAIMessageContent([
+        {
+          type: 'thinking',
+          thinking: 'trace',
+          reasoningFields: ['reasoning', 'reasoning_details']
+        },
+        { type: 'text', text: 'answer' }
+      ])
+    ).toEqual({
+      content: 'answer',
+      reasoning: 'trace',
+      reasoningDetails: [{ type: 'reasoning.text', text: 'trace' }]
+    });
+  });
 });
 
 describe('reasoningTextFromDetails', () => {
@@ -413,13 +476,17 @@ describe('OpenAIAdapter transformMessages reasoning replay', () => {
     );
 
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
-    const body = JSON.parse(init.body as string) as { messages: Array<Record<string, unknown>> };
+    const body = JSON.parse(init.body as string) as {
+      messages: Array<Record<string, unknown>>;
+      chat_template_kwargs?: Record<string, unknown>;
+    };
     expect(body.messages[1]).toEqual({
       role: 'assistant',
       content: 'answer',
       reasoning: 'plan steps',
       reasoning_details: [{ type: 'reasoning.text', text: 'plan steps' }]
     });
+    expect(body.chat_template_kwargs).toBeUndefined();
   });
 
   it('preserves tool_calls and empty content when only thinking + tools', async () => {
@@ -464,6 +531,79 @@ describe('OpenAIAdapter transformMessages reasoning replay', () => {
           arguments: JSON.stringify({ file_path: '/a.ts' })
         }
       }]
+    });
+  });
+
+  it('serializes reasoning_content history without OpenRouter fields', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'ok', role: 'assistant' }, finish_reason: 'stop' }]
+        })
+      })
+    );
+
+    await new OpenAIAdapter({ apiKey: 'sk' }).complete(
+      minimalParams({
+        messages: [
+          { role: 'user', content: 'q' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'plan steps', reasoningFields: ['reasoning_content'] },
+              { type: 'text', text: 'answer' }
+            ]
+          },
+          { role: 'user', content: 'follow-up' }
+        ]
+      })
+    );
+
+    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(init.body as string) as {
+      messages: Array<Record<string, unknown>>;
+      chat_template_kwargs?: Record<string, unknown>;
+    };
+    expect(body.messages[1]).toEqual({
+      role: 'assistant',
+      content: 'answer',
+      reasoning_content: 'plan steps'
+    });
+    expect(body.chat_template_kwargs).toEqual({ truncate_history_thinking: false });
+  });
+
+  it('keeps enable_thinking when replaying reasoning_content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'ok', role: 'assistant' }, finish_reason: 'stop' }]
+        })
+      })
+    );
+
+    await new OpenAIAdapter({ apiKey: 'sk', thinking: true }).complete(
+      minimalParams({
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'trace', reasoningFields: ['reasoning_content'] },
+              { type: 'text', text: '2' }
+            ]
+          }
+        ]
+      })
+    );
+
+    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { chat_template_kwargs?: Record<string, unknown> };
+    expect(body.chat_template_kwargs).toEqual({
+      enable_thinking: true,
+      truncate_history_thinking: false
     });
   });
 

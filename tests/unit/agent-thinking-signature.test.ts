@@ -154,4 +154,54 @@ describe('Agent thinking signature persistence', () => {
       });
     }
   });
+
+  it('persists OpenAI reasoningFields from the stream onto the next turn', async () => {
+    let turn = 0;
+    let capturedMessages: Message[] | undefined;
+
+    const model: ModelAdapter = {
+      name: 'thinking-reasoning-fields',
+      async *stream(params: ModelParams): AsyncIterable<StreamChunk> {
+        turn += 1;
+        if (turn === 1) {
+          yield { type: 'thinking', content: 'trace', reasoningFields: ['reasoning_content'] };
+          yield { type: 'text', content: 'hello' };
+          yield { type: 'done' };
+          return;
+        }
+        capturedMessages = params.messages;
+        yield { type: 'text', content: 'world' };
+        yield { type: 'done' };
+      },
+      async complete() {
+        return { content: 'x' };
+      }
+    };
+
+    const agent = new Agent({
+      model,
+      memory: false,
+      skillConfig: SKILL_CONFIG_NO_AUTOLOAD,
+      exclusiveTools: [],
+      storage: { type: 'memory' }
+    });
+    await agent.waitForInit();
+
+    for await (const _ of agent.stream('first')) {
+      // drain
+    }
+    for await (const _ of agent.stream('second')) {
+      // drain
+    }
+
+    const assistant = capturedMessages!.find(m => m.role === 'assistant');
+    expect(Array.isArray(assistant!.content)).toBe(true);
+    if (Array.isArray(assistant!.content)) {
+      expect(assistant!.content[0]).toMatchObject({
+        type: 'thinking',
+        thinking: 'trace',
+        reasoningFields: ['reasoning_content']
+      });
+    }
+  });
 });

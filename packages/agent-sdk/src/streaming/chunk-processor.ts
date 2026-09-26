@@ -152,7 +152,10 @@ export class StreamChunkProcessor {
           events.push({
             type: 'thinking',
             content: chunk.content,
-            signature: chunk.signature
+            signature: chunk.signature,
+            ...(chunk.reasoningFields && chunk.reasoningFields.length > 0
+              ? { reasoningFields: chunk.reasoningFields }
+              : {})
           });
         } else if (chunk.signature) {
           events.push({

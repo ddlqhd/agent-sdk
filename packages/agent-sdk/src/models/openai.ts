@@ -3,8 +3,10 @@ import type {
   ModelParams,
   ModelCapabilities,
   StreamChunk,
-  CompletionResult
+  CompletionResult,
+  OpenAIReasoningWireField
 } from '../core/types.js';
+import { mergeOpenAIReasoningFields } from '../core/types.js';
 import { BaseModelAdapter, ensureApiVersionSuffix, joinApiUrl, toolsToModelSchema } from './base.js';
 import { DEFAULT_ADAPTER_CAPABILITIES } from './default-capabilities.js';
 import {
@@ -45,14 +47,46 @@ export type OpenAIReasoningTextDetail = {
 };
 
 /**
- * Split SDK assistant content into OpenRouter-compatible wire fields.
- * Maps internal `{ type: 'thinking' }` parts to top-level `reasoning` / `reasoning_details`.
+ * Read thinking text from an OpenAI-compat message or delta, and the wire keys that carried it.
+ * Text preference is `reasoning`, then `reasoning_content`, then `reasoning_details`.
+ * Every key with non-empty text is recorded so replay can echo that same set.
+ */
+export function readOpenAIReasoning(source: unknown): {
+  text: string;
+  fields: OpenAIReasoningWireField[];
+} {
+  if (!source || typeof source !== 'object') {
+    return { text: '', fields: [] };
+  }
+  const record = source as {
+    reasoning?: unknown;
+    reasoning_content?: unknown;
+    reasoning_details?: unknown;
+  };
+  const reasoning = typeof record.reasoning === 'string' ? record.reasoning : '';
+  const reasoningContent = typeof record.reasoning_content === 'string' ? record.reasoning_content : '';
+  const details = reasoningTextFromDetails(record.reasoning_details);
+  const fields: OpenAIReasoningWireField[] = [];
+  if (reasoning.length > 0) fields.push('reasoning');
+  if (reasoningContent.length > 0) fields.push('reasoning_content');
+  if (details.length > 0) fields.push('reasoning_details');
+  return {
+    text: reasoning || reasoningContent || details,
+    fields
+  };
+}
+
+/**
+ * Split SDK assistant content into OpenAI-compat wire fields.
+ * When a thinking part records `reasoningFields`, only those keys are written.
+ * Parts without that record (older sessions) keep the OpenRouter pair `reasoning` + `reasoning_details`.
  */
 export function splitOpenAIMessageContent(
   content: string | ContentPart[]
 ): {
   content: string;
   reasoning?: string;
+  reasoningContent?: string;
   reasoningDetails?: OpenAIReasoningTextDetail[];
 } {
   if (typeof content === 'string') {
@@ -65,6 +99,8 @@ export function splitOpenAIMessageContent(
   const thinkingParts: string[] = [];
   const textParts: string[] = [];
   let signature: string | undefined;
+  let sawRecordedFields = false;
+  let recordedFields: OpenAIReasoningWireField[] | undefined;
 
   for (const part of content) {
     if (part.type === 'thinking') {
@@ -74,6 +110,10 @@ export function splitOpenAIMessageContent(
       if (part.signature && !signature) {
         signature = part.signature;
       }
+      if (part.reasoningFields) {
+        sawRecordedFields = true;
+        recordedFields = mergeOpenAIReasoningFields(recordedFields, part.reasoningFields);
+      }
     } else if (part.type === 'text') {
       textParts.push(part.text);
     }
@@ -82,14 +122,27 @@ export function splitOpenAIMessageContent(
   const result: {
     content: string;
     reasoning?: string;
+    reasoningContent?: string;
     reasoningDetails?: OpenAIReasoningTextDetail[];
   } = {
     content: textParts.join('\n\n')
   };
 
-  if (thinkingParts.length > 0) {
-    const reasoning = thinkingParts.join('\n\n');
+  if (thinkingParts.length === 0) {
+    return result;
+  }
+
+  const reasoning = thinkingParts.join('\n\n');
+  const fields: OpenAIReasoningWireField[] = sawRecordedFields
+    ? (recordedFields ?? [])
+    : ['reasoning', 'reasoning_details'];
+  if (fields.includes('reasoning')) {
     result.reasoning = reasoning;
+  }
+  if (fields.includes('reasoning_content')) {
+    result.reasoningContent = reasoning;
+  }
+  if (fields.includes('reasoning_details')) {
     const detail: OpenAIReasoningTextDetail = { type: 'reasoning.text', text: reasoning };
     if (signature) {
       detail.signature = signature;
@@ -211,7 +264,7 @@ export class OpenAIAdapter extends BaseModelAdapter {
   }
 
   /**
-   * Replay assistant history in OpenRouter format: `reasoning` + `reasoning_details` + string `content`.
+   * Replay assistant thinking on the wire keys recorded from the previous response.
    */
   protected override transformMessages(messages: ModelParams['messages']): unknown[] {
     return messages.map(msg => {
@@ -223,6 +276,11 @@ export class OpenAIAdapter extends BaseModelAdapter {
         };
         if (split.reasoning) {
           transformed.reasoning = split.reasoning;
+        }
+        if (split.reasoningContent) {
+          transformed.reasoning_content = split.reasoningContent;
+        }
+        if (split.reasoningDetails) {
           transformed.reasoning_details = split.reasoningDetails;
         }
         if (msg.toolCalls) {
@@ -353,13 +411,15 @@ export class OpenAIAdapter extends BaseModelAdapter {
             const delta = choice.delta ?? {};
 
             // vLLM / OpenRouter / 兼容网关：推理增量（thinking 语义）
-            const reasoningDelta =
-              (typeof delta.reasoning === 'string' && delta.reasoning) ||
-              (typeof delta.reasoning_content === 'string' && delta.reasoning_content) ||
-              reasoningTextFromDetails(delta.reasoning_details);
-            if (reasoningDelta) {
+            const reasoningDelta = readOpenAIReasoning(delta);
+            if (reasoningDelta.text) {
               reasoningBlockOpen = true;
-              yield { type: 'thinking', content: reasoningDelta, ...raw };
+              yield {
+                type: 'thinking',
+                content: reasoningDelta.text,
+                ...(reasoningDelta.fields.length > 0 ? { reasoningFields: reasoningDelta.fields } : {}),
+                ...raw
+              };
             }
 
             if (choice.finish_reason && reasoningBlockOpen) {
@@ -508,13 +568,12 @@ export class OpenAIAdapter extends BaseModelAdapter {
       content: msg.content ?? ''
     };
 
-    const reasoningStr =
-      (typeof msg.reasoning === 'string' && msg.reasoning) ||
-      (typeof msg.reasoning_content === 'string' && msg.reasoning_content) ||
-      reasoningTextFromDetails(msg.reasoning_details) ||
-      '';
-    if (reasoningStr.length > 0) {
-      result.thinking = reasoningStr;
+    const reasoning = readOpenAIReasoning(msg);
+    if (reasoning.text.length > 0) {
+      result.thinking = reasoning.text;
+      if (reasoning.fields.length > 0) {
+        result.reasoningFields = reasoning.fields;
+      }
     }
 
     // 处理工具调用
@@ -560,8 +619,18 @@ export class OpenAIAdapter extends BaseModelAdapter {
       }));
     }
 
-    if (this.thinkingToggle !== undefined) {
-      body.chat_template_kwargs = { enable_thinking: this.thinkingToggle };
+    const replaysThinking = messages.some(
+      (msg) =>
+        !!msg &&
+        typeof msg === 'object' &&
+        typeof (msg as { reasoning_content?: unknown }).reasoning_content === 'string'
+    );
+    if (this.thinkingToggle !== undefined || replaysThinking) {
+      body.chat_template_kwargs = {
+        ...(this.thinkingToggle !== undefined ? { enable_thinking: this.thinkingToggle } : {}),
+        // Nemotron defaults this to true and drops every prior turn's reasoning_content.
+        ...(replaysThinking ? { truncate_history_thinking: false } : {})
+      };
     }
 
     if (this.extraBody) {

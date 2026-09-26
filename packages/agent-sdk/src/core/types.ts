@@ -39,12 +39,41 @@ export interface TextContent {
 }
 
 /**
+ * OpenAI 兼容 Chat Completions 消息上承载思考的线缆字段。
+ * 回放时只写响应里实际出现过的键。
+ */
+export type OpenAIReasoningWireField = 'reasoning' | 'reasoning_content' | 'reasoning_details';
+
+const OPENAI_REASONING_WIRE_FIELD_ORDER: readonly OpenAIReasoningWireField[] = [
+  'reasoning',
+  'reasoning_content',
+  'reasoning_details'
+];
+
+/** 合并同一轮里出现过的思考字段，顺序固定为 reasoning、reasoning_content、reasoning_details。 */
+export function mergeOpenAIReasoningFields(
+  current: readonly OpenAIReasoningWireField[] | undefined,
+  incoming: readonly OpenAIReasoningWireField[] | undefined
+): OpenAIReasoningWireField[] | undefined {
+  if (!incoming || incoming.length === 0) return current ? [...current] : undefined;
+  const seen = new Set(current ?? []);
+  for (const field of incoming) seen.add(field);
+  const merged = OPENAI_REASONING_WIRE_FIELD_ORDER.filter(field => seen.has(field));
+  return merged.length > 0 ? merged : current ? [...current] : undefined;
+}
+
+/**
  * 思考内容部分 (用于支持 extended thinking)
  */
 export interface ThinkingContent {
   type: 'thinking';
   thinking: string;
   signature?: string;
+  /**
+   * 产生这段思考的 OpenAI 兼容响应字段。
+   * 有值时下一轮只回放这些字段；缺省时按旧会话处理，写成 `reasoning` + `reasoning_details`。
+   */
+  reasoningFields?: OpenAIReasoningWireField[];
 }
 
 /**
@@ -304,6 +333,8 @@ export interface StreamChunk {
   /** When `type === 'metadata'`, distinguishes prompt vs completion usage timing (e.g. Anthropic). */
   usagePhase?: 'input' | 'output';
   signature?: string;
+  /** OpenAI-compat wire keys that carried this thinking delta. */
+  reasoningFields?: OpenAIReasoningWireField[];
   /** Raw provider streaming payload when {@link ModelParams.includeRawStreamEvents} is enabled */
   providerRaw?: unknown;
 }
@@ -315,6 +346,8 @@ export interface CompletionResult {
   content: string;
   /** Extended thinking trace: Ollama `think` output, or Anthropic `thinking` content blocks in non-stream `complete`. */
   thinking?: string;
+  /** OpenAI-compat wire keys that carried {@link CompletionResult.thinking}. */
+  reasoningFields?: OpenAIReasoningWireField[];
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
   metadata?: Record<string, unknown>;
@@ -670,7 +703,7 @@ export type StreamEvent = (
   | { type: 'tool_result'; toolCallId: string; result: string }
   | { type: 'tool_error'; toolCallId: string; error: Error }
   | { type: 'thinking_start'; signature?: string }
-  | { type: 'thinking'; content: string; signature?: string }
+  | { type: 'thinking'; content: string; signature?: string; reasoningFields?: OpenAIReasoningWireField[] }
   | { type: 'thinking_end'; content?: string }
   | {
       type: 'model_usage';

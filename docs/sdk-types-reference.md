@@ -94,7 +94,7 @@ type ContentPart = TextContent | ThinkingContent | ImageContent;
 ```
 
 - `TextContent`: `{ type: 'text'; text: string }`
-- `ThinkingContent`: `{ type: 'thinking'; thinking: string; signature?: string }`
+- `ThinkingContent`: `{ type: 'thinking'; thinking: string; signature?: string; reasoningFields?: OpenAIReasoningWireField[] }`。`reasoningFields` 记录 OpenAI 兼容响应里实际出现的思考字段（`reasoning` / `reasoning_content` / `reasoning_details`）；下一轮只回放这些字段。缺省时按旧会话写成 `reasoning` + `reasoning_details`。
 - `ImageContent`: `{ type: 'image'; source: ImageSource }`，其中 `ImageSource` 为判别联合：
   - base64: `{ type: 'base64'; data: string; mimeType: string }`（data 为不含 `data:` 前缀的裸 base64）
   - url: `{ type: 'url'; url: string; mimeType?: string }`（可公开访问的图像 URL）
@@ -527,13 +527,14 @@ interface StreamEventAnnotations {
 ### `thinking`
 
 ```ts
-{ type: 'thinking'; content: string; signature?: string }
+{ type: 'thinking'; content: string; signature?: string; reasoningFields?: OpenAIReasoningWireField[] }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `content` | `string` | 扩展思考文本增量 |
 | `signature` | `string`（可选） | 提供商要求的思考块签名（如 Anthropic） |
+| `reasoningFields` | `OpenAIReasoningWireField[]`（可选） | 本增量来自的 OpenAI 兼容字段；Agent 汇总后写入 `ThinkingContent.reasoningFields` |
 
 **时机**：模型流中出现 thinking 块时。
 
