@@ -61,7 +61,9 @@ async function ensureSessionExists(manager: SessionManager, id: string): Promise
  * 会话管理命令
  */
 export function createSessionsCommand(): Command {
-  const command = new Command('sessions').description('Manage chat sessions');
+  const command = new Command('sessions')
+    .description('Manage chat sessions')
+    .enablePositionalOptions();
 
   // 列出会话
   addUserBasePathOption(

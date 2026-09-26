@@ -5,7 +5,8 @@ import type { MCPServerConfig } from '@ddlqhd/agent-sdk';
 
 export function createMCPCommand(): Command {
   const command = new Command('mcp')
-    .description('Manage MCP servers');
+    .description('Manage MCP servers')
+    .enablePositionalOptions();
 
   command
     .command('connect <command>')

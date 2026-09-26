@@ -10,7 +10,8 @@ import { formatTable } from '../utils/output.js';
  */
 export function createToolsCommand(): Command {
   const command = new Command('tools')
-    .description('Manage agent tools');
+    .description('Manage agent tools')
+    .enablePositionalOptions();
 
   // 列出工具
   command

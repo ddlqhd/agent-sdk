@@ -34,7 +34,9 @@ function printWorkflowEvents(events: Array<{ type: string; [key: string]: unknow
 }
 
 export function createWorkflowCommand(): Command {
-  const cmd = new Command('workflow').description('Generate and run dynamic workflow scripts');
+  const cmd = new Command('workflow')
+    .description('Generate and run dynamic workflow scripts')
+    .enablePositionalOptions();
 
   const runCmd = addModelOptions(
     new Command('run')
